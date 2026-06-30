@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPUB 合併工具 (Client-side)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        :root {
+            --primary: #4a90e2;
+            --bg: #f5f7fa;
+            --text: #333;
+            --border: #ddd;
+            --success: #4a9a6f;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 500px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+        }
+        .drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 2.5rem 1.5rem;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--primary);
+            background-color: #f0f7ff;
+        }
+        .drop-zone p {
+            font-size: 1rem;
+            color: #666;
+            margin-bottom: 0;
+        }
+        .options-panel {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background-color: #f9fafb;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .option-label {
+            font-size: 0.9rem;
+            color: #4b5563;
+            font-weight: 500;
+        }
+
+        /* Switch Style */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        input:checked + .slider {
+            background-color: var(--primary);
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .file-list-container {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+        .file-item {
+            padding: 0.5rem 0.8rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .remove-btn {
+            color: #e25555;
+            cursor: pointer;
+            font-weight: bold;
+            padding: 2px 6px;
+        }
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 0.8rem;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background-color: #357abd;
+        }
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .secondary-btn {
+            background-color: transparent;
+            color: #666;
+            border: 1px solid #ccc;
+            margin-top: 0.5rem;
+        }
+        .secondary-btn:hover {
+            background-color: #f0f0f0;
+        }
+        #status {
+            margin-top: 1rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        .result-panel {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background-color: #f8fafc;
+            border: 1px solid var(--success);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+        .result-title {
+            color: var(--success);
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            font-size: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 0.3rem;
+        }
+        .stats-row {
+            display: flex;
+            margin-bottom: 0.2rem;
+        }
+        .stats-label {
+            color: #64748b;
+            width: 80px;
+            flex-shrink: 0;
+        }
+        .stats-value {
+            color: #1e293b;
+            font-weight: 500;
+        }
+        .hidden {
+            display: none;
+        }
+        input[type="file"] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EPUB 合併工具</h1>
+
+        <div id="drop-zone" class="drop-zone">
+            <p>點擊或拖入 EPUB 檔案</p>
+            <p style="font-size: 0.8rem; color: #999;">(可分多次或一次放入多個)</p>
+            <input type="file" id="file-input" accept=".epub" multiple>
+        </div>
+
+        <div id="file-list" class="file-list-container hidden"></div>
+
+        <div class="options-panel">
+            <span class="option-label">合併已翻譯文件<small style="font-size: 0.8rem; color: #999;"> (+前綴)</small></span>
+            <label class="switch">
+                <input type="checkbox" id="translated-toggle" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <button id="merge-btn" class="btn" disabled>開始合併</button>
+        <button id="clear-btn" class="btn secondary-btn hidden">清空列表</button>
+
+        <div id="status"></div>
+
+        <div id="result-panel" class="result-panel hidden">
+            <div class="result-title">✅ 合併完成資料</div>
+            <div class="stats-row"><span class="stats-label">作品 ID:</span> <span id="res-id" class="stats-value"></span></div>
+            <div class="stats-row"><span class="stats-label">作品名稱:</span> <span id="res-title" class="stats-value"></span></div>
+            <div class="stats-row"><span class="stats-label">章節範圍:</span> <span id="res-range" class="stats-value"></span></div>
+            <div class="stats-row"><span class="stats-label">章節總數:</span> <span id="res-count" class="stats-value"></span></div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const mergeBtn = document.getElementById('merge-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const transToggle = document.getElementById('translated-toggle');
+        const status = document.getElementById('status');
+        const resultPanel = document.getElementById('result-panel');
+
+        let files = [];
+
+        function updateUI() {
+            if (files.length > 0) {
+                fileList.classList.remove('hidden');
+                clearBtn.classList.remove('hidden');
+                mergeBtn.disabled = false;
+
+                fileList.innerHTML = '';
+                files.forEach((f, i) => {
+                    const item = document.createElement('div');
+                    item.className = 'file-item';
+                    item.innerHTML = `
+                        <span>📄 ${f.name}</span>
+                        <span class="remove-btn">✕</span>
+                    `;
+                    item.querySelector('.remove-btn').onclick = () => removeFile(i);
+                    fileList.appendChild(item);
+                });
+            } else {
+                fileList.classList.add('hidden');
+                clearBtn.classList.add('hidden');
+                mergeBtn.disabled = true;
+                fileList.innerHTML = '';
+            }
+        }
+
+        window.removeFile = (index) => {
+            files.splice(index, 1);
+            updateUI();
+        };
+
+        clearBtn.addEventListener('click', () => {
+            files = [];
+            updateUI();
+            status.textContent = '';
+            resultPanel.classList.add('hidden');
+        });
+
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+        function handleFiles(newFiles) {
+            for (let f of newFiles) {
+                if (f.name.toLowerCase().endsWith('.epub')) {
+                    if (!files.some(existing => existing.name === f.name && existing.size === f.size)) {
+                        files.push(f);
+                    }
+                }
+            }
+            updateUI();
+            resultPanel.classList.add('hidden');
+        }
+
+        // --- EPUB Merger Logic ---
+
+        class EPUBMerger {
+            constructor() {
+                this.OPF_NS = "http://www.idpf.org/2007/opf";
+                this.CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container";
+            }
+
+            async getOpfPath(zip) {
+                const containerXml = await zip.file("META-INF/container.xml").async("string");
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(containerXml, "text/xml");
+                const rootfile = doc.getElementsByTagNameNS(this.CONTAINER_NS, "rootfile")[0] || doc.getElementsByTagName("rootfile")[0];
+                return rootfile.getAttribute("full-path");
+            }
+
+            async extractMetadata(zip) {
+                const opfPath = await this.getOpfPath(zip);
+                const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
+                const opfContent = await zip.file(opfPath).async("string");
+
+                let title = "";
+                const titleMatch = opfContent.match(/<dc:title[^>]*>(.*?)<\/dc:title>/s);
+                if (titleMatch) title = this.decodeHtml(titleMatch[1].trim());
+
+                let novelId = "";
+                const sourceMatch = opfContent.match(/<dc:source[^>]*>(.*?)<\/dc:source>/s);
+                if (sourceMatch) {
+                    const url = sourceMatch[1];
+                    const idM = url.match(/\/novel\/([^/]+)\//);
+                    if (idM) novelId = idM[1];
+                }
+
+                if (!novelId) {
+                    const idMatch = opfContent.match(/<dc:identifier[^>]*>(.*?)<\/dc:identifier>/s);
+                    if (idMatch) {
+                        const val = idMatch[1];
+                        const idM = val.match(/uuid:(\d+)-/);
+                        if (idM) novelId = idM[1];
+                    }
+                }
+
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(opfContent, "text/xml");
+                    const manifest = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
+                    if (manifest) {
+                        const items = manifest.getElementsByTagNameNS(this.OPF_NS, "item");
+                        let coverHref = "";
+                        for (let i = 0; i < items.length; i++) {
+                            if (items[i].getAttribute("id") === "cover") {
+                                coverHref = items[i].getAttribute("href");
+                                break;
+                            }
+                        }
+                        if (coverHref) {
+                            const fullCoverHref = opfDir ? `${opfDir}/${coverHref}` : coverHref;
+                            const coverFile = zip.file(fullCoverHref);
+                            if (coverFile) {
+                                const coverContent = await coverFile.async("string");
+                                const h1Match = coverContent.match(/<h1>(.*?)<\/h1>/s);
+                                if (h1Match) {
+                                    const extractedTitle = h1Match[1].replace(/<[^>]+>/g, '').trim();
+                                    if (extractedTitle) title = this.decodeHtml(extractedTitle);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Metadata extraction error:", e);
+                }
+
+                return { novelId, title };
+            }
+
+            async extractChapters(zip) {
+                const chapters = {};
+                const opfPath = await this.getOpfPath(zip);
+                const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
+                const opfContent = await zip.file(opfPath).async("string");
+
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(opfContent, "text/xml");
+
+                const manifestEl = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
+                const manifest = {};
+                const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item");
+                for (let i = 0; i < items.length; i++) {
+                    manifest[items[i].getAttribute("id")] = items[i].getAttribute("href");
+                }
+
+                const spineEl = doc.getElementsByTagNameNS(this.OPF_NS, "spine")[0] || doc.getElementsByTagName("spine")[0];
+                const itemrefs = spineEl.getElementsByTagNameNS(this.OPF_NS, "itemref");
+                const spine = [];
+                for (let i = 0; i < itemrefs.length; i++) {
+                    spine.push(itemrefs[i].getAttribute("idref"));
+                }
+
+                for (let itemId of spine) {
+                    const href = manifest[itemId];
+                    if (!href) continue;
+
+                    if (href.endsWith('.xhtml') && href.includes('ch')) {
+                        const fullHref = opfDir ? `${opfDir}/${href}` : href;
+                        try {
+                            const chapterFile = zip.file(fullHref);
+                            if (!chapterFile) continue;
+                            const content = await chapterFile.async("string");
+                            const numMatch = content.match(/第\s*(\d+)\s*[話话]/);
+                            if (numMatch) {
+                                const chNum = parseInt(numMatch[1]);
+                                let title = "";
+                                const titleMatch = content.match(/<h1>.*?<br\s*\/?>\s*(.*?)<\/h1>/s);
+                                if (titleMatch) {
+                                    title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+                                } else {
+                                    const titleTagMatch = content.match(/<title>(.*?)<\/title>/);
+                                    if (titleTagMatch) {
+                                        title = titleTagMatch[1].replace(/第\s*\d+\s*[話话]\s*/, '').trim();
+                                    }
+                                }
+                                chapters[chNum] = { title: this.decodeHtml(title), content, href };
+                            }
+                        } catch (e) {
+                            console.error("Error reading chapter:", fullHref, e);
+                        }
+                    }
+                }
+                return chapters;
+            }
+
+            decodeHtml(html) {
+                const txt = document.createElement("textarea");
+                txt.innerHTML = html;
+                return txt.value;
+            }
+
+            escapeXml(unsafe) {
+                return unsafe.replace(/[<>&"']/g, function (m) {
+                    switch (m) {
+                        case '<': return '&lt;';
+                        case '>': return '&gt;';
+                        case '&': return '&amp;';
+                        case '"': return '&quot;';
+                        case "'": return '&apos;';
+                        default: return m;
+                    }
+                });
+            }
+
+            async mergeAll(fileObjects, isTranslated) {
+                if (fileObjects.length === 0) return null;
+
+                const allEpubData = [];
+                for (let f of fileObjects) {
+                    try {
+                        const zip = await JSZip.loadAsync(f);
+                        const chaps = await this.extractChapters(zip);
+                        const meta = await this.extractMetadata(zip);
+                        allEpubData.push({
+                            zip,
+                            chapters: chaps,
+                            meta: meta,
+                            count: Object.keys(chaps).length
+                        });
+                    } catch (e) {
+                        console.error("Error loading EPUB:", f.name, e);
+                    }
+                }
+
+                if (allEpubData.length === 0) return null;
+
+                allEpubData.sort((a, b) => b.count - a.count);
+                const baseData = allEpubData[0];
+                const { novelId, title } = baseData.meta;
+
+                const allChapters = {};
+                for (let data of allEpubData) {
+                    Object.assign(allChapters, data.chapters);
+                }
+
+                const sortedChNums = Object.keys(allChapters).map(Number).sort((a, b) => a - b);
+                if (sortedChNums.length === 0) return null;
+
+                const n = sortedChNums[0];
+                const m = sortedChNums[sortedChNums.length - 1];
+                const count = sortedChNums.length;
+
+                const rangeStr = n === 1 ? `ch-${m}` : `ch${n}-${m}`;
+                const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
+                const prefix = isTranslated ? "zh-jp.Ysgyb." : "";
+                const outputFilename = `${prefix}${novelId}_${rangeStr}_${safeTitle}.epub`;
+
+                const outZip = new JSZip();
+                // mimetype MUST be first and uncompressed
+                outZip.file("mimetype", "application/epub+zip", { compression: "STORE" });
+                outZip.file("META-INF/container.xml", '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+
+                const baseZip = baseData.zip;
+                const opfPath = await this.getOpfPath(baseZip);
+                const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
+
+                const opfContent = await baseZip.file(opfPath).async("string");
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(opfContent, "text/xml");
+                const manifestEl = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
+
+                let coverHref = "";
+                const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item");
+                for(let i=0; i<items.length; i++) {
+                    if (items[i].getAttribute("id") === "cover") {
+                        coverHref = items[i].getAttribute("href");
+                        break;
+                    }
+                }
+                const fullCoverHref = opfDir ? `${opfDir}/${coverHref}` : coverHref;
+
+                const hasDescription = opfContent.includes('id="description"');
+
+                // Copy other files from baseZip
+                const baseFiles = Object.keys(baseZip.files);
+                for (let fname of baseFiles) {
+                    const file = baseZip.file(fname);
+                    if (!file) continue; // Skip directories
+                    if (fname === 'mimetype' || fname === 'META-INF/container.xml' ||
+                        fname.startsWith('OEBPS/ch') ||
+                        fname === 'OEBPS/content.opf' || fname === 'OEBPS/toc.ncx') {
+                        continue;
+                    }
+
+                    let content = await file.async("uint8array");
+                    if (fname === fullCoverHref) {
+                        let text = new TextDecoder().decode(content);
+                        const newRangeText = `第 ${n} — ${m} 話（共 ${count} 章）`;
+                        text = text.replace(/第\s*\d+\s*[—\-\s]+\s*\d+\s*[話话]（共\s*\d+\s*章）/, newRangeText);
+                        content = new TextEncoder().encode(text);
+                    }
+                    outZip.file(fname, content);
+                }
+
+                const chapterFiles = [];
+                for (let chNum of sortedChNums) {
+                    const ch = allChapters[chNum];
+                    const fname = `ch${chNum.toString().padStart(5, '0')}.xhtml`;
+                    outZip.file(`OEBPS/${fname}`, ch.content);
+                    chapterFiles.push({
+                        id: `ch${chNum}`,
+                        href: fname,
+                        title: `第 ${chNum} 話${ch.title ? '　' + ch.title : ''}`,
+                        num: chNum
+                    });
+                }
+
+                const newOpf = this.generateOpf(novelId, title, chapterFiles, hasDescription);
+                outZip.file("OEBPS/content.opf", newOpf);
+
+                const newNcx = this.generateNcx(novelId, title, chapterFiles, hasDescription);
+                outZip.file("OEBPS/toc.ncx", newNcx);
+
+                const blob = await outZip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
+
+                return {
+                    blob,
+                    filename: outputFilename,
+                    stats: {
+                        id: novelId,
+                        title: title,
+                        range: `${n} - ${m}`,
+                        count: count
+                    }
+                };
+            }
+
+            generateOpf(novelId, title, chapters, hasDescription) {
+                const now = new Date().toISOString().split('.')[0] + 'Z';
+                const uuid = `urn:uuid:${novelId}-${Date.now()}`;
+
+                const manifestItems = [
+                    '    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>',
+                    '    <item id="css" href="style.css" media-type="text/css"/>',
+                    '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+                ];
+                if (hasDescription) {
+                    manifestItems.splice(1, 0, '    <item id="description" href="description.xhtml" media-type="application/xhtml+xml"/>');
+                }
+
+                for (let ch of chapters) {
+                    manifestItems.push(`    <item id="${this.escapeXml(ch.id)}" href="${this.escapeXml(ch.href)}" media-type="application/xhtml+xml"/>`);
+                }
+
+                const spineItems = [
+                    '    <itemref idref="cover"/>'
+                ];
+                if (hasDescription) {
+                    spineItems.push('    <itemref idref="description"/>');
+                }
+                for (let ch of chapters) {
+                    spineItems.push(`    <itemref idref="${this.escapeXml(ch.id)}"/>`);
+                }
+
+                return `<?xml version="1.0" encoding="utf-8"?>
+<package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>${this.escapeXml(title)}</dc:title>
+    <dc:language>ja</dc:language>
+    <dc:identifier id="BookId">${this.escapeXml(uuid)}</dc:identifier>
+    <dc:source>https://syosetu.org/novel/${this.escapeXml(novelId)}/</dc:source>
+    <dc:date opf:event="modification">${this.escapeXml(now)}</dc:date>
+  </metadata>
+  <manifest>
+${manifestItems.join('\n')}
+  </manifest>
+  <spine toc="ncx">
+${spineItems.join('\n')}
+  </spine>
+</package>`;
+            }
+
+            generateNcx(novelId, title, chapters, hasDescription) {
+                const uuid = `urn:uuid:${novelId}`;
+
+                const navPoints = [
+                    '    <navPoint id="cover" playOrder="1"><navLabel><text>表紙</text></navLabel><content src="cover.xhtml"/></navPoint>'
+                ];
+                let playOrder = 2;
+                if (hasDescription) {
+                    navPoints.push(`    <navPoint id="description" playOrder="${playOrder}"><navLabel><text>作品描述</text></navLabel><content src="description.xhtml"/></navPoint>`);
+                    playOrder++;
+                }
+
+                for (let ch of chapters) {
+                    navPoints.push(`    <navPoint id="${this.escapeXml(ch.id)}" playOrder="${playOrder}"><navLabel><text>${this.escapeXml(ch.title)}</text></navLabel><content src="${this.escapeXml(ch.href)}"/></navPoint>`);
+                    playOrder++;
+                }
+
+                return `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
+<ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">
+  <head>
+    <meta name="dtb:uid" content="${this.escapeXml(uuid)}"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${this.escapeXml(title)}</text></docTitle>
+  <navMap>
+${navPoints.join('\n')}
+  </navMap>
+</ncx>`;
+            }
+        }
+
+        // --- Event Handlers ---
+
+        mergeBtn.addEventListener('click', async () => {
+            if (files.length === 0) return;
+
+            mergeBtn.disabled = true;
+            status.textContent = '⏳ 處理中...';
+            status.style.color = 'inherit';
+            resultPanel.classList.add('hidden');
+
+            try {
+                const merger = new EPUBMerger();
+                const result = await merger.mergeAll(files, transToggle.checked);
+
+                if (result) {
+                    const { blob, filename, stats } = result;
+
+                    document.getElementById('res-id').textContent = stats.id;
+                    document.getElementById('res-title').textContent = stats.title;
+                    document.getElementById('res-range').textContent = stats.range;
+                    document.getElementById('res-count').textContent = stats.count + ' 章';
+                    resultPanel.classList.remove('hidden');
+
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    status.textContent = '✅ 合併成功！';
+                    status.style.color = 'green';
+                } else {
+                    status.textContent = '❌ 合併失敗 - 未找到章節或解析錯誤';
+                    status.style.color = 'red';
+                }
+            } catch (e) {
+                console.error(e);
+                status.textContent = '❌ 發生錯誤: ' + e.message;
+                status.style.color = 'red';
+            } finally {
+                mergeBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
