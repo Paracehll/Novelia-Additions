@@ -16,12 +16,9 @@
     // ============================================================
     // 实现说明
     // ------------------------------------------------------------
-    // 论坛列表页是 SPA（Vue + Naive UI），没有公开稳定的"列表查询 API"
-    // 可以直接调用。为了不依赖随时可能变动的内部接口，本脚本用一个
-    // 隐藏 <iframe> 依次加载 /forum?page=1、/forum?page=2 ...（和手动
-    // 翻页效果一样），直接读取渲染后的 DOM 抓数据，再用 localStorage
-    // 缓存结果。只要列表页 DOM 结构不变，脚本就不会因为后端
-    // API 变化而失效。
+    // 论坛列表页是 SPA（Vue + Naive UI）。本脚本通过直接调用
+    // /api/article 获取列表数据，再用 localStorage 缓存结果。
+    // 只要 API 结构保持兼容，脚本就能稳定运行。
     //
     // 快取策略：
     //   - 首次注入且本地无快取时，立即在背景做一次「完整扫描」（不等
@@ -42,7 +39,7 @@
     const FS_SETTINGS_KEY = 'novelia_forum_search_settings_v1';
     const FS_COLLAPSED_KEY = 'novelia_forum_search_collapsed_v1';
     const FS_TARGET_BOARD_LABEL = '小说交流';
-    const FS_PAGE_URL = (p) => `/forum?page=${p}`;
+    const FS_API_URL = (p) => `https://n.novelia.cc/api/article?page=${p - 1}&pageSize=20&category=General`;
     const FS_RELATIVE_UNIT_MS = { '分钟前': 6e4, '小时前': 36e5, '天前': 864e5, '个月前': 2592e6, '年前': 31536e6 };
     const FS_DEFAULT_SETTINGS = {
         refreshIntervalMin: 30,
@@ -301,106 +298,55 @@
     // ------------------------------------------------------------
     // 抓取与解析
     // ------------------------------------------------------------
-    function fsParseListDoc(doc, fetchedTs) {
-        const rows = doc.querySelectorAll('table.n-table tbody tr');
-        const list = [];
-        rows.forEach(row => {
-            const linkEl = row.querySelector('a.n-a');
-            if (!linkEl) return;
-            const href = linkEl.getAttribute('href') || '';
-            const id = fsGetPostId(href);
-            if (!id) return;
-            const title = (linkEl.textContent || '').trim();
-
-            let author = '', relText = '', ts = null;
-            const infoSpan = row.querySelector('span.n-text');
-            if (infoSpan) {
-                const infoText = infoSpan.textContent || '';
-                const byMatch = infoText.match(/by\s*(.+?)\s*$/);
-                if (byMatch) author = byMatch[1].trim();
-                const timeEl = infoSpan.querySelector('time');
-                if (timeEl) {
-                    relText = timeEl.textContent.trim();
-                    ts = fsParseRelTime(relText, fetchedTs);
-                }
-            }
-
-            const statText = row.querySelector('.article-number')?.textContent || '0/0';
-            const parts = statText.split('/');
-            const views = parseInt(parts[0], 10) || 0;
-            const replies = parseInt(parts[1], 10) || 0;
-            list.push({ id, title, url: href, author, relText, ts, views, replies });
+    function fsTransformApiItems(items) {
+        return (items || []).map(it => {
+            const ts = (it.updateAt || it.createAt) * 1000;
+            return {
+                id: it.id,
+                title: it.title,
+                url: `/forum/${it.id}`,
+                author: it.user?.username || '未知',
+                relText: fsGetRelTimeFromNow(ts),
+                ts: ts,
+                views: it.numViews || 0,
+                replies: it.numComments || 0
+            };
         });
-        return list;
     }
 
-    function fsParseMaxPage(doc) {
-        let max = 1;
-        doc.querySelectorAll('.n-pagination-item').forEach(it => {
-            const t = it.textContent.trim();
-            if (/^\d+$/.test(t)) max = Math.max(max, parseInt(t, 10));
-        });
-        return max;
-    }
-
-    function fsMakePageLoader() {
-        const iframe = document.createElement('iframe');
-        iframe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-        document.body.appendChild(iframe);
-
-        const waitForRender = (doc) => new Promise((res) => {
-            const start = Date.now();
-            const tick = () => {
-                if (!doc) { res(); return; }
-                const rows = doc.querySelectorAll('table.n-table tbody tr');
-                const pag = doc.querySelectorAll('.n-pagination-item');
-                if (rows.length > 0 || pag.length > 0 || Date.now() - start > 8000) res();
-                else setTimeout(tick, 200);
-            };
-            tick();
-        });
-        const loadPage = (p) => new Promise((res) => {
-            const onLoad = () => {
-                iframe.removeEventListener('load', onLoad);
-                setTimeout(async () => {
-                    try {
-                        const doc = iframe.contentDocument;
-                        await waitForRender(doc);
-                        res(doc);
-                    } catch (e) { res(null); }
-                }, 250);
-            };
-            iframe.addEventListener('load', onLoad);
-            iframe.src = FS_PAGE_URL(p);
-        });
-        return { loadPage, cleanup: () => { try { iframe.src = 'about:blank'; } catch (e) {} iframe.remove(); } };
+    async function fsFetchApiPage(p) {
+        try {
+            const r = await fetch(FS_API_URL(p));
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (e) {
+            console.error('[Novelia Forum Search] API 请求失败', e);
+            return null;
+        }
     }
 
     function fsCrawlAllPages(onProgress, maxPagesLimit) {
         return new Promise((resolve) => {
-            const { loadPage, cleanup } = fsMakePageLoader();
             const allPosts = [];
             let totalPages = null;
 
             (async () => {
                 let p = 1;
                 while (true) {
-                    const doc = await loadPage(p);
-                    if (!doc) break;
+                    const data = await fsFetchApiPage(p);
+                    if (!data || !data.items) break;
                     if (totalPages === null) {
-                        totalPages = fsParseMaxPage(doc);
+                        totalPages = data.pageNumber || 1;
                         if (maxPagesLimit) totalPages = Math.min(totalPages, maxPagesLimit);
                     }
-                    const ts = Date.now();
-                    const posts = fsParseListDoc(doc, ts);
+                    const posts = fsTransformApiItems(data.items);
                     if (posts.length === 0 && p > 1) break;
                     allPosts.push(...posts);
                     if (onProgress) onProgress(p, totalPages || p);
                     if (p >= (totalPages || p)) break;
                     p++;
-                    await new Promise(r => setTimeout(r, 150));
+                    await new Promise(r => setTimeout(r, 100));
                 }
-                cleanup();
                 resolve(allPosts);
             })();
         });
@@ -408,22 +354,19 @@
 
     function fsCrawlPageRange(onProgress, startPage, endPage) {
         return new Promise((resolve) => {
-            const { loadPage, cleanup } = fsMakePageLoader();
             const allPosts = [];
             const total = Math.max(1, endPage - startPage + 1);
 
             (async () => {
                 for (let p = startPage; p <= endPage; p++) {
-                    const doc = await loadPage(p);
-                    if (!doc) break;
-                    const ts = Date.now();
-                    const posts = fsParseListDoc(doc, ts);
+                    const data = await fsFetchApiPage(p);
+                    if (!data || !data.items) break;
+                    const posts = fsTransformApiItems(data.items);
                     if (onProgress) onProgress(p - startPage + 1, total);
                     if (posts.length === 0) break;
                     allPosts.push(...posts);
-                    if (p < endPage) await new Promise(r => setTimeout(r, 150));
+                    if (p < endPage) await new Promise(r => setTimeout(r, 100));
                 }
-                cleanup();
                 resolve(allPosts);
             })();
         });

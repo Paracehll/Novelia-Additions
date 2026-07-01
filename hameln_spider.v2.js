@@ -279,24 +279,20 @@
   const Parser = {
     fetchPage(url) {
       return new Promise((resolve, reject) => {
-        const ifr = UI.iframe;
-        if (!ifr) return reject(new Error("瀏覽器爬取環境尚未就緒"));
-        const timer = setTimeout(() => { ifr.onload = null; reject(new Error("載入頁面逾時")); }, 30000);
-        ifr.onload = () => {
-          clearTimeout(timer);
-          ifr.onload = null;
-          // 給予一點時間讓頁面腳本或跳轉執行
-          setTimeout(() => {
+        GM_xmlhttpRequest({
+          method: "GET",
+          url: url,
+          onload: (res) => {
             try {
-              const doc = ifr.contentDocument || ifr.contentWindow.document;
-              if (!doc) return reject(new Error("無法取得 iframe 內容"));
+              const doc = new DOMParser().parseFromString(res.responseText, "text/html");
               resolve(doc);
             } catch (e) {
-              reject(new Error("存取 iframe 內容受阻: " + e.message));
+              reject(new Error("解析頁面失敗: " + e.message));
             }
-          }, 500);
-        };
-        ifr.src = url;
+          },
+          onerror: (err) => reject(new Error("網路請求失敗")),
+          ontimeout: () => reject(new Error("請求逾時"))
+        });
       });
     },
     extractContent(htmlOrDoc) {
@@ -496,7 +492,6 @@
   // ── UI 管理 (UI) ────────────────────────────────────────────────
   const UI = {
     panel: null, mainBox: null,
-    iframe: null,
     refs: {},
     init() {
       const style = document.createElement("style");
@@ -507,9 +502,6 @@
       this.panel.id = "syo-scraper-panel";
       this.panel.innerHTML = `<button id="syo-scraper-btn"><span class="syo-icon">📖</span> 小說爬取器</button>
         <div id="syo-scraper-main">
-          <div id="syo-iframe-wrap" style="display:none; margin-bottom: 8px; border: 1px solid #2a3a5c; border-radius: 8px; overflow: hidden; height: 120px; background: #000;">
-            <iframe id="syo-scraper-iframe" style="width: 100%; height: 100%; border: none; transform: scale(0.8); transform-origin: top left; width: 125%; height: 125%;"></iframe>
-          </div>
           <div id="syo-cache-info"></div><hr class="syo-divider">
           <div class="syo-section-label">▸ 爬取章節範圍</div>
           <div class="syo-range-row"><label>從第</label><input class="syo-range-input" id="syo-range-from" type="number" min="1" value="1"><span style="color:#4a6a8a">—</span><label>第</label><input class="syo-range-input" id="syo-range-to" type="number" min="1" placeholder="末章"><label>話</label></div>
@@ -527,7 +519,6 @@
       document.body.appendChild(this.panel);
 
       this.mainBox = document.getElementById("syo-scraper-main");
-      this.iframe = document.getElementById("syo-scraper-iframe");
       const ids = ["scrape", "export-range", "export-all", "epub-range", "epub-all", "import", "clear-cache", "novelia"];
       ids.forEach(id => this.refs[id] = document.getElementById(`syo-btn-${id}`));
       this.refs.status = document.getElementById("syo-status-text");
@@ -593,8 +584,6 @@
 
     bindEvents() {
       this.refs.scrape.onclick = async () => {
-        const ifrWrap = document.getElementById("syo-iframe-wrap");
-        if (ifrWrap) ifrWrap.style.display = "block";
         this.setAllDisabled(true);
         this.setStatus("正在讀取目錄頁...", 0);
         try {
@@ -624,8 +613,6 @@
         } catch (err) { this.setStatus(`❌ 錯誤：${err.message}`); console.error(err); }
         finally {
           this.setAllDisabled(false);
-          if (this.iframe) { try { this.iframe.src = 'about:blank'; } catch (e) {} }
-          if (ifrWrap) ifrWrap.style.display = "none";
         }
       };
 
