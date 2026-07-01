@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novelia Forum-Edit Tabs 固定頁尾
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
-// @description  將 forum-edit 頁面的 n-tabs-nav 與提交按鈕固定在最下方(footer)，新增回頂/回底按鈕
+// @version      1.2.0
+// @description  將 forum-edit 頁面的 n-tabs-nav 與提交按鈕固定在最下方(footer)，新增回頂/回底按鈕，新增alt+數字鍵快捷
 // @match        https://n.novelia.cc/*
 // @match        http://n.novelia.cc/*
 // @run-at       document-start
@@ -27,12 +27,13 @@
   // 只有程式碼區塊需要 minify
   let o = null,
     mt = null,
-    u = location.href;
+    u = location.href,
+    fC = false;
   function iS() {
     if (document.getElementById("tm-fixed-nav-style")) return;
     const s = document.createElement("style");
     s.id = "tm-fixed-nav-style";
-    s.textContent = `.tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}.tm-fixed-nav-active ${TABS_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}.tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}.tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_RIGHT_OFFSET}!important;bottom:${SUBMIT_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}#tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${BUTTON_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}#tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${BUTTON_BG};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${BUTTON_COLOR};padding:0;transition:background .15s,transform .15s}#tm-fixed-nav-buttons button:hover{background:${BUTTON_BG_HOVER}}#tm-fixed-nav-buttons button:active{background:${BUTTON_BG_ACTIVE};transform:scale(.92)}`;
+    s.textContent = `.tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}.tm-fixed-nav-active ${TABS_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}.tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}.tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_RIGHT_OFFSET}!important;bottom:${SUBMIT_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}#tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${BUTTON_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}#tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${BUTTON_BG};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${BUTTON_COLOR};padding:0;transition:background .15s,transform .15s}#tm-fixed-nav-buttons button:hover{background:${BUTTON_BG_HOVER}}#tm-fixed-nav-buttons button:active{background:${BUTTON_BG_ACTIVE};transform:scale(.92)}.tm-fixed-footer-collapsed{display:none!important}`;
     document.head.appendChild(s);
   }
   function rS() {
@@ -134,6 +135,9 @@
     if (n) aF(n);
     const b = fB();
     if (b) aB(b);
+    [n, b, document.getElementById("tm-fixed-nav-buttons")].forEach(
+      (el) => el && el.classList.toggle("tm-fixed-footer-collapsed", fC),
+    );
   }
   function sO() {
     if (o) o.disconnect();
@@ -173,10 +177,40 @@
   function onResize() {
     if (iT()) pB();
   }
+  function handleShortcuts(e) {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    const k = e.key;
+    if (k === "1") { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    else if (k === "2") { e.preventDefault(); const h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight); window.scrollTo({ top: h, behavior: "smooth" }); }
+    else if (k === "3" || k === "4") {
+      e.preventDefault();
+      const tabs = document.querySelectorAll(".n-tabs-tab");
+      const targetLabel = k === "3" ? "编辑" : "预览";
+      for (const t of tabs) { if (t.textContent.includes(targetLabel)) { t.click(); break; } }
+    }
+    else if (/[567890]/.test(k)) {
+      e.preventDefault();
+      const suffix = document.querySelector(".n-tabs-nav__suffix");
+      if (suffix) {
+        const btns = suffix.querySelectorAll("button");
+        const idx = k === "0" ? 5 : parseInt(k) - 5;
+        if (btns[idx]) btns[idx].click();
+      }
+    }
+    else if (k === "`") {
+      e.preventDefault();
+      fC = !fC;
+      const n = document.querySelector(".tm-fixed-nav-active");
+      const b = document.querySelector(".tm-fixed-submit-active");
+      const g = document.getElementById("tm-fixed-nav-buttons");
+      [n, b, g].forEach(el => el && el.classList.toggle("tm-fixed-footer-collapsed", fC));
+    }
+  }
   function init() {
     pH();
     window.addEventListener("tm-locationchange", oL);
     window.addEventListener("resize", onResize);
+    window.addEventListener("keydown", handleShortcuts);
     setInterval(() => {
       if (location.href !== u) oL();
     }, POLL_INTERVAL);
