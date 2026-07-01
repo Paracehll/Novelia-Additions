@@ -10,6 +10,8 @@
 !(function () {
   "use strict";
 
+  if (window.top !== window.self) return;
+
   // ── 設定區 ──────────────────────────────────────────────────────────────
   const CLEAR_KEY = { ctrl: true, alt: false, shift: false, key: "q" }; // 預設 Ctrl+Q
   const VIEW_KEY = { ctrl: true, alt: false, shift: false, key: "v" }; // 預設 Ctrl+V

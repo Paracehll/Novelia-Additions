@@ -11,6 +11,8 @@
 (function () {
     'use strict';
 
+    if (window.top !== window.self) return;
+
     // ============================================================
     // 实现说明
     // ------------------------------------------------------------
@@ -371,7 +373,7 @@
             iframe.addEventListener('load', onLoad);
             iframe.src = FS_PAGE_URL(p);
         });
-        return { loadPage, cleanup: () => iframe.remove() };
+        return { loadPage, cleanup: () => { try { iframe.src = 'about:blank'; } catch (e) {} iframe.remove(); } };
     }
 
     function fsCrawlAllPages(onProgress, maxPagesLimit) {
@@ -463,9 +465,14 @@
     async function fsIncrementalRefresh() {
         if (fsCacheBuildPromise) return;
         const settings = fsLoadSettings();
+        const resultsEl = document.getElementById('fs-results');
+        const statusEl = document.getElementById('fs-status');
+        if (resultsEl) resultsEl.innerHTML = '';
+        if (statusEl) statusEl.textContent = '正在自动扫描更新...';
         try {
             const posts = await fsCrawlAllPages(null, settings.refreshPages);
             if (posts.length) fsMergeCache(posts);
+            if (statusEl) statusEl.textContent = '自动扫描完成';
         } catch (e) {
             console.error('[Novelia Forum Search] 自动扫描失败', e);
         }
@@ -526,6 +533,7 @@
     async function fsRunSearch(rawQuery, statusEl, resultsEl, btnEl, forceRescan) {
         if (btnEl) { btnEl.disabled = true;
         btnEl.textContent = forceRescan ? '扫描中...' : '搜索中...'; }
+        if (forceRescan) { resultsEl.innerHTML = ''; statusEl.textContent = ''; }
         try {
             const hasCache = !!fsLoadCache();
             statusEl.textContent = forceRescan
@@ -534,6 +542,13 @@
             const cache = await fsEnsureCache(forceRescan, (p, total) => {
                 statusEl.textContent = `正在扫描「${FS_TARGET_BOARD_LABEL}」第 ${p}/${total} 页...`;
             });
+
+            if (forceRescan) {
+                statusEl.textContent = '完整重新扫描完成，快取已更新';
+                fsUpdateHeaderStatus();
+                return;
+            }
+
             const filtered = fsFilterPosts(cache.posts, rawQuery);
 
             statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
@@ -549,18 +564,17 @@
     async function fsRunRangeScan(rawQuery, statusEl, resultsEl, btnEl, startPage, endPage) {
         if (btnEl) { btnEl.disabled = true;
         btnEl.textContent = '扫描中...'; }
+        resultsEl.innerHTML = '';
+        statusEl.textContent = '';
         try {
             statusEl.textContent = `正在扫描第 ${startPage}-${endPage} 页...`;
             const posts = await fsCrawlPageRange((p, total) => {
                 statusEl.textContent = `正在扫描第 ${startPage}-${endPage} 页（${p}/${total}）...`;
             }, startPage, endPage);
-            const cache = fsMergeCache(posts);
+            fsMergeCache(posts);
             fsShowToast(`扫描完成，本次更新 ${posts.length} 篇帖子`);
 
-            const filtered = fsFilterPosts(cache.posts, rawQuery);
-            statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
-            statusEl.querySelector('#fs-clear-btn').onclick = () => { statusEl.innerHTML = ''; resultsEl.innerHTML = ''; };
-            fsRenderResults(filtered, resultsEl);
+            statusEl.textContent = '范围扫描完成，快取已更新';
             fsUpdateHeaderStatus();
         }
         catch (e) {
@@ -933,6 +947,7 @@
             fsEnsureCache(false, (p, total) => {
                 statusEl.textContent = `正在扫描「${FS_TARGET_BOARD_LABEL}」第 ${p}/${total} 页...`;
             }).then(cache => {
+                statusEl.textContent = '本地快取已建立';
             }).catch(e => {
                 statusEl.textContent = '快取建立失败，请稍后点击「完整重新扫描」重试';
                 console.error('[Novelia Forum Search] 背景建立快取失败', e);

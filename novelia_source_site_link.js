@@ -17,6 +17,8 @@
 (function () {
     'use strict';
 
+    if (window.top !== window.self) return;
+
     const currentHost = location.hostname;
 
     // 找出所有符合條件的 a 元素

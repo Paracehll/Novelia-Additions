@@ -12,6 +12,8 @@
 (function () {
   "use strict";
 
+  if (window.top !== window.self) return;
+
   const TABS_LABEL_SELECTOR = ".n-tabs-nav-scroll-wrapper";
   const SUBMIT_RIGHT_OFFSET = "16px";
   const SUBMIT_BOTTOM_OFFSET = "8px";

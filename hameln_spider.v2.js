@@ -624,6 +624,7 @@
         } catch (err) { this.setStatus(`❌ 錯誤：${err.message}`); console.error(err); }
         finally {
           this.setAllDisabled(false);
+          if (this.iframe) { try { this.iframe.src = 'about:blank'; } catch (e) {} }
           if (ifrWrap) ifrWrap.style.display = "none";
         }
       };
