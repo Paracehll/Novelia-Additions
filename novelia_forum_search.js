@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Forum Search
 // @namespace    https://n.novelia.cc/
-// @version      1.1.1
+// @version      1.1.2
 // @description  为 n.novelia.cc 论坛新增搜索框（仅支持"小说交流"版块）。支持标题关键词、a:"作者"、f:"YYYYMMDD"/t:"YYYYMMDD" 更新时间范围过滤；可折叠面板；自动建立快取并定时增量扫描；作者自动补全；自动补全引号。
 // @match        https://n.novelia.cc/*
 // @grant        GM_addStyle
@@ -250,9 +250,10 @@
         #fs-body { padding: 0 14px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
         #fs-search-wrap .fs-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         #fs-search-wrap .fs-hint { font-size: 11px; opacity: 0.55; }
-        #fs-search-wrap .fs-input { padding: 0 10px; height: 28px; border-radius: 3px; font-size: 13px; outline: none; }
+        #fs-search-wrap .fs-input { padding: 0 10px; height: 28px; border-radius: 3px; font-size: 13px; outline: none; transition: border-color 0.2s; }
         #fs-search-wrap.fs-dark .fs-input { background: #26262a; border: 1px solid #444; color: #fff; }
         #fs-search-wrap.fs-light .fs-input { background: #fff; border: 1px solid #ccc; color: #333; }
+        #fs-search-wrap #fs-query:not(:placeholder-shown) { border-color: var(--fs-primary); }
         #fs-search-wrap .fs-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; height: 28px; border-radius: 3px; cursor: pointer; font-size: 13px; background: transparent; transition: 0.2s; white-space: nowrap; }
         #fs-search-wrap .fs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         #fs-search-wrap.fs-dark .fs-btn { border: 1px solid rgba(255,255,255,0.24); color: rgba(255,255,255,0.82); }
@@ -265,7 +266,8 @@
         #fs-status { font-size: 12px; opacity: 0.75; min-height: 16px; }
 
         .fs-query-wrap { position: relative; flex: 1; min-width: 260px; }
-        .fs-query-wrap .fs-input { width: 100%; box-sizing: border-box; }
+        .fs-query-wrap #fs-query { width: 100%; box-sizing: border-box; padding-right: 30px; }
+        .fs-query-icon { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.5; display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
         .fs-suggest-box { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; border-radius: 4px; overflow: hidden; max-height: 220px; overflow-y: auto; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
         #fs-search-wrap.fs-dark .fs-suggest-box { background: #26262a; border: 1px solid #444; }
         #fs-search-wrap.fs-light .fs-suggest-box { background: #fff; border: 1px solid #ccc; }
@@ -861,7 +863,8 @@
             <div id="fs-body">
                 <div class="fs-row">
                     <div class="fs-query-wrap">
-                        <input id="fs-query" type="text" class="fs-input" placeholder='搜索标题... 例：恋爱 a:"frank3215" f:"20260101" t:"20260630"'>
+                        <input id="fs-query" type="text" class="fs-input" placeholder='搜索标题... 例：恋爱 a:"frank3215" f:"20260101" t:"20260630"' autocomplete="off">
+                        <span class="fs-query-icon"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5A6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5S14 7.01 14 9.5S11.99 14 9.5 14z" fill="currentColor"></path></svg></span>
                         <div id="fs-author-suggest" class="fs-suggest-box" style="display:none;"></div>
                     </div>
                     <button id="fs-search-btn" class="fs-btn fs-btn-primary">搜索</button>
