@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Forum Search
 // @namespace    https://n.novelia.cc/
-// @version      1.2.0
+// @version      2.0.0
 // @description  为 n.novelia.cc 论坛新增搜索框（仅支持"小说交流"版块）。支持标题关键词、a:"作者"、f:"YYYYMMDD"/t:"YYYYMMDD" 更新时间范围过滤；可折叠面板；自动建立快取并定时增量扫描；作者自动补全；自动补全引号。
 // @match        https://n.novelia.cc/*
 // @grant        GM_addStyle
@@ -10,6 +10,8 @@
 
 (function () {
     'use strict';
+
+    if (window.top !== window.self) return;
 
     // ============================================================
     // 实现说明
@@ -40,7 +42,7 @@
     const FS_SETTINGS_KEY = 'novelia_forum_search_settings_v1';
     const FS_COLLAPSED_KEY = 'novelia_forum_search_collapsed_v1';
     const FS_TARGET_BOARD_LABEL = '小说交流';
-    const FS_PAGE_URL = (p) => `/forum?page=${p}`;
+    const FS_API_URL = (p) => `https://n.novelia.cc/api/article?page=${p - 1}&pageSize=20&category=General`;
     const FS_RELATIVE_UNIT_MS = { '分钟前': 6e4, '小时前': 36e5, '天前': 864e5, '个月前': 2592e6, '年前': 31536e6 };
     const FS_DEFAULT_SETTINGS = {
         refreshIntervalMin: 30,
@@ -299,106 +301,55 @@
     // ------------------------------------------------------------
     // 抓取与解析
     // ------------------------------------------------------------
-    function fsParseListDoc(doc, fetchedTs) {
-        const rows = doc.querySelectorAll('table.n-table tbody tr');
-        const list = [];
-        rows.forEach(row => {
-            const linkEl = row.querySelector('a.n-a');
-            if (!linkEl) return;
-            const href = linkEl.getAttribute('href') || '';
-            const id = fsGetPostId(href);
-            if (!id) return;
-            const title = (linkEl.textContent || '').trim();
-
-            let author = '', relText = '', ts = null;
-            const infoSpan = row.querySelector('span.n-text');
-            if (infoSpan) {
-                const infoText = infoSpan.textContent || '';
-                const byMatch = infoText.match(/by\s*(.+?)\s*$/);
-                if (byMatch) author = byMatch[1].trim();
-                const timeEl = infoSpan.querySelector('time');
-                if (timeEl) {
-                    relText = timeEl.textContent.trim();
-                    ts = fsParseRelTime(relText, fetchedTs);
-                }
-            }
-
-            const statText = row.querySelector('.article-number')?.textContent || '0/0';
-            const parts = statText.split('/');
-            const views = parseInt(parts[0], 10) || 0;
-            const replies = parseInt(parts[1], 10) || 0;
-            list.push({ id, title, url: href, author, relText, ts, views, replies });
+    function fsTransformApiItems(items) {
+        return (items || []).map(it => {
+            const ts = (it.updateAt || it.createAt) * 1000;
+            return {
+                id: it.id,
+                title: it.title,
+                url: `/forum/${it.id}`,
+                author: it.user?.username || '未知',
+                relText: fsGetRelTimeFromNow(ts),
+                ts: ts,
+                views: it.numViews || 0,
+                replies: it.numComments || 0
+            };
         });
-        return list;
     }
 
-    function fsParseMaxPage(doc) {
-        let max = 1;
-        doc.querySelectorAll('.n-pagination-item').forEach(it => {
-            const t = it.textContent.trim();
-            if (/^\d+$/.test(t)) max = Math.max(max, parseInt(t, 10));
-        });
-        return max;
-    }
-
-    function fsMakePageLoader() {
-        const iframe = document.createElement('iframe');
-        iframe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-        document.body.appendChild(iframe);
-
-        const waitForRender = (doc) => new Promise((res) => {
-            const start = Date.now();
-            const tick = () => {
-                if (!doc) { res(); return; }
-                const rows = doc.querySelectorAll('table.n-table tbody tr');
-                const pag = doc.querySelectorAll('.n-pagination-item');
-                if (rows.length > 0 || pag.length > 0 || Date.now() - start > 8000) res();
-                else setTimeout(tick, 200);
-            };
-            tick();
-        });
-        const loadPage = (p) => new Promise((res) => {
-            const onLoad = () => {
-                iframe.removeEventListener('load', onLoad);
-                setTimeout(async () => {
-                    try {
-                        const doc = iframe.contentDocument;
-                        await waitForRender(doc);
-                        res(doc);
-                    } catch (e) { res(null); }
-                }, 250);
-            };
-            iframe.addEventListener('load', onLoad);
-            iframe.src = FS_PAGE_URL(p);
-        });
-        return { loadPage, cleanup: () => iframe.remove() };
+    async function fsFetchApiPage(p) {
+        try {
+            const r = await fetch(FS_API_URL(p));
+            if (!r.ok) return null;
+            return await r.json();
+        } catch (e) {
+            console.error('[Novelia Forum Search] API 请求失败', e);
+            return null;
+        }
     }
 
     function fsCrawlAllPages(onProgress, maxPagesLimit) {
         return new Promise((resolve) => {
-            const { loadPage, cleanup } = fsMakePageLoader();
             const allPosts = [];
             let totalPages = null;
 
             (async () => {
                 let p = 1;
                 while (true) {
-                    const doc = await loadPage(p);
-                    if (!doc) break;
+                    const data = await fsFetchApiPage(p);
+                    if (!data || !data.items) break;
                     if (totalPages === null) {
-                        totalPages = fsParseMaxPage(doc);
+                        totalPages = data.pageNumber || 1;
                         if (maxPagesLimit) totalPages = Math.min(totalPages, maxPagesLimit);
                     }
-                    const ts = Date.now();
-                    const posts = fsParseListDoc(doc, ts);
+                    const posts = fsTransformApiItems(data.items);
                     if (posts.length === 0 && p > 1) break;
                     allPosts.push(...posts);
                     if (onProgress) onProgress(p, totalPages || p);
                     if (p >= (totalPages || p)) break;
                     p++;
-                    await new Promise(r => setTimeout(r, 150));
+                    await new Promise(r => setTimeout(r, 100));
                 }
-                cleanup();
                 resolve(allPosts);
             })();
         });
@@ -406,22 +357,19 @@
 
     function fsCrawlPageRange(onProgress, startPage, endPage) {
         return new Promise((resolve) => {
-            const { loadPage, cleanup } = fsMakePageLoader();
             const allPosts = [];
             const total = Math.max(1, endPage - startPage + 1);
 
             (async () => {
                 for (let p = startPage; p <= endPage; p++) {
-                    const doc = await loadPage(p);
-                    if (!doc) break;
-                    const ts = Date.now();
-                    const posts = fsParseListDoc(doc, ts);
+                    const data = await fsFetchApiPage(p);
+                    if (!data || !data.items) break;
+                    const posts = fsTransformApiItems(data.items);
                     if (onProgress) onProgress(p - startPage + 1, total);
                     if (posts.length === 0) break;
                     allPosts.push(...posts);
-                    if (p < endPage) await new Promise(r => setTimeout(r, 150));
+                    if (p < endPage) await new Promise(r => setTimeout(r, 100));
                 }
-                cleanup();
                 resolve(allPosts);
             })();
         });
@@ -463,9 +411,14 @@
     async function fsIncrementalRefresh() {
         if (fsCacheBuildPromise) return;
         const settings = fsLoadSettings();
+        const resultsEl = document.getElementById('fs-results');
+        const statusEl = document.getElementById('fs-status');
+        if (resultsEl) resultsEl.innerHTML = '';
+        if (statusEl) statusEl.textContent = '正在自动扫描更新...';
         try {
             const posts = await fsCrawlAllPages(null, settings.refreshPages);
             if (posts.length) fsMergeCache(posts);
+            if (statusEl) statusEl.textContent = '自动扫描完成';
         } catch (e) {
             console.error('[Novelia Forum Search] 自动扫描失败', e);
         }
@@ -526,6 +479,7 @@
     async function fsRunSearch(rawQuery, statusEl, resultsEl, btnEl, forceRescan) {
         if (btnEl) { btnEl.disabled = true;
         btnEl.textContent = forceRescan ? '扫描中...' : '搜索中...'; }
+        if (forceRescan) { resultsEl.innerHTML = ''; statusEl.textContent = ''; }
         try {
             const hasCache = !!fsLoadCache();
             statusEl.textContent = forceRescan
@@ -534,6 +488,13 @@
             const cache = await fsEnsureCache(forceRescan, (p, total) => {
                 statusEl.textContent = `正在扫描「${FS_TARGET_BOARD_LABEL}」第 ${p}/${total} 页...`;
             });
+
+            if (forceRescan) {
+                statusEl.textContent = '完整重新扫描完成，快取已更新';
+                fsUpdateHeaderStatus();
+                return;
+            }
+
             const filtered = fsFilterPosts(cache.posts, rawQuery);
 
             statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
@@ -549,18 +510,17 @@
     async function fsRunRangeScan(rawQuery, statusEl, resultsEl, btnEl, startPage, endPage) {
         if (btnEl) { btnEl.disabled = true;
         btnEl.textContent = '扫描中...'; }
+        resultsEl.innerHTML = '';
+        statusEl.textContent = '';
         try {
             statusEl.textContent = `正在扫描第 ${startPage}-${endPage} 页...`;
             const posts = await fsCrawlPageRange((p, total) => {
                 statusEl.textContent = `正在扫描第 ${startPage}-${endPage} 页（${p}/${total}）...`;
             }, startPage, endPage);
-            const cache = fsMergeCache(posts);
+            fsMergeCache(posts);
             fsShowToast(`扫描完成，本次更新 ${posts.length} 篇帖子`);
 
-            const filtered = fsFilterPosts(cache.posts, rawQuery);
-            statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
-            statusEl.querySelector('#fs-clear-btn').onclick = () => { statusEl.innerHTML = ''; resultsEl.innerHTML = ''; };
-            fsRenderResults(filtered, resultsEl);
+            statusEl.textContent = '范围扫描完成，快取已更新';
             fsUpdateHeaderStatus();
         }
         catch (e) {
@@ -933,6 +893,7 @@
             fsEnsureCache(false, (p, total) => {
                 statusEl.textContent = `正在扫描「${FS_TARGET_BOARD_LABEL}」第 ${p}/${total} 页...`;
             }).then(cache => {
+                statusEl.textContent = '本地快取已建立';
             }).catch(e => {
                 statusEl.textContent = '快取建立失败，请稍后点击「完整重新扫描」重试';
                 console.error('[Novelia Forum Search] 背景建立快取失败', e);
