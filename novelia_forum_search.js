@@ -245,7 +245,7 @@
         .fs-collapse-icon svg { display: block; }
         #fs-search-wrap.fs-collapsed { overflow: hidden; } /* 只有折叠时才截断内容 */
         #fs-search-wrap.fs-collapsed .fs-collapse-icon { transform: rotate(-90deg); }
-        #fs-search-wrap.fs-collapsed #fs-body { display: none; }
+        #fs-search-wrap.fs-collapsed #fs-body, #fs-search-wrap.fs-collapsed #fs-settings-panel { display: none !important; }
 
         #fs-body { padding: 0 14px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
         #fs-search-wrap .fs-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -536,7 +536,8 @@
             });
             const filtered = fsFilterPosts(cache.posts, rawQuery);
 
-            statusEl.textContent = `匹配到 ${filtered.length} 条结果`;
+            statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
+            statusEl.querySelector('#fs-clear-btn').onclick = () => { statusEl.innerHTML = ''; resultsEl.innerHTML = ''; };
             fsRenderResults(filtered, resultsEl);
             fsUpdateHeaderStatus();
         } finally {
@@ -557,7 +558,8 @@
             fsShowToast(`扫描完成，本次更新 ${posts.length} 篇帖子`);
 
             const filtered = fsFilterPosts(cache.posts, rawQuery);
-            statusEl.textContent = `匹配到 ${filtered.length} 条结果`;
+            statusEl.innerHTML = `匹配到 ${filtered.length} 条结果 <button id="fs-clear-btn" class="fs-btn" style="margin-left:8px;height:22px;padding:0 8px;">清除結果</button>`;
+            statusEl.querySelector('#fs-clear-btn').onclick = () => { statusEl.innerHTML = ''; resultsEl.innerHTML = ''; };
             fsRenderResults(filtered, resultsEl);
             fsUpdateHeaderStatus();
         }
