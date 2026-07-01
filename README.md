@@ -35,12 +35,7 @@
     *   **批量複製**：支持多選累加複製。
     *   **快捷鍵**：支持 `Ctrl+Q` 清空、`Ctrl+V` 查看、`Shift+R` 刷新。
 
-### 5. 源站跳轉助手 (`novelia_source_site_link.js`)
-*   **功能**：在各大原始網站及關聯站點添加跳轉至 Novelia 的按鈕。
-*   **支持站點**：Syosetu (Hameln), Ncode, Kakuyomu, Pixiv 等。
-*   **特色**：自動識別小說 ID 並在標題或連結旁生成一個藍色的跳轉符號 `↗`。
-
-### 6. Novelia Forum-Edit 頁尾固定 (`novelia_thread_footer.js`)
+### 5. Novelia Forum-Edit 頁尾固定 (`novelia_thread_footer.js`)
 *   **功能**：優化論壇編輯頁面的操作體驗。
 *   **特色**：
     *   **固定 UI**：將標籤導航欄與提交按鈕固定在頁面底部，方便長文編輯時隨時切換或提交。
