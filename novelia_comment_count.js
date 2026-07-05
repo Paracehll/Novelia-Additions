@@ -237,7 +237,10 @@
     const updatedAt = cached ? (cached.update ?? cached.updated_at) : 0;
     const isStale = !cached || (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
 
-    if (isInitial && isStale) {
+    // 需求：如果檢測到 localstorage 沒有 key (代表全新安裝或被清空)，立刻更新一輪
+    const isNewInstall = !localStorage.getItem(STORAGE_KEY);
+
+    if ((isInitial || isNewInstall) && isStale) {
       return updateCommentCount(source, id);
     }
 
@@ -676,47 +679,7 @@
     window.addEventListener('popstate', notify);
   }
 
-  function migrateStorage() {
-    const OLD_PREFIX = 'novelia_comment:';
-    const store = getFullStorage();
-    let migrated = false;
-
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith(OLD_PREFIX)) {
-        try {
-          const raw = localStorage.getItem(key);
-          const entry = JSON.parse(raw);
-          if (entry && entry.source && entry.id) {
-            if (!store[entry.source]) store[entry.source] = {};
-            // 轉移並轉換格式
-            store[entry.source][entry.id] = {
-              prev: entry.prev_comment_count ?? entry.comment_count,
-              prev_all: entry.prev_all_comment_count ?? entry.all_comment_count,
-              now: entry.comment_count,
-              now_all: entry.all_comment_count,
-              update: entry.updated_at ?? Date.now()
-            };
-            migrated = true;
-          }
-        } catch (e) {
-          console.error('[novelia-comments] 遷移失敗:', key, e);
-        }
-        keysToRemove.push(key);
-      }
-    }
-
-    if (migrated) {
-      saveFullStorage(store);
-      console.log('[novelia-comments] 成功遷移舊版快取資料');
-    }
-
-    keysToRemove.forEach(k => localStorage.removeItem(k));
-  }
-
   function main() {
-    migrateStorage();
     scan({ isInitial: true });
     observeDomChanges();
     observeRouteChanges();
