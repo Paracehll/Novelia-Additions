@@ -53,6 +53,19 @@
       cursor: not-allowed;
       opacity: 0.6;
     }
+    .novelia-comment-badge, .novelia-h1-comment-badge {
+      opacity: 0.85;
+      white-space: nowrap;
+    }
+    .novelia-comment-badge {
+      font-size: 12px;
+      flex: 0 0 auto;
+      margin-right: 8px;
+    }
+    .novelia-h1-comment-badge {
+      font-size: 14px;
+      margin-left: 4px;
+    }
   `;
   document.head.appendChild(styleEl);
 
@@ -234,11 +247,6 @@
   function createNewBadge(count, diff) {
     const badge = document.createElement('span');
     badge.className = 'novelia-comment-badge';
-    badge.style.fontSize = '12px';
-    badge.style.opacity = '0.85';
-    badge.style.whiteSpace = 'nowrap';
-    badge.style.flex = '0 0 auto';
-    badge.style.marginRight = '8px';
     badge.dataset.noveliaRenderedText = `${count}|${diff}`;
 
     badge.appendChild(document.createTextNode(`${ICON} ${count}`));
@@ -259,11 +267,6 @@
     if (!badge) {
       badge = document.createElement('span');
       badge.className = 'novelia-comment-badge';
-      badge.style.fontSize = '12px';
-      badge.style.opacity = '0.85';
-      badge.style.whiteSpace = 'nowrap';
-      badge.style.flex = '0 0 auto';
-      badge.style.marginRight = '8px';
       const shareBtn = wrapper.querySelector(':scope > .novelia-copy-btn');
       if (shareBtn) shareBtn.after(badge);
       else wrapper.prepend(badge);
@@ -343,10 +346,6 @@
     const badge = document.createElement('span');
     badge.className = 'novelia-h1-comment-badge';
     badge.dataset.noveliaNovelKey = key;
-    badge.style.fontSize = '14px';
-    badge.style.opacity = '0.85';
-    badge.style.whiteSpace = 'nowrap';
-    badge.style.marginLeft = '4px';
     return badge;
   }
 
