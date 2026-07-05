@@ -220,8 +220,8 @@
   }
 
   function ensureWrapper(target) {
-    const parent = target.parentElement;
-    if (parent && (parent.classList.contains('novelia-comment-wrapper') || parent.classList.contains('novelia-item-wrapper'))) return parent;
+    const existing = target.closest('.novelia-comment-wrapper, .novelia-item-wrapper');
+    if (existing) return existing;
     const wrapper = document.createElement('span');
     wrapper.className = 'novelia-comment-wrapper';
     wrapper.style.alignItems = BADGE_ALIGN_ITEMS;
@@ -231,9 +231,31 @@
     return wrapper;
   }
 
-  function getOrCreateBadge(target) {
+  function createNewBadge(count, diff) {
+    const badge = document.createElement('span');
+    badge.className = 'novelia-comment-badge';
+    badge.style.fontSize = '12px';
+    badge.style.opacity = '0.85';
+    badge.style.whiteSpace = 'nowrap';
+    badge.style.flex = '0 0 auto';
+    badge.style.marginRight = '8px';
+    badge.dataset.noveliaRenderedText = `${count}|${diff}`;
+
+    badge.appendChild(document.createTextNode(`${ICON} ${count}`));
+    if (diff > 0) {
+      const incSpan = document.createElement('span');
+      incSpan.className = 'novelia-comment-diff';
+      incSpan.style.color = INCREMENT_COLOR;
+      incSpan.textContent = ` (+${diff})`;
+      badge.appendChild(incSpan);
+    }
+    return badge;
+  }
+
+  function renderPlainBadge(target, text, { isError = false } = {}) {
     const wrapper = ensureWrapper(target);
     let badge = wrapper.querySelector(':scope > .novelia-comment-badge');
+    if (badge && badge.dataset.noveliaLocked === '1') return;
     if (!badge) {
       badge = document.createElement('span');
       badge.className = 'novelia-comment-badge';
@@ -246,45 +268,36 @@
       if (shareBtn) shareBtn.after(badge);
       else wrapper.prepend(badge);
     }
-    return badge;
-  }
-
-  function renderPlainBadge(target, text, { isError = false } = {}) {
-    const badge = getOrCreateBadge(target);
-    if (badge.dataset.noveliaLocked === '1') return;
     badge.textContent = text;
     badge.style.color = isError ? ERROR_COLOR : '';
+    delete badge.dataset.noveliaRenderedText;
   }
 
   function renderCountBadge(target, count, diff) {
-    const badge = getOrCreateBadge(target);
-    if (badge.dataset.noveliaLocked === '1') return;
-    const key = `${count}|${diff}`;
-    badge.dataset.noveliaRenderedText = key;
-    writeCountBadge(badge, count, diff);
-    badge.dataset.noveliaLocked = '1';
+    const wrapper = ensureWrapper(target);
+    const existing = wrapper.querySelector(':scope > .novelia-comment-badge');
+    if (existing && existing.dataset.noveliaLocked === '1') return;
+    updateBadgeInWrapper(wrapper, count, diff);
   }
 
   function forceRenderCountBadge(target, count, diff) {
-    const badge = getOrCreateBadge(target);
-    const key = `${count}|${diff}`;
-    if (badge.dataset.noveliaRenderedText === key) return;
-    badge.dataset.noveliaRenderedText = key;
-    writeCountBadge(badge, count, diff);
-    badge.dataset.noveliaLocked = '1';
+    const wrapper = ensureWrapper(target);
+    updateBadgeInWrapper(wrapper, count, diff);
   }
 
-  function writeCountBadge(badge, count, diff) {
-    badge.style.color = '';
-    badge.textContent = '';
-    badge.appendChild(document.createTextNode(`${ICON} ${count}`));
-    if (diff > 0) {
-      const incSpan = document.createElement('span');
-      incSpan.className = 'novelia-comment-diff';
-      incSpan.style.color = INCREMENT_COLOR;
-      incSpan.textContent = ` (+${diff})`;
-      badge.appendChild(incSpan);
-    }
+  function updateBadgeInWrapper(wrapper, count, diff) {
+    const key = `${count}|${diff}`;
+    const existing = wrapper.querySelector(':scope > .novelia-comment-badge');
+    if (existing && existing.dataset.noveliaRenderedText === key) return;
+
+    if (existing) existing.remove();
+
+    const newBadge = createNewBadge(count, diff);
+    newBadge.dataset.noveliaLocked = '1';
+
+    const shareBtn = wrapper.querySelector(':scope > .novelia-copy-btn');
+    if (shareBtn) shareBtn.after(newBadge);
+    else wrapper.prepend(newBadge);
   }
 
   function getListTarget(a) {
@@ -339,16 +352,20 @@
 
   function renderH1Badge(badge, entry) {
     const result = buildResultFromEntry(entry);
-    const nextText = result ? `${ICON} ${result.count}` : `${ICON} …`;
-    const nextDiff = result ? result.diff : 0;
-    if (badge.dataset.noveliaRenderedText === `${nextText}|${nextDiff}`) return;
-    badge.dataset.noveliaRenderedText = `${nextText}|${nextDiff}`;
+    const count = result ? result.count : '…';
+    const diff = result ? result.diff : 0;
+    const key = `${count}|${diff}`;
+
+    if (badge.dataset.noveliaRenderedText === key) return;
+
+    // For H1 badge, we just update content to avoid losing the element reference held by the button
+    badge.dataset.noveliaRenderedText = key;
     badge.textContent = '';
-    badge.appendChild(document.createTextNode(nextText));
-    if (nextDiff > 0) {
+    badge.appendChild(document.createTextNode(`${ICON} ${count}`));
+    if (diff > 0) {
       const inc = document.createElement('span');
       inc.style.color = INCREMENT_COLOR;
-      inc.textContent = ` (+${nextDiff})`;
+      inc.textContent = ` (+${diff})`;
       badge.appendChild(inc);
     }
   }
@@ -455,19 +472,16 @@
   }
 
   function injectBulkUpdateButtons() {
-    const headers = document.querySelectorAll('h1, h2');
-    headers.forEach((h) => {
-      if (h.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`)) return;
-      if (h.textContent.includes('我的收藏') || h.tagName === 'H1') {
-        h.style.display = 'flex';
-        h.style.alignItems = 'center';
-        h.style.flexWrap = 'wrap';
-        const btn = createBulkUpdateButton();
-        const lastHdrBtn = Array.from(h.querySelectorAll('.novelia-header-btn')).pop();
-        if (lastHdrBtn) lastHdrBtn.after(btn);
-        else h.appendChild(btn);
-      }
-    });
+    const h1 = document.querySelector('h1');
+    if (!h1 || h1.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`)) return;
+
+    h1.style.display = 'flex';
+    h1.style.alignItems = 'center';
+    h1.style.flexWrap = 'wrap';
+    const btn = createBulkUpdateButton();
+    const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
+    if (lastHdrBtn) lastHdrBtn.after(btn);
+    else h1.appendChild(btn);
   }
 
   function scan({ isInitial = false } = {}) {
