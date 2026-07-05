@@ -29,6 +29,29 @@
     toastTimer;
   const styleEl = document.createElement("style");
   styleEl.textContent = `
+    .novelia-btn {
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      transition: background .2s;
+      vertical-align: middle;
+      box-sizing: border-box;
+    }
+    .novelia-btn:hover {
+      background: #f0f0f0;
+    }
+    .novelia-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
     .${BTN_CLASS} {
       width: ${BTN_WIDTH} !important;
       min-width: unset !important;
@@ -79,21 +102,6 @@
   const toastEl = document.createElement("div");
   toastEl.className = TOAST_CLASS;
   document.body.appendChild(toastEl);
-  function createSiteButton(text, className) {
-    const btn = document.createElement("button");
-    btn.className = `n-button n-button--default-type n-button--medium-type ${className}`;
-    btn.type = "button";
-    btn.innerHTML = `
-      <span class="n-button__content">${text}</span>
-      <div aria-hidden="true" class="n-button__border"></div>
-      <div aria-hidden="true" class="n-button__state-border"></div>
-    `;
-    return btn;
-  }
-  function setSiteButtonText(btn, text) {
-    const content = btn.querySelector(".n-button__content");
-    if (content) content.textContent = text;
-  }
   function showToast(e, t = 2200) {
     clearTimeout(toastTimer);
     toastEl.textContent = e;
@@ -111,17 +119,17 @@
           .catch((e) => {
             console.error("[Novelia]", e);
             t &&
-              ((setSiteButtonText(t, "❌")),
+              ((t.textContent = "❌"),
               setTimeout(() => {
-                setSiteButtonText(t, "📋");
+                t.textContent = "📋";
               }, 1550));
           });
   }
   function animateSuccess(e) {
-    setSiteButtonText(e, "✅");
+    e.textContent = "✅";
     e.style.opacity = "1";
     setTimeout(() => {
-      setSiteButtonText(e, "📋");
+      e.textContent = "📋";
       e.style.opacity = "";
       e.classList.remove("flashing");
     }, 1500);
@@ -151,7 +159,9 @@
       showToast("🔄 已重新偵測當前頁面並重新注入按鈕！"));
   }
   function createBtn(e, t) {
-    const o = createSiteButton("📋", BTN_CLASS);
+    const o = document.createElement("button");
+    o.className = `novelia-btn ${BTN_CLASS}`;
+    o.textContent = "📋";
     return (
       (o.title = "點擊累加複製：" + e),
       cache.includes(e) && (o.style.display = "none"),
@@ -223,15 +233,21 @@
       (e.style.display = "flex"),
       (e.style.alignItems = "center"),
       (e.style.flexWrap = "wrap"));
-    const t = createSiteButton("🔄 刷新", HDR_BTN_CLASS);
+    const t = document.createElement("button");
+    t.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    t.textContent = "🔄 刷新";
     t.addEventListener("click", (e) => {
       (e.preventDefault(), triggerRefresh());
     });
-    const o = createSiteButton("🧹 清除快取", HDR_BTN_CLASS);
+    const o = document.createElement("button");
+    o.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    o.textContent = "🧹 清除快取";
     o.addEventListener("click", (e) => {
       (e.preventDefault(), clearCache());
     });
-    const n = createSiteButton("📂 查看快取", HDR_BTN_CLASS);
+    const n = document.createElement("button");
+    n.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    n.textContent = "📂 查看快取";
     n.addEventListener("click", (e) => {
       (e.preventDefault(), viewCache());
     });

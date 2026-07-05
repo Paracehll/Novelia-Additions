@@ -42,32 +42,34 @@
 
   const styleEl = document.createElement('style');
   styleEl.textContent = `
-    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
-      margin-left: 10px;
+    .novelia-btn {
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      height: 28px;
+      padding: 0 10px;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #333;
+      transition: background .2s;
+      vertical-align: middle;
+      box-sizing: border-box;
     }
-    .novelia-update-button:disabled, .${BULK_UPDATE_BUTTON_CLASS}:disabled {
+    .novelia-btn:hover {
+      background: #f0f0f0;
+    }
+    .novelia-btn:disabled {
       cursor: not-allowed;
       opacity: 0.6;
     }
+    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
+      margin-left: 10px;
+    }
   `;
   document.head.appendChild(styleEl);
-
-  function createSiteButton(text, className) {
-    const btn = document.createElement('button');
-    btn.className = `n-button n-button--default-type n-button--medium-type ${className}`;
-    btn.type = 'button';
-    btn.innerHTML = `
-      <span class="n-button__content">${text}</span>
-      <div aria-hidden="true" class="n-button__border"></div>
-      <div aria-hidden="true" class="n-button__state-border"></div>
-    `;
-    return btn;
-  }
-
-  function setSiteButtonText(btn, text) {
-    const content = btn.querySelector('.n-button__content');
-    if (content) content.textContent = text;
-  }
 
   function getFullStorage() {
     try {
@@ -236,8 +238,14 @@
     fetchedOnceKeys.add(uniqueKey);
 
     const cached = getStoredEntry(source, id);
-    const updatedAt = cached ? (cached.update ?? cached.updated_at) : 0;
-    const isStale = !cached || (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
+
+    // 需求：如果檢測到localstorage沒有的小說，可無視計時器發出請求
+    if (!cached) {
+      return updateCommentCount(source, id);
+    }
+
+    const updatedAt = cached.update ?? cached.updated_at ?? 0;
+    const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
 
     // 需求：如果檢測到 localstorage 沒有 key (代表全新安裝或被清空)，立刻更新一輪
     const isNewInstall = !localStorage.getItem(STORAGE_KEY);
@@ -439,14 +447,16 @@
   }
 
   function createUpdateButton(source, id, key, badge) {
-    const btn = createSiteButton(UPDATE_BUTTON_ICON + ' 更新', 'novelia-update-button');
+    const btn = document.createElement('button');
+    btn.className = `novelia-btn novelia-update-button`;
+    btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
     btn.dataset.noveliaNovelKey = key;
     btn.title = '手動更新留言數（會重置 10 分鐘計時器）';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       console.log(`[novelia-comments] 手動更新開始: ${source}/${id}`);
       btn.disabled = true;
-      setSiteButtonText(btn, '⏳ 更新中');
+      btn.textContent = '⏳ 更新中';
       try {
         const result = await getCommentCount(source, id, { force: true });
         if (result) {
@@ -462,12 +472,12 @@
             }
           });
         }
-        setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 更新');
+        btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
       } catch (e) {
         console.error('[novelia-comments] 手動更新失敗:', e);
-        setSiteButtonText(btn, '⚠️');
+        btn.textContent = '⚠️';
         setTimeout(() => {
-          setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 更新');
+          btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
         }, 1500);
       } finally {
         btn.disabled = false;
@@ -529,13 +539,15 @@
   // 按下去會對「目前頁面上所有已追蹤到的小說連結」強制重新請求並更新 localStorage，
   // 同時重置各自的 10 分鐘計時器，而不是只更新單一小說。
   function createBulkUpdateButton() {
-    const btn = createSiteButton(UPDATE_BUTTON_ICON + ' 批次更新', BULK_UPDATE_BUTTON_CLASS);
+    const btn = document.createElement('button');
+    btn.className = `novelia-btn ${BULK_UPDATE_BUTTON_CLASS}`;
+    btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
     btn.title = '手動更新本頁所有留言數（會重置各自的 10 分鐘計時器）';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       console.log('[novelia-comments] 批次更新開始');
       btn.disabled = true;
-      setSiteButtonText(btn, '⏳ 批次更新中');
+      btn.textContent = '⏳ 批次更新中';
       try {
         const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
         console.log(`[novelia-comments] 找到 ${anchors.length} 個已追蹤的小說連結`);
@@ -576,12 +588,12 @@
             })
           )
         );
-        setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 批次更新');
+        btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
       } catch (e) {
         console.error('[novelia-comments] 批次更新失敗:', e);
-        setSiteButtonText(btn, '⚠️ 失敗');
+        btn.textContent = '⚠️ 失敗';
         setTimeout(() => {
-          setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 批次更新');
+          btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
         }, 1500);
       } finally {
         btn.disabled = false;
