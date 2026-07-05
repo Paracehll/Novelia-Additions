@@ -29,29 +29,7 @@
     toastTimer;
   const styleEl = document.createElement("style");
   styleEl.textContent = `
-    .${BTN_CLASS} {
-      position: relative;
-      overflow: hidden;
-      margin-right: 6px;
-      padding: 0;
-      width: ${BTN_WIDTH};
-      height: 28px;
-      font-size: 12px;
-      cursor: pointer;
-      background: transparent;
-      border: 1px solid #aaa;
-      border-radius: 4px;
-      vertical-align: middle;
-      opacity: .6;
-      text-align: center;
-      flex-shrink: 0;
-      line-height: 26px;
-      transition: opacity .15s, background .15s, border-color .15s;
-      box-sizing: border-box;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
+    .${BTN_CLASS}{position:relative;overflow:hidden;margin-right:6px;padding:1px 0;width:${BTN_WIDTH};font-size:12px;cursor:pointer;background:transparent;border:1px solid #aaa;border-radius:4px;vertical-align:middle;opacity:.6;text-align:center;flex-shrink:0;line-height:1.4;transition:opacity .15s,background .15s,border-color .15s}
     .${BTN_CLASS}:hover { opacity: 1; background: #eee; }
     .${BTN_CLASS}.flashing::after {
       content: '';
