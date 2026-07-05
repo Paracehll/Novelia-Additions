@@ -40,6 +40,33 @@
   const CACHE_REFRESH_INTERVAL_MS = 10 * 60 * 1000; // 10 分鐘
   // =======================================================
 
+  const styleEl = document.createElement('style');
+  styleEl.textContent = `
+    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
+      margin-left: 10px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      transition: background .2s;
+      color: #333;
+      font-weight: normal;
+      display: inline-flex;
+      align-items: center;
+      line-height: 1;
+    }
+    .novelia-update-button:hover, .${BULK_UPDATE_BUTTON_CLASS}:hover {
+      background: #f0f0f0;
+    }
+    .novelia-update-button:disabled, .${BULK_UPDATE_BUTTON_CLASS}:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+  `;
+  document.head.appendChild(styleEl);
+
   function storageKey(source, id) {
     return `${STORAGE_PREFIX}${source}/${id}`;
   }
@@ -373,15 +400,6 @@
         const result = await getCommentCount(group.source, group.id, { isInitial });
         if (!result) return;
         group.anchors.forEach((a) => renderCountBadge(a, result.count, result.diff));
-        if (result.diff > 0) {
-          console.log(
-            `[novelia-comments] ${group.source}/${group.id} 留言數: ${result.count} (+${result.diff})`
-          );
-        } else {
-          console.log(
-            `[novelia-comments] ${group.source}/${group.id} 留言數: ${result.count}`
-          );
-        }
       } catch (err) {
         group.anchors.forEach((a) => renderPlainBadge(a, `${ICON} ?`, { isError: true }));
         console.error(
@@ -436,21 +454,17 @@
     btn.className = 'novelia-update-button';
     btn.dataset.noveliaNovelKey = key;
     btn.type = 'button';
-    btn.textContent = UPDATE_BUTTON_ICON;
+    btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
     btn.title = '手動更新留言數（會重置 10 分鐘計時器）';
-    btn.style.cursor = 'pointer';
-    btn.style.border = 'none';
-    btn.style.background = 'transparent';
-    btn.style.fontSize = '16px';
-    btn.style.lineHeight = '1';
-    btn.style.marginLeft = '8px';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
+      console.log(`[novelia-comments] 手動更新開始: ${source}/${id}`);
       btn.disabled = true;
-      btn.textContent = '⏳';
+      btn.textContent = '⏳ 更新中';
       try {
         const result = await getCommentCount(source, id, { force: true });
         if (result) {
+          console.log(`[novelia-comments] 手動更新成功: ${source}/${id}, 留言數: ${result.count} (+${result.diff})`);
           // 強制更新是使用者主動觸發的，因此直接覆寫（忽略去重判斷）
           delete badge.dataset.noveliaRenderedText;
           renderH1Badge(badge, result.entry);
@@ -462,7 +476,7 @@
             }
           });
         }
-        btn.textContent = UPDATE_BUTTON_ICON;
+        btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
       } catch (e) {
         console.error('[novelia-comments] 手動更新失敗:', e);
         btn.textContent = '⚠️';
@@ -532,18 +546,13 @@
     const btn = document.createElement('button');
     btn.className = BULK_UPDATE_BUTTON_CLASS;
     btn.type = 'button';
-    btn.textContent = UPDATE_BUTTON_ICON;
+    btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
     btn.title = '手動更新本頁所有留言數（會重置各自的 10 分鐘計時器）';
-    btn.style.cursor = 'pointer';
-    btn.style.border = 'none';
-    btn.style.background = 'transparent';
-    btn.style.fontSize = '16px';
-    btn.style.lineHeight = '1';
-    btn.style.marginLeft = '8px';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
+      console.log('[novelia-comments] 批次更新開始');
       btn.disabled = true;
-      btn.textContent = '⏳';
+      btn.textContent = '⏳ 批次更新中';
       try {
         const anchors = document.querySelectorAll('a[href][data-noveliaCommentTracked]');
         const groups = new Map();
@@ -564,6 +573,7 @@
                 // force: true → 直接觸發真正的 request，寫回 localStorage 並重置 updated_at 計時器
                 const result = await getCommentCount(group.source, group.id, { force: true });
                 if (result) {
+                  console.log(`[novelia-comments] 批次更新成功: ${group.source}/${group.id}, 留言數: ${result.count} (+${result.diff})`);
                   group.anchors.forEach((a) => forceRenderCountBadge(a, result.count, result.diff));
                 }
               } catch (err) {
@@ -577,12 +587,12 @@
             })
           )
         );
-        btn.textContent = UPDATE_BUTTON_ICON;
+        btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
       } catch (e) {
         console.error('[novelia-comments] 批次更新失敗:', e);
-        btn.textContent = '⚠️';
+        btn.textContent = '⚠️ 失敗';
         setTimeout(() => {
-          btn.textContent = UPDATE_BUTTON_ICON;
+          btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
         }, 1500);
       } finally {
         btn.disabled = false;
