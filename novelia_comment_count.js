@@ -42,31 +42,30 @@
 
   const styleEl = document.createElement('style');
   styleEl.textContent = `
-    .novelia-btn {
+    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
+      margin-left: 10px;
+      padding: 0 10px;
+      height: 28px;
+      font-size: 13px;
+      cursor: pointer;
       background: #fff;
       border: 1px solid #ccc;
       border-radius: 6px;
-      height: 28px;
-      padding: 0 10px;
-      font-size: 13px;
-      cursor: pointer;
+      transition: background .2s;
+      color: #333;
+      font-weight: normal;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #333;
-      transition: background .2s;
-      vertical-align: middle;
       box-sizing: border-box;
+      vertical-align: middle;
     }
-    .novelia-btn:hover {
+    .novelia-update-button:hover, .${BULK_UPDATE_BUTTON_CLASS}:hover {
       background: #f0f0f0;
     }
-    .novelia-btn:disabled {
+    .novelia-update-button:disabled, .${BULK_UPDATE_BUTTON_CLASS}:disabled {
       cursor: not-allowed;
       opacity: 0.6;
-    }
-    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
-      margin-left: 10px;
     }
   `;
   document.head.appendChild(styleEl);
@@ -448,7 +447,7 @@
 
   function createUpdateButton(source, id, key, badge) {
     const btn = document.createElement('button');
-    btn.className = `novelia-btn novelia-update-button`;
+    btn.className = 'novelia-update-button';
     btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
     btn.dataset.noveliaNovelKey = key;
     btn.title = '手動更新留言數（會重置 10 分鐘計時器）';
@@ -540,7 +539,7 @@
   // 同時重置各自的 10 分鐘計時器，而不是只更新單一小說。
   function createBulkUpdateButton() {
     const btn = document.createElement('button');
-    btn.className = `novelia-btn ${BULK_UPDATE_BUTTON_CLASS}`;
+    btn.className = BULK_UPDATE_BUTTON_CLASS;
     btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
     btn.title = '手動更新本頁所有留言數（會重置各自的 10 分鐘計時器）';
     btn.addEventListener('click', async () => {

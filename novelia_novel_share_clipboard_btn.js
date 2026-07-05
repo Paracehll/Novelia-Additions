@@ -29,35 +29,30 @@
     toastTimer;
   const styleEl = document.createElement("style");
   styleEl.textContent = `
-    .novelia-btn {
-      background: #fff;
-      border: 1px solid #ccc;
-      border-radius: 6px;
+    .${BTN_CLASS} {
+      position: relative;
+      overflow: hidden;
+      margin-right: 6px;
+      padding: 0;
+      width: ${BTN_WIDTH};
       height: 28px;
-      padding: 0 10px;
-      font-size: 13px;
+      font-size: 12px;
       cursor: pointer;
+      background: transparent;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      vertical-align: middle;
+      opacity: .6;
+      text-align: center;
+      flex-shrink: 0;
+      line-height: 26px;
+      transition: opacity .15s, background .15s, border-color .15s;
+      box-sizing: border-box;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #333;
-      transition: background .2s;
-      vertical-align: middle;
-      box-sizing: border-box;
     }
-    .novelia-btn:hover {
-      background: #f0f0f0;
-    }
-    .novelia-btn:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-    .${BTN_CLASS} {
-      width: ${BTN_WIDTH} !important;
-      min-width: unset !important;
-      margin-right: 6px;
-      padding: 0 !important;
-    }
+    .${BTN_CLASS}:hover { opacity: 1; background: #eee; }
     .${BTN_CLASS}.flashing::after {
       content: '';
       position: absolute;
@@ -95,7 +90,25 @@
       line-height: 1.5;
     }
     .${TOAST_CLASS}.show { top: 30px; opacity: 1; }
-    .${HDR_BTN_CLASS} { margin-left: 10px; }
+    .${HDR_BTN_CLASS} {
+      margin-left: 10px;
+      padding: 0 10px;
+      height: 28px;
+      font-size: 13px;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      transition: background .2s;
+      color: #333;
+      font-weight: normal;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      vertical-align: middle;
+    }
+    .${HDR_BTN_CLASS}:hover { background: #f0f0f0; }
     .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
   `;
   document.head.appendChild(styleEl);
@@ -160,7 +173,7 @@
   }
   function createBtn(e, t) {
     const o = document.createElement("button");
-    o.className = `novelia-btn ${BTN_CLASS}`;
+    o.className = BTN_CLASS;
     o.textContent = "📋";
     return (
       (o.title = "點擊累加複製：" + e),
@@ -234,19 +247,19 @@
       (e.style.alignItems = "center"),
       (e.style.flexWrap = "wrap"));
     const t = document.createElement("button");
-    t.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    t.className = HDR_BTN_CLASS;
     t.textContent = "🔄 刷新";
     t.addEventListener("click", (e) => {
       (e.preventDefault(), triggerRefresh());
     });
     const o = document.createElement("button");
-    o.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    o.className = HDR_BTN_CLASS;
     o.textContent = "🧹 清除快取";
     o.addEventListener("click", (e) => {
       (e.preventDefault(), clearCache());
     });
     const n = document.createElement("button");
-    n.className = `novelia-btn ${HDR_BTN_CLASS}`;
+    n.className = HDR_BTN_CLASS;
     n.textContent = "📂 查看快取";
     n.addEventListener("click", (e) => {
       (e.preventDefault(), viewCache());
