@@ -195,24 +195,11 @@
   // 每個小說在本次頁面生命週期最多「自動」處理一次（手動按鈕 force 不受此限制）
   const fetchedOnceKeys = new Set();
 
-  // 需求2：只有快取過期（或沒有快取）時才真正打 API，否則直接用 localStorage
-  // 需求3：force = true 時（按下🔄按鈕），一律重新請求，並重置計時器（updated_at）
-  async function getCommentCount(source, id, { force = false } = {}) {
+  async function updateCommentCount(source, id) {
     const key = storageKey(source, id);
-
     if (pendingKeys.has(key)) return null;
 
-    if (!force) {
-      if (fetchedOnceKeys.has(key)) return null;
-      const cached = getStoredEntry(source, id);
-      if (cached && Date.now() - cached.updated_at < CACHE_REFRESH_INTERVAL_MS) {
-        fetchedOnceKeys.add(key);
-        return buildResultFromEntry(cached);
-      }
-    }
-
     pendingKeys.add(key);
-    fetchedOnceKeys.add(key);
     try {
       const previous = getStoredEntry(source, id);
       const { topCount, allCount } = await fetchCounts(source, id);
@@ -221,6 +208,29 @@
     } finally {
       pendingKeys.delete(key);
     }
+  }
+
+  // 需求2：每 10min (CACHE_REFRESH_INTERVAL_MS)，重新載入網頁時 (isInitial)，
+  // request 並更新 localstorage，其餘直接取用 localstorage。
+  // 需求3：force = true 時（按下🔄按鈕），一律直接觸發 request 並更新 localstorage。
+  async function getCommentCount(source, id, { force = false, isInitial = false } = {}) {
+    const key = storageKey(source, id);
+
+    if (force) {
+      return updateCommentCount(source, id);
+    }
+
+    if (fetchedOnceKeys.has(key)) return null;
+    fetchedOnceKeys.add(key);
+
+    const cached = getStoredEntry(source, id);
+    const isStale = !cached || (Date.now() - cached.updated_at >= CACHE_REFRESH_INTERVAL_MS);
+
+    if (isInitial && isStale) {
+      return updateCommentCount(source, id);
+    }
+
+    return buildResultFromEntry(cached);
   }
 
   function createConcurrencyLimiter(limit) {
@@ -357,10 +367,10 @@
     return Array.from(groups.values());
   }
 
-  async function processGroup(group) {
+  async function processGroup(group, { isInitial = false } = {}) {
     await limiter(async () => {
       try {
-        const result = await getCommentCount(group.source, group.id);
+        const result = await getCommentCount(group.source, group.id, { isInitial });
         if (!result) return;
         group.anchors.forEach((a) => renderCountBadge(a, result.count, result.diff));
         if (result.diff > 0) {
@@ -599,17 +609,17 @@
   }
   // =======================================================
 
-  function scan() {
+  function scan({ isInitial = false } = {}) {
     const groups = collectPendingAnchors();
-    groups.forEach((g) => processGroup(g));
+    groups.forEach((g) => processGroup(g, { isInitial }));
     injectUpdateButtonsForCurrentNovel();
     injectBulkUpdateButtonsForListPages();
   }
 
   let scanTimer = null;
-  function scheduleScan() {
+  function scheduleScan({ isInitial = false } = {}) {
     clearTimeout(scanTimer);
-    scanTimer = setTimeout(scan, 200);
+    scanTimer = setTimeout(() => scan({ isInitial }), 200);
   }
 
   // 判斷某個節點是否屬於本腳本自己注入/管理的元素（class 以 novelia- 開頭）
@@ -637,7 +647,7 @@
         (m) => m.addedNodes && m.addedNodes.length > 0 && !isSelfCausedMutation(m)
       );
       if (hasExternalChange) {
-        scheduleScan();
+        scheduleScan({ isInitial: false });
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
@@ -645,8 +655,8 @@
 
   function observeRouteChanges() {
     const notify = () => {
-      scheduleScan();
-      setTimeout(scan, 500);
+      scheduleScan({ isInitial: false });
+      setTimeout(() => scan({ isInitial: false }), 500);
     };
 
     const originalPushState = history.pushState;
@@ -667,7 +677,7 @@
   }
 
   function main() {
-    scan();
+    scan({ isInitial: true });
     observeDomChanges();
     observeRouteChanges();
   }
