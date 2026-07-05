@@ -17,6 +17,7 @@
   const BTN_WIDTH = "36px";
   const ALIGN_TYPE = "center"; // flex-start  center
   const SHOW_HEADER_BTNS = true; // true=永遠顯示；false=永遠隱藏；"auto"=行動裝置才顯示
+  const ITEM_SPAN_INDEX = 1; // 注入到第幾個 span (0-based child index, 1 = 中文標題)
   // ───────────────────────────────────────────────────────────────────────
 
   const CACHE_EVENT = "novelia-cache-change",
@@ -179,18 +180,21 @@
       if (e.querySelector(`.${BTN_CLASS}`)) return;
       // 兼容 a 被 novelia-comment-wrapper 包裹的情況
       const t = e.querySelector("a[href]"),
-        o = e.querySelector(":scope > span:first-of-type");
+        o = e.querySelectorAll(":scope > span")[ITEM_SPAN_INDEX] || e.querySelector("span.n-text");
       if (!t || !o) return;
       const n = o.textContent.trim(),
         a = t.getAttribute("href");
       if (!n || !a) return;
       const c = `[${n}](https://n.novelia.cc${a})`,
-        s = createBtn(c, t),
-        l = document.createElement("div");
+        s = createBtn(c, o),
+        l = document.createElement("div"),
+        wrapper = o.closest(".novelia-comment-wrapper"),
+        targetToReplace = wrapper || o;
+
       ((l.style.cssText = `display:flex;flex-flow:row;align-items:${ALIGN_TYPE}`),
-        t.replaceWith(l),
+        targetToReplace.replaceWith(l),
         l.appendChild(s),
-        l.appendChild(t));
+        l.appendChild(targetToReplace));
     }),
       e.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((e) => {
         if (e.querySelector(`.${BTN_CLASS}`)) return;
@@ -242,7 +246,7 @@
     n.addEventListener("click", (e) => {
       (e.preventDefault(), viewCache());
     });
-    (e.appendChild(t), e.appendChild(o), e.appendChild(n));
+    (e.prepend(n), e.prepend(o), e.prepend(t));
   }
   function matchKey(e, t) {
     return (
@@ -261,10 +265,11 @@
     document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
       const t = e.closest("div[style]");
       if (t) {
-        const o = t.querySelector("a");
-        if (o) {
-          const wrapper = o.closest(".novelia-comment-wrapper");
-          t.replaceWith(wrapper || o);
+        // 優先找 span (中文標題)，若無則找 a (原本邏輯)
+        const s = t.querySelector("span") || t.querySelector("a");
+        if (s) {
+          const wrapper = s.closest(".novelia-comment-wrapper");
+          t.replaceWith(wrapper || s);
         } else {
           t.remove();
         }

@@ -21,6 +21,7 @@
   const INCREMENT_COLOR = '#4caf50';
   const ERROR_COLOR = '#e06c75';
   const UPDATE_BUTTON_ICON = '🔄';
+  const ITEM_SPAN_INDEX = 1; // 注入到第幾個 span (0-based child index, 1 = 中文標題)
   // 需求：清單型頁面（例如「我的收藏」、搜尋結果等，非單一小說頁）的 h1 旁批次更新按鈕，
   // 用獨特 class 標記，方便用 selector 檢查是否已經加過，避免重複注入。
   const BULK_UPDATE_BUTTON_CLASS = 'novelia-bulk-update-button';
@@ -374,16 +375,22 @@
 
       const key = `${novel.source}/${novel.id}`;
       if (!groups.has(key)) {
-        groups.set(key, { source: novel.source, id: novel.id, anchors: [] });
+        groups.set(key, { source: novel.source, id: novel.id, targets: [] });
       }
-      groups.get(key).anchors.push(a);
+
+      // 判斷是否為列表模式 (有中文標題 span)
+      const flexParent = a.closest('.n-flex');
+      const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+      const target = chineseTitle || a;
+
+      groups.get(key).targets.push(target);
 
       const stored = getStoredEntry(novel.source, novel.id);
       const result = buildResultFromEntry(stored);
       if (result) {
-        renderCountBadge(a, result.count, result.diff);
+        renderCountBadge(target, result.count, result.diff);
       } else {
-        renderPlainBadge(a, `${ICON} …`);
+        renderPlainBadge(target, `${ICON} …`);
       }
     });
 
@@ -395,9 +402,9 @@
       try {
         const result = await getCommentCount(group.source, group.id, { isInitial });
         if (!result) return;
-        group.anchors.forEach((a) => renderCountBadge(a, result.count, result.diff));
+        group.targets.forEach((t) => renderCountBadge(t, result.count, result.diff));
       } catch (err) {
-        group.anchors.forEach((a) => renderPlainBadge(a, `${ICON} ?`, { isError: true }));
+        group.targets.forEach((t) => renderPlainBadge(t, `${ICON} ?`, { isError: true }));
         console.error(
           '[novelia-comments] 處理失敗:',
           `${group.source}/${group.id}`,
@@ -467,7 +474,10 @@
           document.querySelectorAll('a[href][data-novelia-comment-tracked]').forEach((a) => {
             const n = parseNovelPath(a);
             if (n && n.source === source && n.id === id) {
-              forceRenderCountBadge(a, result.count, result.diff);
+              const flexParent = a.closest('.n-flex');
+              const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+              const target = chineseTitle || a;
+              forceRenderCountBadge(target, result.count, result.diff);
             }
           });
         }
@@ -503,25 +513,35 @@
     const stored = getStoredEntry(novel.source, novel.id);
 
     h1s.forEach((h1) => {
-      let btn = h1.nextElementSibling;
-      const isOurButton = btn && btn.classList && btn.classList.contains('novelia-update-button');
+      h1.style.display = 'flex';
+      h1.style.alignItems = 'center';
+      h1.style.flexWrap = 'wrap';
 
-      if (isOurButton && btn.dataset.noveliaNovelKey !== key) {
+      let btn = h1.querySelector('.novelia-update-button');
+
+      if (btn && btn.dataset.noveliaNovelKey !== key) {
         // 小說變了（SPA 換頁）：清掉這個 h1 自己的舊按鈕/badge，不動其他 h1
-        const staleBadge = btn.nextElementSibling;
+        const staleBadge = h1.querySelector('.novelia-h1-comment-badge');
         btn.remove();
-        if (staleBadge && staleBadge.classList && staleBadge.classList.contains('novelia-h1-comment-badge')) {
+        if (staleBadge) {
           staleBadge.remove();
         }
         btn = null;
       }
 
-      let badge = isOurButton && btn ? btn.nextElementSibling : null;
+      let badge = btn ? h1.querySelector('.novelia-h1-comment-badge') : null;
       if (!btn) {
         badge = createH1Badge(key);
         btn = createUpdateButton(novel.source, novel.id, key, badge);
-        h1.insertAdjacentElement('afterend', btn);
-        btn.insertAdjacentElement('afterend', badge);
+
+        const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
+        if (lastHdrBtn) {
+          lastHdrBtn.after(btn);
+          btn.after(badge);
+        } else {
+          h1.prepend(badge);
+          h1.prepend(btn);
+        }
       }
 
       // 不論是沿用既有的還是剛建立的，一律更新 badge 內容，確保所有 h1 都拿到最新資料
@@ -556,9 +576,13 @@
           if (!novel) return;
           const key = `${novel.source}/${novel.id}`;
           if (!groups.has(key)) {
-            groups.set(key, { source: novel.source, id: novel.id, anchors: [] });
+            groups.set(key, { source: novel.source, id: novel.id, targets: [] });
           }
-          groups.get(key).anchors.push(a);
+
+          const flexParent = a.closest('.n-flex');
+          const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+          const target = chineseTitle || a;
+          groups.get(key).targets.push(target);
         });
 
         console.log(`[novelia-comments] 預計更新 ${groups.size} 部小說`);
@@ -574,10 +598,10 @@
                 const result = await getCommentCount(group.source, group.id, { force: true });
                 if (result) {
                   console.log(`[novelia-comments] 批次更新成功: ${group.source}/${group.id}, 留言數: ${result.count} (+${result.diff})`);
-                  group.anchors.forEach((a) => forceRenderCountBadge(a, result.count, result.diff));
+                  group.targets.forEach((t) => forceRenderCountBadge(t, result.count, result.diff));
                 }
               } catch (err) {
-                group.anchors.forEach((a) => renderPlainBadge(a, `${ICON} ?`, { isError: true }));
+                group.targets.forEach((t) => renderPlainBadge(t, `${ICON} ?`, { isError: true }));
                 console.error(
                   '[novelia-comments] 批次更新失敗:',
                   `${group.source}/${group.id}`,
@@ -613,8 +637,18 @@
     h1s.forEach((h1) => {
       const existing = h1.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`);
       if (existing) return;
+
+      h1.style.display = 'flex';
+      h1.style.alignItems = 'center';
+      h1.style.flexWrap = 'wrap';
+
       const btn = createBulkUpdateButton();
-      h1.appendChild(btn);
+      const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
+      if (lastHdrBtn) {
+        lastHdrBtn.after(btn);
+      } else {
+        h1.prepend(btn);
+      }
     });
   }
   // =======================================================
