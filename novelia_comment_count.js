@@ -12,7 +12,7 @@
   'use strict';
 
   // ===================== 可調整常數 =====================
-  const STORAGE_PREFIX = 'novelia_comment:';
+  const STORAGE_KEY = 'novelia_comment_count';
   const PAGE_SIZE = 100;
   const CONCURRENCY_LIMIT = 3; // 同時處理幾個「小說」
   const PAGE_FETCH_CONCURRENCY = 3; // 計入回覆時，同時抓幾「頁」留言
@@ -67,77 +67,60 @@
   `;
   document.head.appendChild(styleEl);
 
-  function storageKey(source, id) {
-    return `${STORAGE_PREFIX}${source}/${id}`;
-  }
-
-  function getStoredEntry(source, id) {
-    let raw;
+  function getFullStorage() {
     try {
-      raw = localStorage.getItem(storageKey(source, id));
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
     } catch (e) {
-      return null;
-    }
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw);
-    } catch (e) {
-      return null;
+      return {};
     }
   }
 
-  // 需求4：儲存 prev/new 的「一般留言數」與「含回覆的留言數」
-  function saveCache(source, id, counts, previous) {
-    const { comment_count, all_comment_count } = counts;
+  function saveFullStorage(data) {
     try {
-      localStorage.setItem(
-        storageKey(source, id),
-        JSON.stringify({
-          source,
-          id,
-          prev_comment_count: previous ? previous.comment_count : comment_count,
-          prev_all_comment_count: previous ? previous.all_comment_count : all_comment_count,
-          comment_count,
-          all_comment_count,
-          updated_at: Date.now(),
-        })
-      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
       console.error('[novelia-comments] localStorage 寫入失敗:', e);
     }
   }
 
-  function getAllAsNestedObject() {
-    const result = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-      const entry = getStoredEntry(...key.slice(STORAGE_PREFIX.length).split('/'));
-      if (!entry) continue;
-      if (!result[entry.source]) result[entry.source] = {};
-      result[entry.source][entry.id] = {
-        comment_count: entry.comment_count,
-        all_comment_count: entry.all_comment_count,
-        prev_comment_count: entry.prev_comment_count,
-        prev_all_comment_count: entry.prev_all_comment_count,
-        updated_at: entry.updated_at,
-      };
-    }
-    return result;
+  function getStoredEntry(source, id) {
+    const store = getFullStorage();
+    return (store[source] && store[source][id]) || null;
   }
 
-  // 依目前的 entry（可能是舊格式、缺欄位）與 COUNT_REPLIES 模式，算出要顯示的數字與新增數
-  // 修改：prev_comment_count 只拿來跟 comment_count 比對，
-  // prev_all_comment_count 只拿來跟 all_comment_count 比對，兩者不互相 fallback，
-  // 避免「一般留言數」與「含回覆留言數」的比較基準被混用而算出錯誤的 diff。
+  // 需求：儲存 prev/new 的「一般留言數」與「含回覆的留言數」於單一 key
+  function saveCache(source, id, counts, previous) {
+    const { comment_count, all_comment_count } = counts;
+    const store = getFullStorage();
+    if (!store[source]) store[source] = {};
+
+    // 格式：update: .., prev: .., prev_all: .., now: .., now_all: ..
+    store[source][id] = {
+      prev: previous ? (previous.now ?? previous.comment_count) : comment_count,
+      prev_all: previous ? (previous.now_all ?? previous.all_comment_count) : all_comment_count,
+      now: comment_count,
+      now_all: all_comment_count,
+      update: Date.now(),
+    };
+    saveFullStorage(store);
+  }
+
+  function getAllAsNestedObject() {
+    return getFullStorage();
+  }
+
+  // 依目前的 entry（支援新舊格式）與 COUNT_REPLIES 模式，算出要顯示的數字與新增數
   function buildResultFromEntry(entry) {
     if (!entry) return null;
-    const count = COUNT_REPLIES
-      ? entry.all_comment_count ?? entry.comment_count
-      : entry.comment_count;
-    const prevCount = COUNT_REPLIES
-      ? entry.prev_all_comment_count ?? count
-      : entry.prev_comment_count ?? count;
+    const now = entry.now ?? entry.comment_count;
+    const nowAll = entry.now_all ?? entry.all_comment_count;
+    const prev = entry.prev ?? entry.prev_comment_count ?? now;
+    const prevAll = entry.prev_all ?? entry.prev_all_comment_count ?? nowAll;
+
+    const count = COUNT_REPLIES ? nowAll : now;
+    const prevCount = COUNT_REPLIES ? prevAll : prev;
+
     const diff = Math.max(0, (count ?? 0) - (prevCount ?? 0));
     return { count, diff, entry };
   }
@@ -223,17 +206,17 @@
   const fetchedOnceKeys = new Set();
 
   async function updateCommentCount(source, id) {
-    const key = storageKey(source, id);
-    if (pendingKeys.has(key)) return null;
+    const uniqueKey = `${source}/${id}`;
+    if (pendingKeys.has(uniqueKey)) return null;
 
-    pendingKeys.add(key);
+    pendingKeys.add(uniqueKey);
     try {
       const previous = getStoredEntry(source, id);
       const { topCount, allCount } = await fetchCounts(source, id);
       saveCache(source, id, { comment_count: topCount, all_comment_count: allCount }, previous);
       return buildResultFromEntry(getStoredEntry(source, id));
     } finally {
-      pendingKeys.delete(key);
+      pendingKeys.delete(uniqueKey);
     }
   }
 
@@ -241,17 +224,18 @@
   // request 並更新 localstorage，其餘直接取用 localstorage。
   // 需求3：force = true 時（按下🔄按鈕），一律直接觸發 request 並更新 localstorage。
   async function getCommentCount(source, id, { force = false, isInitial = false } = {}) {
-    const key = storageKey(source, id);
+    const uniqueKey = `${source}/${id}`;
 
     if (force) {
       return updateCommentCount(source, id);
     }
 
-    if (fetchedOnceKeys.has(key)) return null;
-    fetchedOnceKeys.add(key);
+    if (fetchedOnceKeys.has(uniqueKey)) return null;
+    fetchedOnceKeys.add(uniqueKey);
 
     const cached = getStoredEntry(source, id);
-    const isStale = !cached || (Date.now() - cached.updated_at >= CACHE_REFRESH_INTERVAL_MS);
+    const updatedAt = cached ? (cached.update ?? cached.updated_at) : 0;
+    const isStale = !cached || (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
 
     if (isInitial && isStale) {
       return updateCommentCount(source, id);
@@ -692,7 +676,47 @@
     window.addEventListener('popstate', notify);
   }
 
+  function migrateStorage() {
+    const OLD_PREFIX = 'novelia_comment:';
+    const store = getFullStorage();
+    let migrated = false;
+
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(OLD_PREFIX)) {
+        try {
+          const raw = localStorage.getItem(key);
+          const entry = JSON.parse(raw);
+          if (entry && entry.source && entry.id) {
+            if (!store[entry.source]) store[entry.source] = {};
+            // 轉移並轉換格式
+            store[entry.source][entry.id] = {
+              prev: entry.prev_comment_count ?? entry.comment_count,
+              prev_all: entry.prev_all_comment_count ?? entry.all_comment_count,
+              now: entry.comment_count,
+              now_all: entry.all_comment_count,
+              update: entry.updated_at ?? Date.now()
+            };
+            migrated = true;
+          }
+        } catch (e) {
+          console.error('[novelia-comments] 遷移失敗:', key, e);
+        }
+        keysToRemove.push(key);
+      }
+    }
+
+    if (migrated) {
+      saveFullStorage(store);
+      console.log('[novelia-comments] 成功遷移舊版快取資料');
+    }
+
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  }
+
   function main() {
+    migrateStorage();
     scan({ isInitial: true });
     observeDomChanges();
     observeRouteChanges();
