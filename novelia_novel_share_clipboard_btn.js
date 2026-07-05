@@ -17,8 +17,6 @@
   const BTN_WIDTH = "36px";
   const ALIGN_TYPE = "center"; // flex-start  center
   const SHOW_HEADER_BTNS = true; // true=永遠顯示；false=永遠隱藏；"auto"=行動裝置才顯示
-  const ITEM_SPAN_INDEX = 2; // 注入到第幾個 span (0-based child index, 1 = 中文標題, 2 = 連載中/...)
-  const ITEM_SPAN_INSERT_BEFORE = true; // true = 插入到最前；false = 插入到最後
   // ───────────────────────────────────────────────────────────────────────
 
   const CACHE_EVENT = "novelia-cache-change",
@@ -183,22 +181,21 @@
       if (e.querySelector(`.${BTN_CLASS}`)) return;
       // 兼容 a 被 novelia-comment-wrapper 包裹的情況
       const t = e.querySelector("a[href]"),
-        o = e.children[ITEM_SPAN_INDEX] || e.querySelector("span.n-text");
+        o = e.querySelector("span.n-text");
       if (!t || !o) return;
       const n = o.textContent.trim(),
         a = t.getAttribute("href");
       if (!n || !a) return;
       const c = `[${n}](https://n.novelia.cc${a})`,
-        s = createBtn(c, o),
+        s = createBtn(c, t),
         l = document.createElement("div");
       l.className = ITEM_WRAPPER_CLASS;
-      const wrapper = o.closest(".novelia-comment-wrapper"),
-        targetToReplace = wrapper || o;
+      const wrapper = t.closest(".novelia-comment-wrapper"),
+        targetToReplace = wrapper || t;
 
       (targetToReplace.replaceWith(l),
-        ITEM_SPAN_INSERT_BEFORE
-          ? (l.appendChild(s), l.appendChild(targetToReplace))
-          : (l.appendChild(targetToReplace), l.appendChild(s)));
+        l.appendChild(s),
+        l.appendChild(targetToReplace));
     }),
       e.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((e) => {
         if (e.querySelector(`.${BTN_CLASS}`)) return;
