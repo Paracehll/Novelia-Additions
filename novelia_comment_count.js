@@ -11,24 +11,19 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'novelia_comment_count';
   const PAGE_SIZE = 100;
   const CONCURRENCY_LIMIT = 3;
   const PAGE_FETCH_CONCURRENCY = 3;
   const ICON = '💬';
   const BADGE_ALIGN_ITEMS = 'auto';
   const INCREMENT_COLOR = '#4caf50';
-  const ERROR_COLOR = '#e06c75';
-  const UPDATE_BUTTON_ICON = '🔄';
-  const BULK_UPDATE_BUTTON_CLASS = 'novelia-bulk-update-button';
+  const UPDATE_BTN_CONTENT = '🔄';
   const COUNT_REPLIES = true;
-  const REPLIES_ARRAY_FIELD = 'replies';
-  const REPLIES_COUNT_FIELD = 'replyCount';
   const CACHE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
   const styleEl = document.createElement('style');
   styleEl.textContent = `
-    .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
+    .novelia-update-button, .novelia-bulk-update-button {
       margin-left: 10px;
       padding: 0 10px;
       height: 28px;
@@ -46,10 +41,10 @@
       box-sizing: border-box;
       vertical-align: middle;
     }
-    .novelia-update-button:hover, .${BULK_UPDATE_BUTTON_CLASS}:hover {
+    .novelia-update-button:hover, .novelia-bulk-update-button:hover {
       background: #f0f0f0;
     }
-    .novelia-update-button:disabled, .${BULK_UPDATE_BUTTON_CLASS}:disabled {
+    .novelia-update-button:disabled, .novelia-bulk-update-button:disabled {
       cursor: not-allowed;
       opacity: 0.6;
     }
@@ -71,7 +66,7 @@
 
   function getFullStorage() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem('novelia_comment_count');
       return raw ? JSON.parse(raw) : {};
     } catch (e) {
       return {};
@@ -80,7 +75,7 @@
 
   function saveFullStorage(data) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem('novelia_comment_count', JSON.stringify(data));
     } catch (e) {
       console.error('[novelia-comments] localStorage 寫入失敗:', e);
     }
@@ -130,11 +125,11 @@
 
   function countItemWithReplies(item) {
     let total = 1;
-    const repliesArr = item ? item[REPLIES_ARRAY_FIELD] : null;
+    const repliesArr = item ? item['replies'] : null;
     if (Array.isArray(repliesArr) && repliesArr.length > 0) {
       for (const reply of repliesArr) total += countItemWithReplies(reply);
-    } else if (item && typeof item[REPLIES_COUNT_FIELD] === 'number') {
-      total += item[REPLIES_COUNT_FIELD];
+    } else if (item && typeof item['replyCount'] === 'number') {
+      total += item['replyCount'];
     }
     return total;
   }
@@ -196,7 +191,7 @@
     if (!cached) return updateCommentCount(source, id);
     const updatedAt = cached.update ?? cached.updated_at ?? 0;
     const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
-    const isNewInstall = !localStorage.getItem(STORAGE_KEY);
+    const isNewInstall = !localStorage.getItem('novelia_comment_count');
     if ((isInitial || isNewInstall) && isStale) return updateCommentCount(source, id);
     return buildResultFromEntry(cached);
   }
@@ -272,7 +267,7 @@
       else wrapper.prepend(badge);
     }
     badge.textContent = text;
-    badge.style.color = isError ? ERROR_COLOR : '';
+    badge.style.color = isError ? '#e06c75' : '';
     delete badge.dataset.noveliaRenderedText;
   }
 
@@ -372,7 +367,7 @@
   function createUpdateButton(source, id, key, badge) {
     const btn = document.createElement('button');
     btn.className = 'novelia-update-button';
-    btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
+    btn.textContent = UPDATE_BTN_CONTENT + ' 更新';
     btn.dataset.noveliaNovelKey = key;
     btn.title = '手動更新留言數';
     btn.addEventListener('click', async () => {
@@ -391,10 +386,10 @@
             }
           });
         }
-        btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
+        btn.textContent = UPDATE_BTN_CONTENT + ' 更新';
       } catch (e) {
         btn.textContent = '⚠️';
-        setTimeout(() => { btn.textContent = UPDATE_BUTTON_ICON + ' 更新'; }, 1500);
+        setTimeout(() => { btn.textContent = UPDATE_BTN_CONTENT + ' 更新'; }, 1500);
       } finally {
         btn.disabled = false;
       }
@@ -434,8 +429,8 @@
 
   function createBulkUpdateButton() {
     const btn = document.createElement('button');
-    btn.className = BULK_UPDATE_BUTTON_CLASS;
-    btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
+    btn.className = 'novelia-bulk-update-button';
+    btn.textContent = UPDATE_BTN_CONTENT + ' 批次更新';
     btn.title = '手動更新本頁所有留言數';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
@@ -459,10 +454,10 @@
             group.targets.forEach((t) => renderPlainBadge(t, `${ICON} ?`, { isError: true }));
           }
         })));
-        btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
+        btn.textContent = UPDATE_BTN_CONTENT + ' 批次更新';
       } catch (e) {
         btn.textContent = '⚠️ 失敗';
-        setTimeout(() => { btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新'; }, 1500);
+        setTimeout(() => { btn.textContent = UPDATE_BTN_CONTENT + ' 批次更新'; }, 1500);
       } finally {
         btn.disabled = false;
       }
@@ -472,7 +467,7 @@
 
   function injectBulkUpdateButtons() {
     const h1 = document.querySelector('h1');
-    if (!h1 || h1.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`)) return;
+    if (!h1 || h1.querySelector(':scope > .novelia-bulk-update-button')) return;
 
     h1.style.display = 'flex';
     h1.style.alignItems = 'center';
