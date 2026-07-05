@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Forum-Edit Mobile Footer
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  適配行動端的 Novelia 編輯頁面固定頁尾：固定標籤頁與工具欄，將提交按鈕移入標籤欄，支援 UI 切換展開/收起。
 // @match        https://n.novelia.cc/*
 // @match        http://n.novelia.cc/*
@@ -20,7 +20,8 @@
     "button.n-button--primary-type.n-button--large-type.float";
   const TABS_PAD_SELECTOR = ".n-tabs-pad";
 
-  const SIDEBAR_GAP = 50;
+  const SIDEBAR_H_GAP = 80;
+  const SIDEBAR_V_GAP = 8;
   const BUTTON_GAP = 8;
   const BUTTON_BG = "rgba(74, 74, 74, 0.8)";
   const BUTTON_COLOR = "#ffffff";
@@ -36,7 +37,7 @@
     if (document.getElementById("tm-mobile-fixed-style")) return;
     const t = document.createElement("style");
     ((t.id = "tm-mobile-fixed-style"),
-      (t.textContent = `.tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}.tm-fixed-nav-active ${TABS_PAD_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}.tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}.tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}.tm-fixed-submit-in-pad {//position: static !important;height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important;bottom: 10px !important;right: 10px !important;}#tm-fixed-nav-buttons {position: fixed !important;right: 16px !important;bottom: calc(${SIDEBAR_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${BUTTON_GAP}px !important;z-index: 10001 !important;}#tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${BUTTON_BG};color: ${BUTTON_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}.tm-fixed-footer-collapsed {display: none !important;}`),
+      (t.textContent = `.tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}.tm-fixed-nav-active ${TABS_PAD_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}.tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}.tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}.tm-fixed-submit-in-pad {//position: static !important;height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important;bottom: 10px !important;right: 10px !important;}#tm-fixed-nav-buttons {position: fixed !important;right: ${SIDEBAR_V_GAP}px !important;bottom: calc(${SIDEBAR_H_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${BUTTON_GAP}px !important;z-index: 10001 !important;}#tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${BUTTON_BG};color: ${BUTTON_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}.tm-fixed-footer-collapsed {display: none !important;}`),
       document.head.appendChild(t));
   }
   function iT() {
