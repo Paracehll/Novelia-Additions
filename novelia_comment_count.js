@@ -44,21 +44,6 @@
   styleEl.textContent = `
     .novelia-update-button, .${BULK_UPDATE_BUTTON_CLASS} {
       margin-left: 10px;
-      padding: 4px 10px;
-      font-size: 13px;
-      cursor: pointer;
-      background: #fff;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      transition: background .2s;
-      color: #333;
-      font-weight: normal;
-      display: inline-flex;
-      align-items: center;
-      line-height: 1;
-    }
-    .novelia-update-button:hover, .${BULK_UPDATE_BUTTON_CLASS}:hover {
-      background: #f0f0f0;
     }
     .novelia-update-button:disabled, .${BULK_UPDATE_BUTTON_CLASS}:disabled {
       cursor: not-allowed;
@@ -66,6 +51,23 @@
     }
   `;
   document.head.appendChild(styleEl);
+
+  function createSiteButton(text, className) {
+    const btn = document.createElement('button');
+    btn.className = `n-button n-button--default-type n-button--medium-type ${className}`;
+    btn.type = 'button';
+    btn.innerHTML = `
+      <span class="n-button__content">${text}</span>
+      <div aria-hidden="true" class="n-button__border"></div>
+      <div aria-hidden="true" class="n-button__state-border"></div>
+    `;
+    return btn;
+  }
+
+  function setSiteButtonText(btn, text) {
+    const content = btn.querySelector('.n-button__content');
+    if (content) content.textContent = text;
+  }
 
   function getFullStorage() {
     try {
@@ -437,17 +439,14 @@
   }
 
   function createUpdateButton(source, id, key, badge) {
-    const btn = document.createElement('button');
-    btn.className = 'novelia-update-button';
+    const btn = createSiteButton(UPDATE_BUTTON_ICON + ' 更新', 'novelia-update-button');
     btn.dataset.noveliaNovelKey = key;
-    btn.type = 'button';
-    btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
     btn.title = '手動更新留言數（會重置 10 分鐘計時器）';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       console.log(`[novelia-comments] 手動更新開始: ${source}/${id}`);
       btn.disabled = true;
-      btn.textContent = '⏳ 更新中';
+      setSiteButtonText(btn, '⏳ 更新中');
       try {
         const result = await getCommentCount(source, id, { force: true });
         if (result) {
@@ -463,12 +462,12 @@
             }
           });
         }
-        btn.textContent = UPDATE_BUTTON_ICON + ' 更新';
+        setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 更新');
       } catch (e) {
         console.error('[novelia-comments] 手動更新失敗:', e);
-        btn.textContent = '⚠️';
+        setSiteButtonText(btn, '⚠️');
         setTimeout(() => {
-          btn.textContent = UPDATE_BUTTON_ICON;
+          setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 更新');
         }, 1500);
       } finally {
         btn.disabled = false;
@@ -530,16 +529,13 @@
   // 按下去會對「目前頁面上所有已追蹤到的小說連結」強制重新請求並更新 localStorage，
   // 同時重置各自的 10 分鐘計時器，而不是只更新單一小說。
   function createBulkUpdateButton() {
-    const btn = document.createElement('button');
-    btn.className = BULK_UPDATE_BUTTON_CLASS;
-    btn.type = 'button';
-    btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
+    const btn = createSiteButton(UPDATE_BUTTON_ICON + ' 批次更新', BULK_UPDATE_BUTTON_CLASS);
     btn.title = '手動更新本頁所有留言數（會重置各自的 10 分鐘計時器）';
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       console.log('[novelia-comments] 批次更新開始');
       btn.disabled = true;
-      btn.textContent = '⏳ 批次更新中';
+      setSiteButtonText(btn, '⏳ 批次更新中');
       try {
         const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
         console.log(`[novelia-comments] 找到 ${anchors.length} 個已追蹤的小說連結`);
@@ -580,12 +576,12 @@
             })
           )
         );
-        btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
+        setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 批次更新');
       } catch (e) {
         console.error('[novelia-comments] 批次更新失敗:', e);
-        btn.textContent = '⚠️ 失敗';
+        setSiteButtonText(btn, '⚠️ 失敗');
         setTimeout(() => {
-          btn.textContent = UPDATE_BUTTON_ICON + ' 批次更新';
+          setSiteButtonText(btn, UPDATE_BUTTON_ICON + ' 批次更新');
         }, 1500);
       } finally {
         btn.disabled = false;

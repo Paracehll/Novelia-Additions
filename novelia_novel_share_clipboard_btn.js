@@ -28,11 +28,72 @@
   let cache = [],
     toastTimer;
   const styleEl = document.createElement("style");
-  styleEl.textContent = `.${BTN_CLASS}{position:relative;overflow:hidden;margin-right:6px;padding:1px 0;width:${BTN_WIDTH};font-size:12px;cursor:pointer;background:transparent;border:1px solid #aaa;border-radius:4px;vertical-align:middle;opacity:.6;text-align:center;flex-shrink:0;line-height:1.4;transition:opacity .15s,background .15s,border-color .15s}.${BTN_CLASS}:hover{opacity:1;background:#eee}.${BTN_CLASS}.flashing::after{content:'';position:absolute;top:50%;left:50%;width:10px;height:10px;background:rgba(40,167,69,.4);border-radius:50%;transform:translate(-50%,-50%);animation:novelia-ripple .4s ease-out}@keyframes novelia-ripple{0%{width:0;height:0;opacity:1}100%{width:120px;height:120px;opacity:0}}.${TOAST_CLASS}{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}.${TOAST_CLASS}.show{top:30px;opacity:1}.${HDR_BTN_CLASS}{margin-left:10px;padding:4px 10px;font-size:13px;cursor:pointer;background:#fff;border:1px solid #ccc;border-radius:6px;transition:background .2s;color:#333;font-weight:normal;display:inline-flex;align-items:center}.${HDR_BTN_CLASS}:hover{background:#f0f0f0}.novelia-grid-wrapper{display:inline-flex;align-items:flex-start;width:100%}`;
+  styleEl.textContent = `
+    .${BTN_CLASS} {
+      width: ${BTN_WIDTH} !important;
+      min-width: unset !important;
+      margin-right: 6px;
+      padding: 0 !important;
+    }
+    .${BTN_CLASS}.flashing::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      background: rgba(40, 167, 69, .4);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      animation: novelia-ripple .4s ease-out;
+    }
+    @keyframes novelia-ripple {
+      0% { width: 0; height: 0; opacity: 1; }
+      100% { width: 120px; height: 120px; opacity: 0; }
+    }
+    .${TOAST_CLASS} {
+      position: fixed;
+      top: -50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(51, 51, 51, .95);
+      color: #fff;
+      padding: 14px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 99999;
+      opacity: 0;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+      transition: top .3s, opacity .3s;
+      white-space: pre-wrap;
+      max-width: 90vw;
+      font-family: monospace;
+      line-height: 1.5;
+    }
+    .${TOAST_CLASS}.show { top: 30px; opacity: 1; }
+    .${HDR_BTN_CLASS} { margin-left: 10px; }
+    .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
+  `;
   document.head.appendChild(styleEl);
   const toastEl = document.createElement("div");
   toastEl.className = TOAST_CLASS;
   document.body.appendChild(toastEl);
+  function createSiteButton(text, className) {
+    const btn = document.createElement("button");
+    btn.className = `n-button n-button--default-type n-button--medium-type ${className}`;
+    btn.type = "button";
+    btn.innerHTML = `
+      <span class="n-button__content">${text}</span>
+      <div aria-hidden="true" class="n-button__border"></div>
+      <div aria-hidden="true" class="n-button__state-border"></div>
+    `;
+    return btn;
+  }
+  function setSiteButtonText(btn, text) {
+    const content = btn.querySelector(".n-button__content");
+    if (content) content.textContent = text;
+  }
   function showToast(e, t = 2200) {
     clearTimeout(toastTimer);
     toastEl.textContent = e;
@@ -50,20 +111,18 @@
           .catch((e) => {
             console.error("[Novelia]", e);
             t &&
-              ((t.textContent = "❌"),
+              ((setSiteButtonText(t, "❌")),
               setTimeout(() => {
-                t.textContent = "📋";
+                setSiteButtonText(t, "📋");
               }, 1550));
           });
   }
   function animateSuccess(e) {
-    e.textContent = "✅";
+    setSiteButtonText(e, "✅");
     e.style.opacity = "1";
-    e.style.borderColor = "#28a745";
     setTimeout(() => {
-      e.textContent = "📋";
-      e.style.opacity = ".6";
-      e.style.borderColor = "#aaa";
+      setSiteButtonText(e, "📋");
+      e.style.opacity = "";
       e.classList.remove("flashing");
     }, 1500);
   }
@@ -92,11 +151,9 @@
       showToast("🔄 已重新偵測當前頁面並重新注入按鈕！"));
   }
   function createBtn(e, t) {
-    const o = document.createElement("button");
+    const o = createSiteButton("📋", BTN_CLASS);
     return (
-      (o.className = BTN_CLASS),
       (o.title = "點擊累加複製：" + e),
-      (o.textContent = "📋"),
       cache.includes(e) && (o.style.display = "none"),
       document.addEventListener(CACHE_EVENT, (t) => {
         o.style.display = t.detail.cache.includes(e) ? "none" : "";
@@ -119,7 +176,8 @@
   function injectItemButtons(e) {
     (e.querySelectorAll(ITEM_SELECTOR).forEach((e) => {
       if (e.querySelector(`.${BTN_CLASS}`)) return;
-      const t = e.querySelector(":scope > a"),
+      // 兼容 a 被 novelia-comment-wrapper 包裹的情況
+      const t = e.querySelector("a[href]"),
         o = e.querySelector(":scope > span:first-of-type");
       if (!t || !o) return;
       const n = o.textContent.trim(),
@@ -165,24 +223,18 @@
       (e.style.display = "flex"),
       (e.style.alignItems = "center"),
       (e.style.flexWrap = "wrap"));
-    const t = document.createElement("button");
-    ((t.className = HDR_BTN_CLASS),
-      (t.textContent = "🔄 刷新"),
-      t.addEventListener("click", (e) => {
-        (e.preventDefault(), triggerRefresh());
-      }));
-    const o = document.createElement("button");
-    ((o.className = HDR_BTN_CLASS),
-      (o.textContent = "🧹 清除快取"),
-      o.addEventListener("click", (e) => {
-        (e.preventDefault(), clearCache());
-      }));
-    const n = document.createElement("button");
-    ((n.className = HDR_BTN_CLASS),
-      (n.textContent = "📂 查看快取"),
-      n.addEventListener("click", (e) => {
-        (e.preventDefault(), viewCache());
-      }));
+    const t = createSiteButton("🔄 刷新", HDR_BTN_CLASS);
+    t.addEventListener("click", (e) => {
+      (e.preventDefault(), triggerRefresh());
+    });
+    const o = createSiteButton("🧹 清除快取", HDR_BTN_CLASS);
+    o.addEventListener("click", (e) => {
+      (e.preventDefault(), clearCache());
+    });
+    const n = createSiteButton("📂 查看快取", HDR_BTN_CLASS);
+    n.addEventListener("click", (e) => {
+      (e.preventDefault(), viewCache());
+    });
     (e.appendChild(t), e.appendChild(o), e.appendChild(n));
   }
   function matchKey(e, t) {
@@ -199,11 +251,16 @@
       matchKey(e, REFRESH_KEY) && (e.preventDefault(), triggerRefresh()));
   });
   function removeStaleButtons() {
-    (document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
+    document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
       const t = e.closest("div[style]");
       if (t) {
         const o = t.querySelector("a");
-        o ? t.replaceWith(o) : t.remove();
+        if (o) {
+          const wrapper = o.closest(".novelia-comment-wrapper");
+          t.replaceWith(wrapper || o);
+        } else {
+          t.remove();
+        }
       }
       const o = e.closest(".novelia-grid-wrapper");
       if (o) {
@@ -211,12 +268,8 @@
         e ? o.replaceWith(e) : o.remove();
       }
       e.remove();
-    }),
-      document
-        .querySelectorAll(`.${HDR_BTN_CLASS}`)
-        .forEach((e) => e.remove()));
-    const e = document.querySelector("h1");
-    e && delete e.dataset[HDR_MARK];
+    });
+    // 不再移除 HDR_BTN_CLASS 按鈕與 HDR_MARK，避免 h1 buttons 被刷新
   }
   function fullScan() {
     (injectItemButtons(document), injectHeaderButtons());
