@@ -367,7 +367,7 @@
   }
 
   function collectPendingAnchors() {
-    const anchors = document.querySelectorAll(`a[href]:not([data-noveliaCommentTracked])`);
+    const anchors = document.querySelectorAll(`a[href]:not([data-novelia-comment-tracked])`);
     const groups = new Map();
 
     anchors.forEach((a) => {
@@ -469,7 +469,7 @@
           delete badge.dataset.noveliaRenderedText;
           renderH1Badge(badge, result.entry);
           // 同步更新頁面上其他指向同一小說的連結標註（若有）
-          document.querySelectorAll('a[href][data-noveliaCommentTracked]').forEach((a) => {
+          document.querySelectorAll('a[href][data-novelia-comment-tracked]').forEach((a) => {
             const n = parseNovelPath(a);
             if (n && n.source === source && n.id === id) {
               forceRenderCountBadge(a, result.count, result.diff);
@@ -554,7 +554,8 @@
       btn.disabled = true;
       btn.textContent = '⏳ 批次更新中';
       try {
-        const anchors = document.querySelectorAll('a[href][data-noveliaCommentTracked]');
+        const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
+        console.log(`[novelia-comments] 找到 ${anchors.length} 個已追蹤的小說連結`);
         const groups = new Map();
         anchors.forEach((a) => {
           const novel = parseNovelPath(a);
@@ -565,6 +566,11 @@
           }
           groups.get(key).anchors.push(a);
         });
+
+        console.log(`[novelia-comments] 預計更新 ${groups.size} 部小說`);
+        if (groups.size === 0) {
+          console.log('[novelia-comments] 未發現可更新的小說');
+        }
 
         await Promise.all(
           Array.from(groups.values()).map((group) =>
