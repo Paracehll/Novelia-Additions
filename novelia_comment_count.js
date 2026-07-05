@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Web評論數
 // @namespace    novelia-comment-tracker
-// @version      1.3.1
+// @version      1.3.2
 // @description  掃描頁面上的小說連結，透過官方 /api/comment 取得留言數，存入 localStorage 並定期更新，提供手動更新按鈕。
 // @match        https://n.novelia.cc/*
 // @grant        none
@@ -206,6 +206,11 @@
     return m ? { source: m[1], id: m[2] } : null;
   }
 
+  function isAllowedPage() {
+    const path = window.__noveliaMockPath || location.pathname;
+    return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite');
+  }
+
   function parseNovelPath(anchor) {
     try {
       return matchNovelPath(new URL(anchor.getAttribute('href'), location.origin).pathname);
@@ -219,7 +224,6 @@
     if (parent && (parent.classList.contains('novelia-comment-wrapper') || parent.classList.contains('novelia-item-wrapper'))) return parent;
     const wrapper = document.createElement('span');
     wrapper.className = 'novelia-comment-wrapper';
-    wrapper.style.display = 'inline-flex';
     wrapper.style.alignItems = BADGE_ALIGN_ITEMS;
     wrapper.style.gap = '6px';
     target.replaceWith(wrapper);
@@ -237,6 +241,7 @@
       badge.style.opacity = '0.85';
       badge.style.whiteSpace = 'nowrap';
       badge.style.flex = '0 0 auto';
+      badge.style.marginRight = '8px';
       const shareBtn = wrapper.querySelector(':scope > .novelia-copy-btn');
       if (shareBtn) shareBtn.after(badge);
       else wrapper.prepend(badge);
@@ -283,9 +288,10 @@
   }
 
   function getListTarget(a) {
-    const flexParent = a.closest('.n-flex');
+    const flexParent = a.closest('.n-flex') || a.closest('.n-grid > div');
     if (!flexParent) return a;
-    return flexParent.children[1] || flexParent.querySelector('span.n-text') || a;
+    const targets = flexParent.querySelectorAll(':scope > span, :scope > div.text-2line');
+    return targets[0] || targets[1] || a;
   }
 
   function collectPendingAnchors() {
@@ -448,26 +454,28 @@
     return btn;
   }
 
-  function injectBulkUpdateButtonsForListPages() {
-    if (matchNovelPath(location.pathname)) return;
-    const h1s = document.querySelectorAll('h1');
-    h1s.forEach((h1) => {
-      if (h1.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`)) return;
-      h1.style.display = 'flex';
-      h1.style.alignItems = 'center';
-      h1.style.flexWrap = 'wrap';
-      const btn = createBulkUpdateButton();
-      const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
-      if (lastHdrBtn) lastHdrBtn.after(btn);
-      else h1.prepend(btn);
+  function injectBulkUpdateButtons() {
+    const headers = document.querySelectorAll('h1, h2');
+    headers.forEach((h) => {
+      if (h.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`)) return;
+      if (h.textContent.includes('我的收藏') || h.tagName === 'H1') {
+        h.style.display = 'flex';
+        h.style.alignItems = 'center';
+        h.style.flexWrap = 'wrap';
+        const btn = createBulkUpdateButton();
+        const lastHdrBtn = Array.from(h.querySelectorAll('.novelia-header-btn')).pop();
+        if (lastHdrBtn) lastHdrBtn.after(btn);
+        else h.appendChild(btn);
+      }
     });
   }
 
   function scan({ isInitial = false } = {}) {
+    if (!isAllowedPage()) return;
     const groups = collectPendingAnchors();
     groups.forEach((g) => processGroup(g, { isInitial }));
     injectUpdateButtonsForCurrentNovel();
-    injectBulkUpdateButtonsForListPages();
+    injectBulkUpdateButtons();
   }
 
   let scanTimer = null;
