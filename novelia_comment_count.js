@@ -21,7 +21,8 @@
   const INCREMENT_COLOR = '#4caf50';
   const ERROR_COLOR = '#e06c75';
   const UPDATE_BUTTON_ICON = '🔄';
-  const ITEM_SPAN_INDEX = 1; // 注入到第幾個 span (0-based child index, 1 = 中文標題)
+  const ITEM_SPAN_INDEX = 2; // 注入到第幾個 span (0-based child index, 1 = 中文標題, 2 = 連載中/...)
+  const ITEM_SPAN_INSERT_BEFORE = true; // true = 插入到最前；false = 插入到最後
   // 需求：清單型頁面（例如「我的收藏」、搜尋結果等，非單一小說頁）的 h1 旁批次更新按鈕，
   // 用獨特 class 標記，方便用 selector 檢查是否已經加過，避免重複注入。
   const BULK_UPDATE_BUTTON_CLASS = 'novelia-bulk-update-button';
@@ -297,7 +298,7 @@
 
   function ensureWrapper(anchor) {
     const parent = anchor.parentElement;
-    if (parent && parent.classList.contains('novelia-comment-wrapper')) {
+    if (parent && (parent.classList.contains('novelia-comment-wrapper') || parent.classList.contains('novelia-item-wrapper'))) {
       return parent;
     }
     const wrapper = document.createElement('span');
@@ -312,15 +313,25 @@
 
   function getOrCreateBadge(anchor) {
     const wrapper = ensureWrapper(anchor);
-    let badge = wrapper.firstElementChild;
-    if (!badge || !badge.classList.contains('novelia-comment-badge')) {
+    let badge = wrapper.querySelector(':scope > .novelia-comment-badge');
+    if (!badge) {
       badge = document.createElement('span');
       badge.className = 'novelia-comment-badge';
       badge.style.fontSize = '12px';
       badge.style.opacity = '0.85';
       badge.style.whiteSpace = 'nowrap';
       badge.style.flex = '0 0 auto';
-      wrapper.insertBefore(badge, anchor);
+      if (ITEM_SPAN_INSERT_BEFORE) {
+        // 嘗試在 share button 之後插入，以保持 [share] [comment] [title]
+        const shareBtn = wrapper.querySelector(':scope > .novelia-copy-btn');
+        if (shareBtn) {
+          shareBtn.after(badge);
+        } else {
+          wrapper.prepend(badge);
+        }
+      } else {
+        wrapper.appendChild(badge);
+      }
     }
     return badge;
   }
@@ -338,6 +349,10 @@
   function renderCountBadge(anchor, count, diff) {
     const badge = getOrCreateBadge(anchor);
     if (badge.dataset.noveliaLocked === '1') return;
+
+    const key = `${count}|${diff}`;
+    badge.dataset.noveliaRenderedText = key;
+
     writeCountBadge(badge, count, diff);
     badge.dataset.noveliaLocked = '1';
   }
@@ -345,6 +360,11 @@
   // 供手動按下🔄按鈕時使用：不受鎖定限制，直接覆寫成最新結果
   function forceRenderCountBadge(anchor, count, diff) {
     const badge = getOrCreateBadge(anchor);
+    // 檢查數值是否有變動，避免重複更新 DOM 造成閃爍或重複添加
+    const key = `${count}|${diff}`;
+    if (badge.dataset.noveliaRenderedText === key) return;
+    badge.dataset.noveliaRenderedText = key;
+
     writeCountBadge(badge, count, diff);
     badge.dataset.noveliaLocked = '1';
   }
@@ -380,7 +400,7 @@
 
       // 判斷是否為列表模式 (有中文標題 span)
       const flexParent = a.closest('.n-flex');
-      const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+      const chineseTitle = flexParent ? (flexParent.children[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
       const target = chineseTitle || a;
 
       groups.get(key).targets.push(target);
@@ -475,7 +495,7 @@
             const n = parseNovelPath(a);
             if (n && n.source === source && n.id === id) {
               const flexParent = a.closest('.n-flex');
-              const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+              const chineseTitle = flexParent ? (flexParent.children[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
               const target = chineseTitle || a;
               forceRenderCountBadge(target, result.count, result.diff);
             }
@@ -576,13 +596,13 @@
           if (!novel) return;
           const key = `${novel.source}/${novel.id}`;
           if (!groups.has(key)) {
-            groups.set(key, { source: novel.source, id: novel.id, targets: [] });
+            groups.set(key, { source: novel.source, id: novel.id, targets: new Set() });
           }
 
           const flexParent = a.closest('.n-flex');
-          const chineseTitle = flexParent ? (flexParent.querySelectorAll(':scope > span')[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
+          const chineseTitle = flexParent ? (flexParent.children[ITEM_SPAN_INDEX] || flexParent.querySelector('span.n-text')) : null;
           const target = chineseTitle || a;
-          groups.get(key).targets.push(target);
+          groups.get(key).targets.add(target);
         });
 
         console.log(`[novelia-comments] 預計更新 ${groups.size} 部小說`);

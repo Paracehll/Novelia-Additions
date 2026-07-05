@@ -17,7 +17,8 @@
   const BTN_WIDTH = "36px";
   const ALIGN_TYPE = "center"; // flex-start  center
   const SHOW_HEADER_BTNS = true; // true=永遠顯示；false=永遠隱藏；"auto"=行動裝置才顯示
-  const ITEM_SPAN_INDEX = 1; // 注入到第幾個 span (0-based child index, 1 = 中文標題)
+  const ITEM_SPAN_INDEX = 2; // 注入到第幾個 span (0-based child index, 1 = 中文標題, 2 = 連載中/...)
+  const ITEM_SPAN_INSERT_BEFORE = true; // true = 插入到最前；false = 插入到最後
   // ───────────────────────────────────────────────────────────────────────
 
   const CACHE_EVENT = "novelia-cache-change",
@@ -25,6 +26,7 @@
     TOAST_CLASS = "novelia-toast",
     HDR_BTN_CLASS = "novelia-header-btn",
     HDR_MARK = "noveliaHeaderInjected",
+    ITEM_WRAPPER_CLASS = "novelia-item-wrapper",
     ITEM_SELECTOR = 'div.n-flex[role="none"]';
   let cache = [],
     toastTimer;
@@ -89,6 +91,7 @@
     }
     .${HDR_BTN_CLASS}:hover { background: #f0f0f0; }
     .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
+    .${ITEM_WRAPPER_CLASS} { display: flex; flex-flow: row; align-items: ${ALIGN_TYPE}; }
   `;
   document.head.appendChild(styleEl);
   const toastEl = document.createElement("div");
@@ -180,21 +183,22 @@
       if (e.querySelector(`.${BTN_CLASS}`)) return;
       // 兼容 a 被 novelia-comment-wrapper 包裹的情況
       const t = e.querySelector("a[href]"),
-        o = e.querySelectorAll(":scope > span")[ITEM_SPAN_INDEX] || e.querySelector("span.n-text");
+        o = e.children[ITEM_SPAN_INDEX] || e.querySelector("span.n-text");
       if (!t || !o) return;
       const n = o.textContent.trim(),
         a = t.getAttribute("href");
       if (!n || !a) return;
       const c = `[${n}](https://n.novelia.cc${a})`,
         s = createBtn(c, o),
-        l = document.createElement("div"),
-        wrapper = o.closest(".novelia-comment-wrapper"),
+        l = document.createElement("div");
+      l.className = ITEM_WRAPPER_CLASS;
+      const wrapper = o.closest(".novelia-comment-wrapper"),
         targetToReplace = wrapper || o;
 
-      ((l.style.cssText = `display:flex;flex-flow:row;align-items:${ALIGN_TYPE}`),
-        targetToReplace.replaceWith(l),
-        l.appendChild(s),
-        l.appendChild(targetToReplace));
+      (targetToReplace.replaceWith(l),
+        ITEM_SPAN_INSERT_BEFORE
+          ? (l.appendChild(s), l.appendChild(targetToReplace))
+          : (l.appendChild(targetToReplace), l.appendChild(s)));
     }),
       e.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((e) => {
         if (e.querySelector(`.${BTN_CLASS}`)) return;
@@ -263,9 +267,9 @@
   });
   function removeStaleButtons() {
     document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
-      const t = e.closest("div[style]");
+      const t = e.closest("." + ITEM_WRAPPER_CLASS) || e.closest("div[style]");
       if (t) {
-        // 優先找 span (中文標題)，若無則找 a (原本邏輯)
+        // 優先找 span，若無則找 a (原本邏輯)
         const s = t.querySelector("span") || t.querySelector("a");
         if (s) {
           const wrapper = s.closest(".novelia-comment-wrapper");
