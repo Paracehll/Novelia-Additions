@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 小說鏈結分享按鈕（整合版）
 // @namespace    http://tampermonkey.net/
-// @version      1.5.2
+// @version      1.5.3
 // @description  在小說列表的標題前或文庫標題前添加「複製」按鈕，格式為「[中文標題](完整連結)」。支援快捷鍵與按鈕雙模式。自動偵測 SPA 換頁，重新注入。
 // @match        *://n.novelia.cc/*
 // @grant        GM_setClipboard
@@ -87,7 +87,7 @@
         );
   }
   function triggerRefresh() {
-    (removeStaleButtons(),
+    (removeStaleButtons(true),
       requestAnimationFrame(() => requestAnimationFrame(fullScan)),
       showToast("🔄 已重新偵測當前頁面並重新注入按鈕！"));
   }
@@ -198,8 +198,8 @@
       matchKey(e, VIEW_KEY) && (e.preventDefault(), viewCache()),
       matchKey(e, REFRESH_KEY) && (e.preventDefault(), triggerRefresh()));
   });
-  function removeStaleButtons() {
-    (document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
+  function removeStaleButtons(skipHeaders = false) {
+    document.querySelectorAll(`.${BTN_CLASS}`).forEach((e) => {
       const t = e.closest("div[style]");
       if (t) {
         const o = t.querySelector("a");
@@ -211,12 +211,15 @@
         e ? o.replaceWith(e) : o.remove();
       }
       e.remove();
-    }),
+    });
+
+    if (!skipHeaders) {
       document
         .querySelectorAll(`.${HDR_BTN_CLASS}`)
-        .forEach((e) => e.remove()));
-    const e = document.querySelector("h1");
-    e && delete e.dataset[HDR_MARK];
+        .forEach((e) => e.remove());
+      const e = document.querySelector("h1");
+      e && delete e.dataset[HDR_MARK];
+    }
   }
   function fullScan() {
     (injectItemButtons(document), injectHeaderButtons());
