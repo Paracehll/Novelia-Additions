@@ -21,6 +21,9 @@
   const INCREMENT_COLOR = '#4caf50';
   const ERROR_COLOR = '#e06c75';
   const UPDATE_BUTTON_ICON = '🔄';
+  // 需求：清單型頁面（例如「我的收藏」、搜尋結果等，非單一小說頁）的 h1 旁批次更新按鈕，
+  // 用獨特 class 標記，方便用 selector 檢查是否已經加過，避免重複注入。
+  const BULK_UPDATE_BUTTON_CLASS = 'novelia-bulk-update-button';
 
   // 需求1：是否計入 replies 內的留言數（回覆的回覆也會遞迴計入）
   // 開啟後，每次「真正發出請求」時會改成抓取全部分頁（而非只抓首頁+末頁），
@@ -388,9 +391,10 @@
   // 改成單純在 h1 後面插入兄弟節點，不動 h1 本身，最穩定也最不易被框架清掉；
   // 就算真的被清掉，下次 scan() 偵測到不存在時也會自動補回。
 
-  function createH1Badge() {
+  function createH1Badge(key) {
     const badge = document.createElement('span');
     badge.className = 'novelia-h1-comment-badge';
+    badge.dataset.noveliaNovelKey = key;
     badge.style.fontSize = '14px';
     badge.style.opacity = '0.85';
     badge.style.whiteSpace = 'nowrap';
@@ -471,18 +475,126 @@
   // key 不對就換成新的），最後一律呼叫 renderH1Badge 更新內容，
   // 讓「所有」符合條件的 h1 都會被更新到，而不是每個 h1 走各自不同的更新路徑。
   function injectUpdateButtonsForCurrentNovel() {
+    const novel = matchNovelPath(location.pathname);
+    if (!novel) return;
     const h1s = document.querySelectorAll('h1');
     if (!h1s.length) return; // 內容可能還沒渲染完成，下一次 scan 會再試
 
-    h1s.forEach((h1) => {
-      let btn = document.querySelectorAll('btn-comment-update');
+    const key = `${novel.source}/${novel.id}`;
+    const stored = getStoredEntry(novel.source, novel.id);
 
+    h1s.forEach((h1) => {
+      let btn = h1.nextElementSibling;
+      const isOurButton = btn && btn.classList && btn.classList.contains('novelia-update-button');
+
+      if (isOurButton && btn.dataset.noveliaNovelKey !== key) {
+        // 小說變了（SPA 換頁）：清掉這個 h1 自己的舊按鈕/badge，不動其他 h1
+        const staleBadge = btn.nextElementSibling;
+        btn.remove();
+        if (staleBadge && staleBadge.classList && staleBadge.classList.contains('novelia-h1-comment-badge')) {
+          staleBadge.remove();
+        }
+        btn = null;
+      }
+
+      let badge = isOurButton && btn ? btn.nextElementSibling : null;
       if (!btn) {
-        badge = createH1Badge();
+        badge = createH1Badge(key);
         btn = createUpdateButton(novel.source, novel.id, key, badge);
         h1.insertAdjacentElement('afterend', btn);
         btn.insertAdjacentElement('afterend', badge);
       }
+
+      // 不論是沿用既有的還是剛建立的，一律更新 badge 內容，確保所有 h1 都拿到最新資料
+      if (badge && badge.classList && badge.classList.contains('novelia-h1-comment-badge')) {
+        renderH1Badge(badge, stored);
+      }
+    });
+  }
+  // =======================================================
+
+  // ===================== 清單型頁面的批次更新按鈕 =====================
+  // 適用於像「我的收藏」這種列表頁：頁面上的 h1 不對應單一小說，
+  // 而是同時列出很多本小說連結。這裡在 h1 右邊加一顆按鈕，
+  // 按下去會對「目前頁面上所有已追蹤到的小說連結」強制重新請求並更新 localStorage，
+  // 同時重置各自的 10 分鐘計時器，而不是只更新單一小說。
+  function createBulkUpdateButton() {
+    const btn = document.createElement('button');
+    btn.className = BULK_UPDATE_BUTTON_CLASS;
+    btn.type = 'button';
+    btn.textContent = UPDATE_BUTTON_ICON;
+    btn.title = '手動更新本頁所有留言數（會重置各自的 10 分鐘計時器）';
+    btn.style.cursor = 'pointer';
+    btn.style.border = 'none';
+    btn.style.background = 'transparent';
+    btn.style.fontSize = '16px';
+    btn.style.lineHeight = '1';
+    btn.style.marginLeft = '8px';
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = '⏳';
+      try {
+        const anchors = document.querySelectorAll('a[href][data-noveliaCommentTracked]');
+        const groups = new Map();
+        anchors.forEach((a) => {
+          const novel = parseNovelPath(a);
+          if (!novel) return;
+          const key = `${novel.source}/${novel.id}`;
+          if (!groups.has(key)) {
+            groups.set(key, { source: novel.source, id: novel.id, anchors: [] });
+          }
+          groups.get(key).anchors.push(a);
+        });
+
+        await Promise.all(
+          Array.from(groups.values()).map((group) =>
+            limiter(async () => {
+              try {
+                // force: true → 直接觸發真正的 request，寫回 localStorage 並重置 updated_at 計時器
+                const result = await getCommentCount(group.source, group.id, { force: true });
+                if (result) {
+                  group.anchors.forEach((a) => forceRenderCountBadge(a, result.count, result.diff));
+                }
+              } catch (err) {
+                group.anchors.forEach((a) => renderPlainBadge(a, `${ICON} ?`, { isError: true }));
+                console.error(
+                  '[novelia-comments] 批次更新失敗:',
+                  `${group.source}/${group.id}`,
+                  err
+                );
+              }
+            })
+          )
+        );
+        btn.textContent = UPDATE_BUTTON_ICON;
+      } catch (e) {
+        console.error('[novelia-comments] 批次更新失敗:', e);
+        btn.textContent = '⚠️';
+        setTimeout(() => {
+          btn.textContent = UPDATE_BUTTON_ICON;
+        }, 1500);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    return btn;
+  }
+
+  // 只在「不是單一小說頁」時才加這顆批次按鈕（單一小說頁已經有 injectUpdateButtonsForCurrentNovel 處理）。
+  // 按鈕加在 h1 樹下（作為 h1 的子節點），而不是 h1 後面的兄弟節點。
+  // 檢查是否已加過按鈕時，直接在該 h1 底下用 CSS selector 找該按鈕的獨特 class，
+  // 找到就跳過、找不到就補上，避免每次 scan() 都重複插入。
+  function injectBulkUpdateButtonsForListPages() {
+    if (matchNovelPath(location.pathname)) return;
+    const h1s = document.querySelectorAll('h1');
+    if (!h1s.length) return;
+
+    h1s.forEach((h1) => {
+      const existing = h1.querySelector(`:scope > .${BULK_UPDATE_BUTTON_CLASS}`);
+      if (existing) return;
+      const btn = createBulkUpdateButton();
+      h1.appendChild(btn);
     });
   }
   // =======================================================
@@ -491,6 +603,7 @@
     const groups = collectPendingAnchors();
     groups.forEach((g) => processGroup(g));
     injectUpdateButtonsForCurrentNovel();
+    injectBulkUpdateButtonsForListPages();
   }
 
   let scanTimer = null;
