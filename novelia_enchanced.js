@@ -1555,7 +1555,8 @@
                 TOAST_NOTIFICATION_CLASS = "novelia-toast",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
                 HEADER_INJECTION_MARK = "noveliaHeaderInjected",
-                LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]';
+                LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
+                LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
             const SVG_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
@@ -1572,6 +1573,7 @@
                 @keyframes novelia-ripple{0%{width:0;height:0;opacity:1}100%{width:120px;height:120px;opacity:0}}
                 .${TOAST_NOTIFICATION_CLASS}{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}
                 .${TOAST_NOTIFICATION_CLASS}.show{top:30px;opacity:1}
+                .${LIST_WRAPPER_CLASS}{display:inline-flex;align-items:center;width:auto;flex-flow:row;margin-bottom:2px;}
                 .novelia-grid-wrapper{display:inline-flex;align-items:flex-start;width:100%}
             `;
             document.head.appendChild(styleElement);
@@ -1650,7 +1652,7 @@
                 setTimeout(() => {
                     performFullScan();
                     showCopyToast("🔄 已重新偵測當前頁面並重新注入按鈕！");
-                }, 100);
+                }, 200);
             }
 
             function createCopyButton(formattedLink) {
@@ -1683,23 +1685,37 @@
             }
 
             function injectLinkButtonsToItems(parentElement) {
+                // For novel lists (Home, Search, Favorites)
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
                     if (itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
-                    const anchorElement = itemElement.querySelector(":scope > a");
-                    const textSpanElement = itemElement.querySelector(":scope > span:first-of-type");
-                    if (!anchorElement || !textSpanElement) return;
-                    const titleText = textSpanElement.textContent.trim();
+
+                    // Find the main novel link.
+                    const anchorElement = itemElement.querySelector("a[href^='/novel/']");
+                    if (!anchorElement) return;
+
+                    // Also find the Chinese title if it exists to include in the copy format
+                    const textSpanElement = itemElement.querySelector("span.n-text");
+                    const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
+
                     const formattedLink = `[${titleText}](https://n.novelia.cc${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
-                    const wrapperDiv = document.createElement("div");
-                    wrapperDiv.style.cssText = `display:flex;flex-flow:row;align-items:${ALIGNMENT_TYPE}`;
-                    anchorElement.replaceWith(wrapperDiv);
-                    wrapperDiv.appendChild(copyBtn);
-                    wrapperDiv.appendChild(anchorElement);
+
+                    // Create a row wrapper for the button and anchor to keep them together
+                    let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}`);
+                    if (!wrapper) {
+                        wrapper = document.createElement('div');
+                        wrapper.className = LIST_WRAPPER_CLASS;
+                        anchorElement.replaceWith(wrapper);
+                        wrapper.appendChild(copyBtn);
+                        wrapper.appendChild(anchorElement);
+                    } else if (!wrapper.querySelector(`.${COPY_BUTTON_CLASS}`)) {
+                        wrapper.prepend(copyBtn);
+                    }
                 });
 
+                // For Wenku grid
                 parentElement.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
                     if (anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const textSpanElement = anchorElement.querySelector("span.n-text");
@@ -1709,6 +1725,7 @@
                     if (!titleText || !linkHref) return;
                     const formattedLink = `[${titleText}](https://n.novelia.cc${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
+
                     const gridWrapperDiv = document.createElement("div");
                     gridWrapperDiv.className = "novelia-grid-wrapper";
                     textSpanElement.replaceWith(gridWrapperDiv);
@@ -1730,12 +1747,16 @@
                 const existingButtons = document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`);
 
                 if (!isSharePage()) {
-                    existingButtons.forEach(btn => btn.remove());
+                    existingButtons.forEach(button => button.remove());
                     if (h1Element) delete h1Element.dataset[HEADER_INJECTION_MARK];
                     return;
                 }
 
                 if (!h1Element || h1Element.dataset[HEADER_INJECTION_MARK]) return;
+
+                // Double check if buttons already exist (manual check instead of just dataset)
+                if (h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;
+
                 h1Element.dataset[HEADER_INJECTION_MARK] = "1";
                 Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
 
@@ -1775,21 +1796,22 @@
             });
 
             function removeStaleButtons(skipHeaders = false) {
-                document.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((button) => {
-                    const flexWrapper = button.closest("div[style*='display:flex']");
-                    if (flexWrapper) {
-                        const originalAnchor = flexWrapper.querySelector("a");
-                        if (originalAnchor) flexWrapper.replaceWith(originalAnchor);
-                        else flexWrapper.remove();
-                    }
-                    const gridWrapper = button.closest(".novelia-grid-wrapper");
-                    if (gridWrapper) {
-                        const originalText = gridWrapper.querySelector("span.n-text");
-                        if (originalText) gridWrapper.replaceWith(originalText);
-                        else gridWrapper.remove();
-                    }
-                    button.remove();
+                // Revert novel list item wrappers
+                document.querySelectorAll(`.${LIST_WRAPPER_CLASS}`).forEach((wrapper) => {
+                    const anchor = wrapper.querySelector('a');
+                    if (anchor) wrapper.replaceWith(anchor);
+                    else wrapper.remove();
                 });
+
+                // Revert grid wrappers
+                document.querySelectorAll('.novelia-grid-wrapper').forEach((wrapper) => {
+                    const originalText = wrapper.querySelector("span.n-text");
+                    if (originalText) wrapper.replaceWith(originalText);
+                    else wrapper.remove();
+                });
+
+                // Remove any leftover buttons just in case
+                document.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((button) => button.remove());
 
                 if (!skipHeaders) {
                     document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
