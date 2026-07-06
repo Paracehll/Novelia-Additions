@@ -25,8 +25,7 @@
         { id: 'forum_search', name: '論壇搜尋增強', default: true },
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
-        { id: 'thread_footer', name: '編輯頁面固定頁尾 (桌面版)', default: true },
-        { id: 'thread_footer_mobile', name: '編輯頁面固定頁尾 (行動版)', default: true }
+        { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true }
     ];
 
     const config = {};
@@ -1848,74 +1847,113 @@
     Modules.thread_footer = {
         init: function() {
             if (location.hostname !== 'n.novelia.cc') return;
-            if (navigator.userAgent.match(/Android|iPhone|iPad/i)) return; // Desktop only
 
+            const isMobileEnvironment = !!navigator.userAgent.match(/Android|iPhone|iPad/i);
+
+            // Selectors
+            const TABS_NAV_ELEMENT_SELECTOR = ".n-tabs-nav--card-type.n-tabs-nav--top.n-tabs-nav";
             const TABS_NAV_LABEL_SELECTOR = ".n-tabs-nav-scroll-wrapper";
+            const SUBMIT_BUTTON_SELECTOR = "button.n-button--primary-type.n-button--large-type.float";
+            const TOOLBAR_CONTAINER_SELECTOR = ".markdown-input .n-tab-pane > .n-flex";
+            const TABS_PAD_ELEMENT_SELECTOR = ".n-tabs-pad";
+
+            // Common constants
+            const MUTATION_THROTTLE_MS = 50;
+            const STATE_POLLING_INTERVAL_MS = 1000;
+            const COMMON_BUTTON_GAP = 8;
+
+            // Desktop specific constants
             const SUBMIT_BUTTON_RIGHT_OFFSET = "16px";
             const SUBMIT_BUTTON_BOTTOM_OFFSET = "8px";
-            const BUTTON_SPACING_GAP = 8;
             const NAV_BUTTON_BG_COLOR = "#4a4a4a";
             const NAV_BUTTON_BG_HOVER_COLOR = "#5c5c5c";
             const NAV_BUTTON_BG_ACTIVE_COLOR = "#333333";
             const NAV_BUTTON_TEXT_COLOR = "#ffffff";
-            const MUTATION_THROTTLE_MS = 50;
-            const ROUTE_CHANGE_SETTLE_MS = 200;
-            const STATE_POLLING_INTERVAL_MS = 1000;
+
+            // Mobile specific constants
+            const MOBILE_SIDEBAR_HORIZ_GAP = 80;
+            const MOBILE_SIDEBAR_VERT_GAP = 8;
+            const MOBILE_BUTTON_BG = "rgba(74, 74, 74, 0.8)";
+            const MOBILE_BUTTON_TEXT_COLOR = "#ffffff";
 
             let mutationObserverInstance = null,
                 mutationDebounceTimer = null,
                 currentWindowLocation = location.href,
                 isFooterCollapsed = false;
 
-            function injectThreadFooterStyles() {
-                if (document.getElementById("tm-fixed-nav-style")) return;
-                const styleElement = document.createElement("style");
-                styleElement.id = "tm-fixed-nav-style";
-                styleElement.textContent = `
-                    .tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}
-                    .tm-fixed-nav-active ${TABS_NAV_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}
-                    .tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}
-                    .tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_BUTTON_RIGHT_OFFSET}!important;bottom:${SUBMIT_BUTTON_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}
-                    #tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${BUTTON_SPACING_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}
-                    #tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${NAV_BUTTON_BG_COLOR};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${NAV_BUTTON_TEXT_COLOR};padding:0;transition:background .15s,transform .15s}
-                    #tm-fixed-nav-buttons button:hover{background:${NAV_BUTTON_BG_HOVER_COLOR}}
-                    #tm-fixed-nav-buttons button:active{background:${NAV_BUTTON_BG_ACTIVE_COLOR};transform:scale(.92)}
-                    .tm-fixed-footer-collapsed{display:none!important}
-                `;
-                document.head.appendChild(styleElement);
+            function injectStyles() {
+                if (isMobileEnvironment) {
+                    if (document.getElementById("tm-mobile-fixed-style")) return;
+                    const styleElement = document.createElement("style");
+                    styleElement.id = "tm-mobile-fixed-style";
+                    styleElement.textContent = `
+                        .tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}
+                        .tm-fixed-nav-active ${TABS_PAD_ELEMENT_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}
+                        .tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}
+                        .tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}
+                        .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important;}
+                        #tm-fixed-nav-buttons {position: fixed !important;right: ${MOBILE_SIDEBAR_VERT_GAP}px !important;bottom: calc(${MOBILE_SIDEBAR_HORIZ_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${COMMON_BUTTON_GAP}px !important;z-index: 10001 !important;}
+                        #tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${MOBILE_BUTTON_BG};color: ${MOBILE_BUTTON_TEXT_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}
+                        .tm-fixed-footer-collapsed {display: none !important;}
+                    `;
+                    document.head.appendChild(styleElement);
+                } else {
+                    if (document.getElementById("tm-fixed-nav-style")) return;
+                    const styleElement = document.createElement("style");
+                    styleElement.id = "tm-fixed-nav-style";
+                    styleElement.textContent = `
+                        .tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}
+                        .tm-fixed-nav-active ${TABS_NAV_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}
+                        .tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}
+                        .tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_BUTTON_RIGHT_OFFSET}!important;bottom:${SUBMIT_BUTTON_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}
+                        #tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${COMMON_BUTTON_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}
+                        #tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${NAV_BUTTON_BG_COLOR};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${NAV_BUTTON_TEXT_COLOR};padding:0;transition:background .15s,transform .15s}
+                        #tm-fixed-nav-buttons button:hover{background:${NAV_BUTTON_BG_HOVER_COLOR}}
+                        #tm-fixed-nav-buttons button:active{background:${NAV_BUTTON_BG_ACTIVE_COLOR};transform:scale(.92)}
+                        .tm-fixed-footer-collapsed{display:none!important}
+                    `;
+                    document.head.appendChild(styleElement);
+                }
             }
 
-            function removeThreadFooterStyles() {
-                const existingStyle = document.getElementById("tm-fixed-nav-style");
-                if (existingStyle) existingStyle.remove();
+            function removeStyles() {
+                const mobileStyle = document.getElementById("tm-mobile-fixed-style");
+                if (mobileStyle) mobileStyle.remove();
+                const desktopStyle = document.getElementById("tm-fixed-nav-style");
+                if (desktopStyle) desktopStyle.remove();
             }
 
             function isForumEditPage() { return location.pathname.includes("/forum-edit"); }
 
-            function findTabsNavElement() { return document.querySelector(".n-tabs-nav--card-type.n-tabs-nav--top.n-tabs-nav"); }
-
-            function findSubmitButtonElement() { return document.querySelector("button.n-button--primary-type.n-button--large-type.float"); }
-
-            function createOrGetNavButtonsGroup() {
+            function createOrGetNavButtons() {
                 let buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
                 if (buttonsContainer) return buttonsContainer;
                 buttonsContainer = document.createElement("div");
                 buttonsContainer.id = "tm-fixed-nav-buttons";
 
+                if (isMobileEnvironment) {
+                    const toggleCollapseBtn = document.createElement("button");
+                    toggleCollapseBtn.type = "button";
+                    toggleCollapseBtn.textContent = "👁";
+                    toggleCollapseBtn.setAttribute("aria-label", "顯示/隱藏頁尾工具欄");
+                    toggleCollapseBtn.onclick = () => { isFooterCollapsed = !isFooterCollapsed; updateUI(); };
+                    buttonsContainer.appendChild(toggleCollapseBtn);
+                }
+
                 const scrollUpBtn = document.createElement("button");
                 scrollUpBtn.type = "button";
                 scrollUpBtn.setAttribute("aria-label", "回到頁面最上方");
                 scrollUpBtn.textContent = "↑";
-                scrollUpBtn.addEventListener("click", () => { window.scrollTo({ top: 0, behavior: "smooth" }); });
+                scrollUpBtn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
                 const scrollDownBtn = document.createElement("button");
                 scrollDownBtn.type = "button";
                 scrollDownBtn.setAttribute("aria-label", "前往頁面最下方");
                 scrollDownBtn.textContent = "↓";
-                scrollDownBtn.addEventListener("click", () => {
+                scrollDownBtn.onclick = () => {
                     const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
                     window.scrollTo({ top: scrollHeight, behavior: "smooth" });
-                });
+                };
 
                 buttonsContainer.appendChild(scrollUpBtn);
                 buttonsContainer.appendChild(scrollDownBtn);
@@ -1923,77 +1961,78 @@
                 return buttonsContainer;
             }
 
-            function removeNavButtonsGroup() {
+            function removeNavButtons() {
                 const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
                 if (buttonsContainer) buttonsContainer.remove();
             }
 
-            function positionNavButtons() {
+            function positionDesktopNavButtons() {
+                if (isMobileEnvironment) return;
                 const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
                 const navWrapper = document.querySelector(TABS_NAV_LABEL_SELECTOR);
                 if (!buttonsContainer || !navWrapper) return;
                 const wrapperRect = navWrapper.getBoundingClientRect();
                 if (wrapperRect.width === 0 && wrapperRect.height === 0) return;
-                buttonsContainer.style.left = wrapperRect.left - buttonsContainer.offsetWidth - BUTTON_SPACING_GAP + "px";
+                buttonsContainer.style.left = wrapperRect.left - buttonsContainer.offsetWidth - COMMON_BUTTON_GAP + "px";
                 buttonsContainer.style.top = wrapperRect.top + wrapperRect.height / 2 + "px";
             }
 
-            function activateFixedFooter(navElement) {
-                if (!navElement || navElement.classList.contains("tm-fixed-nav-active")) {
-                    if (navElement) { createOrGetNavButtonsGroup(); positionNavButtons(); }
-                    return;
-                }
-                injectThreadFooterStyles();
-                navElement.classList.add("tm-fixed-nav-active");
-                createOrGetNavButtonsGroup();
-                positionNavButtons();
-            }
-
-            function deactivateFixedFooter(navElement) {
-                if (navElement && navElement.classList.contains("tm-fixed-nav-active")) navElement.classList.remove("tm-fixed-nav-active");
-                removeThreadFooterStyles();
-                removeNavButtonsGroup();
-            }
-
-            function activateFixedSubmitButton(submitBtn) {
-                if (!submitBtn || submitBtn.classList.contains("tm-fixed-submit-active")) return;
-                injectThreadFooterStyles();
-                submitBtn.classList.add("tm-fixed-submit-active");
-            }
-
-            function deactivateFixedSubmitButton(submitBtn) {
-                if (submitBtn && submitBtn.classList.contains("tm-fixed-submit-active")) submitBtn.classList.remove("tm-fixed-submit-active");
-            }
-
-            function updateFooterState() {
+            function updateUI() {
                 if (!isForumEditPage()) {
-                    const activeNav = document.querySelector(".tm-fixed-nav-active");
-                    if (activeNav) deactivateFixedFooter(activeNav);
-                    else removeNavButtonsGroup();
-                    const activeSubmit = document.querySelector(".tm-fixed-submit-active");
-                    if (activeSubmit) deactivateFixedSubmitButton(activeSubmit);
+                    document.querySelectorAll(".tm-fixed-nav-active, .tm-fixed-toolbar-active, .tm-fixed-submit-in-pad, .tm-fixed-submit-active").forEach((element) => {
+                        element.classList.remove("tm-fixed-nav-active", "tm-fixed-toolbar-active", "tm-fixed-submit-in-pad", "tm-fixed-submit-active");
+                    });
+                    removeNavButtons();
+                    removeStyles();
                     return;
                 }
-                const navEl = findTabsNavElement();
-                if (navEl) activateFixedFooter(navEl);
-                const submitBtnEl = findSubmitButtonElement();
-                if (submitBtnEl) activateFixedSubmitButton(submitBtnEl);
+                injectStyles();
 
-                [navEl, submitBtnEl, document.getElementById("tm-fixed-nav-buttons")].forEach(
-                    (element) => element && element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed)
-                );
+                const navElement = document.querySelector(TABS_NAV_ELEMENT_SELECTOR);
+                const submitBtn = document.querySelector(SUBMIT_BUTTON_SELECTOR);
+
+                if (isMobileEnvironment) {
+                    if (navElement) navElement.classList.add("tm-fixed-nav-active");
+
+                    const toolbarElement = document.querySelector(TOOLBAR_CONTAINER_SELECTOR);
+                    if (toolbarElement) toolbarElement.classList.add("tm-fixed-toolbar-active");
+
+                    const tabsPad = document.querySelector(TABS_PAD_ELEMENT_SELECTOR);
+                    if (submitBtn && tabsPad) {
+                        if (submitBtn.parentElement !== tabsPad) tabsPad.appendChild(submitBtn);
+                        submitBtn.classList.add("tm-fixed-submit-in-pad");
+                    }
+
+                    createOrGetNavButtons();
+                    [navElement, toolbarElement, submitBtn].forEach((element) => {
+                        if (element) element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed);
+                    });
+                } else {
+                    if (navElement) {
+                        navElement.classList.add("tm-fixed-nav-active");
+                        createOrGetNavButtons();
+                        positionDesktopNavButtons();
+                    }
+                    if (submitBtn) {
+                        submitBtn.classList.add("tm-fixed-submit-active");
+                    }
+                    [navElement, submitBtn, document.getElementById("tm-fixed-nav-buttons")].forEach(
+                        (element) => element && element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed)
+                    );
+                }
             }
 
             function setupMutationObservation() {
                 if (mutationObserverInstance) mutationObserverInstance.disconnect();
                 mutationObserverInstance = new MutationObserver(() => {
                     if (mutationDebounceTimer) clearTimeout(mutationDebounceTimer);
-                    mutationDebounceTimer = setTimeout(updateFooterState, MUTATION_THROTTLE_MS);
+                    mutationDebounceTimer = setTimeout(updateUI, MUTATION_THROTTLE_MS);
                 });
                 mutationObserverInstance.observe(document.documentElement, { childList: true, subtree: true });
             }
 
             function handleShortcuts(event) {
+                if (isMobileEnvironment) return;
                 if (!event.altKey || event.ctrlKey || event.metaKey) return;
                 const keyStroke = event.key;
                 if (keyStroke === "1") { event.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -2016,7 +2055,7 @@
                 else if (keyStroke === "`") {
                     event.preventDefault();
                     isFooterCollapsed = !isFooterCollapsed;
-                    updateFooterState();
+                    updateUI();
                 }
             }
 
@@ -2024,149 +2063,14 @@
                 window.addEventListener("tm-locationchange", () => {
                     if (location.href === currentWindowLocation) return;
                     currentWindowLocation = location.href;
-                    updateFooterState();
+                    updateUI();
                 });
-                window.addEventListener("resize", () => { if (isForumEditPage()) positionNavButtons(); });
+                window.addEventListener("resize", () => { if (isForumEditPage()) positionDesktopNavButtons(); });
                 window.addEventListener("keydown", handleShortcuts);
-                setInterval(() => { if (location.href !== currentWindowLocation) updateFooterState(); }, STATE_POLLING_INTERVAL_MS);
+                setInterval(() => { if (location.href !== currentWindowLocation) updateUI(); }, STATE_POLLING_INTERVAL_MS);
 
-                updateFooterState();
+                updateUI();
                 setupMutationObservation();
-            }
-
-            main();
-        }
-    };
-
-    // ==========================================
-    // 6. 編輯頁面固定頁尾 (行動版) (Modules.thread_footer_mobile)
-    // ==========================================
-    Modules.thread_footer_mobile = {
-        init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
-            if (!navigator.userAgent.match(/Android|iPhone|iPad/i)) return; // Mobile only
-
-            const TABS_NAV_ELEMENT_SELECTOR = ".n-tabs-nav--card-type.n-tabs-nav--top.n-tabs-nav";
-            const TOOLBAR_CONTAINER_SELECTOR = ".markdown-input .n-tab-pane > .n-flex";
-            const SUBMIT_BUTTON_SELECTOR = "button.n-button--primary-type.n-button--large-type.float";
-            const TABS_PAD_ELEMENT_SELECTOR = ".n-tabs-pad";
-
-            const SIDEBAR_HORIZ_GAP = 80;
-            const SIDEBAR_VERT_GAP = 8;
-            const MOBILE_BUTTON_SPACING = 8;
-            const MOBILE_BUTTON_BG = "rgba(74, 74, 74, 0.8)";
-            const MOBILE_BUTTON_TEXT_COLOR = "#ffffff";
-            const MUTATION_THROTTLE_DELAY = 50;
-            const ROUTE_CHANGE_POLLING_MS = 1000;
-
-            let globalMutationObserver = null,
-                mutationDelayTimer = null,
-                storedPageLocation = location.href,
-                isMobileFooterCollapsed = false;
-
-            function injectMobileFooterStyles() {
-                if (document.getElementById("tm-mobile-fixed-style")) return;
-                const styleElement = document.createElement("style");
-                styleElement.id = "tm-mobile-fixed-style";
-                styleElement.textContent = `
-                    .tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}
-                    .tm-fixed-nav-active ${TABS_PAD_ELEMENT_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}
-                    .tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}
-                    .tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}
-                    .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important;}
-                    #tm-fixed-nav-buttons {position: fixed !important;right: ${SIDEBAR_VERT_GAP}px !important;bottom: calc(${SIDEBAR_HORIZ_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${MOBILE_BUTTON_SPACING}px !important;z-index: 10001 !important;}
-                    #tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${MOBILE_BUTTON_BG};color: ${MOBILE_BUTTON_TEXT_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}
-                    .tm-fixed-footer-collapsed {display: none !important;}
-                `;
-                document.head.appendChild(styleElement);
-            }
-
-            function isForumEditPage() { return location.pathname.includes("/forum-edit"); }
-
-            function createOrGetMobileNavButtons() {
-                let buttonsGroup = document.getElementById("tm-fixed-nav-buttons");
-                if (buttonsGroup) return buttonsGroup;
-                buttonsGroup = document.createElement("div");
-                buttonsGroup.id = "tm-fixed-nav-buttons";
-
-                const toggleCollapseBtn = document.createElement("button");
-                toggleCollapseBtn.type = "button";
-                toggleCollapseBtn.textContent = "👁";
-                toggleCollapseBtn.setAttribute("aria-label", "顯示/隱藏頁尾工具欄");
-                toggleCollapseBtn.onclick = () => { isMobileFooterCollapsed = !isMobileFooterCollapsed; updateMobileFooterUI(); };
-
-                const scrollUpBtn = document.createElement("button");
-                scrollUpBtn.type = "button";
-                scrollUpBtn.textContent = "↑";
-                scrollUpBtn.setAttribute("aria-label", "回到最上方");
-                scrollUpBtn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
-
-                const scrollDownBtn = document.createElement("button");
-                scrollDownBtn.type = "button";
-                scrollDownBtn.textContent = "↓";
-                scrollDownBtn.setAttribute("aria-label", "回到最下方");
-                scrollDownBtn.onclick = () => {
-                    const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-                    window.scrollTo({ top: scrollHeight, behavior: "smooth" });
-                };
-
-                buttonsGroup.appendChild(toggleCollapseBtn);
-                buttonsGroup.appendChild(scrollUpBtn);
-                buttonsGroup.appendChild(scrollDownBtn);
-                document.body.appendChild(buttonsGroup);
-                return buttonsGroup;
-            }
-
-            function updateMobileFooterUI() {
-                if (!isForumEditPage()) {
-                    document.querySelectorAll(".tm-fixed-nav-active, .tm-fixed-toolbar-active, .tm-fixed-submit-in-pad").forEach((element) => {
-                        element.classList.remove("tm-fixed-nav-active", "tm-fixed-toolbar-active", "tm-fixed-submit-in-pad");
-                    });
-                    const existingButtons = document.getElementById("tm-fixed-nav-buttons");
-                    if (existingButtons) existingButtons.remove();
-                    return;
-                }
-                injectMobileFooterStyles();
-
-                const navElement = document.querySelector(TABS_NAV_ELEMENT_SELECTOR);
-                if (navElement) navElement.classList.add("tm-fixed-nav-active");
-
-                const toolbarElement = document.querySelector(TOOLBAR_CONTAINER_SELECTOR);
-                if (toolbarElement) toolbarElement.classList.add("tm-fixed-toolbar-active");
-
-                const submitBtn = document.querySelector(SUBMIT_BUTTON_SELECTOR);
-                const tabsPad = document.querySelector(TABS_PAD_ELEMENT_SELECTOR);
-                if (submitBtn && tabsPad) {
-                    if (submitBtn.parentElement !== tabsPad) tabsPad.appendChild(submitBtn);
-                    submitBtn.classList.add("tm-fixed-submit-in-pad");
-                }
-
-                createOrGetMobileNavButtons();
-                [navElement, toolbarElement, submitBtn].forEach((element) => {
-                    if (element) element.classList.toggle("tm-fixed-footer-collapsed", isMobileFooterCollapsed);
-                });
-            }
-
-            function setupMobileMutationObserver() {
-                if (globalMutationObserver) globalMutationObserver.disconnect();
-                globalMutationObserver = new MutationObserver(() => {
-                    if (mutationDelayTimer) clearTimeout(mutationDelayTimer);
-                    mutationDelayTimer = setTimeout(updateMobileFooterUI, MUTATION_THROTTLE_DELAY);
-                });
-                globalMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
-            }
-
-            function main() {
-                window.addEventListener("tm-locationchange", updateMobileFooterUI);
-                setInterval(() => {
-                    if (location.href !== storedPageLocation) {
-                        storedPageLocation = location.href;
-                        updateMobileFooterUI();
-                    }
-                }, ROUTE_CHANGE_POLLING_MS);
-
-                updateMobileFooterUI();
-                setupMobileMutationObserver();
             }
 
             main();
