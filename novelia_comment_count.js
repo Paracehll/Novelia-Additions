@@ -406,9 +406,7 @@
     const key = `${novel.source}/${novel.id}`;
     const stored = getStoredEntry(novel.source, novel.id);
     h1s.forEach((h1) => {
-      h1.style.display = 'flex';
-      h1.style.alignItems = 'center';
-      h1.style.flexWrap = 'wrap';
+      Object.assign(h1.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
       let btn = h1.querySelector('.novelia-update-button');
       if (btn && btn.dataset.noveliaNovelKey !== key) {
         const staleBadge = h1.querySelector('.novelia-h1-comment-badge');
@@ -436,9 +434,7 @@
     const key = `${novel.source}/${novel.id}`;
     const stored = getStoredEntry(novel.source, novel.id);
     h2s.forEach((h2) => {
-      h2.style.display = 'flex';
-      h2.style.alignItems = 'center';
-      h2.style.flexWrap = 'wrap';
+      Object.assign(h2.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
       let badge = h2.querySelector('.novelia-h1-comment-badge');
       if (!badge) {
         badge = createH1Badge(key);
@@ -490,9 +486,7 @@
     const h1 = document.querySelector('h1');
     if (!h1 || h1.querySelector(':scope > .novelia-bulk-update-button')) return;
 
-    h1.style.display = 'flex';
-    h1.style.alignItems = 'center';
-    h1.style.flexWrap = 'wrap';
+    Object.assign(h1.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
     const btn = createBulkUpdateButton();
     const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
     if (lastHdrBtn) lastHdrBtn.after(btn);
