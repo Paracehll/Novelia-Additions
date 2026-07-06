@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.0.1
+// @version      1.1.0
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉及編輯器增強。
 // @match        *://n.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -157,7 +157,7 @@
             const INCREMENT_COLOR = '#63e2b7';
             const UPDATE_BUTTON_LABEL = '批次更新';
             const COUNT_REPLIES = true;
-            const CACHE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+            const CACHE_REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
             const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
             const SVG_BULK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>';
@@ -328,7 +328,10 @@
 
             function isAllowedPage() {
                 const path = window.__noveliaMockPath || location.pathname;
-                return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite');
+                return path === '/' || 
+                path.startsWith('/novel') || 
+                path.startsWith('/favorite') || 
+                path.startsWith('/read-history');
             }
 
             function parseNovelPath(anchorElement) {
@@ -437,6 +440,7 @@
             }
 
             async function processGroup(novelGroup, { isInitial = false } = {}) {
+                if (!isAllowedPage()) return;
                 await taskLimiter(async () => {
                     try {
                         const result = await getCommentCount(novelGroup.source, novelGroup.id, { isInitial });
@@ -511,6 +515,7 @@
             }
 
             function injectUpdateButtonsForCurrentNovel() {
+                if (!isAllowedPage()) return;
                 const novelInfo = matchNovelPath(location.pathname);
                 if (!novelInfo) return;
                 const h1Elements = document.querySelectorAll('h1');
@@ -539,6 +544,7 @@
             }
 
             function injectH2CommentCount() {
+                if (!isAllowedPage()) return;
                 const novelInfo = matchNovelPath(location.pathname);
                 if (!novelInfo) return;
                 const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => h2.textContent.trim() === '评论');
@@ -637,6 +643,7 @@
 
             function observeDomChanges() {
                 const observer = new MutationObserver((mutations) => {
+                    if (!isAllowedPage()) return;
                     if (mutations.some((mutation) => mutation.addedNodes && mutation.addedNodes.length > 0 && !isSelfCausedMutation(mutation))) schedulePageScan({ isInitial: false });
                 });
                 observer.observe(document.body, { childList: true, subtree: true });
@@ -1639,11 +1646,15 @@
 
             function isSharePage() {
                 const path = location.pathname;
+                // 排除 /novel/source/id 格式的小說詳情頁
+                if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(path)) return false;
+
                 return path === '/' ||
                        path.startsWith('/novel') ||
                        path.startsWith('/favorite') ||
                        path.startsWith('/wenku') ||
-                       path.startsWith('/search');
+                       path.startsWith('/search') ||
+                       path.startsWith('/read-history');
             }
 
             function triggerUIRefresh() {
@@ -1685,6 +1696,7 @@
             }
 
             function injectLinkButtonsToItems(parentElement) {
+                if (!isSharePage()) return;
                 // For novel lists (Home, Search, Favorites)
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
                     if (itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
@@ -1821,6 +1833,10 @@
             }
 
             function performFullScan() {
+                if (!isSharePage()) {
+                    removeStaleButtons();
+                    return;
+                }
                 injectLinkButtonsToItems(document);
                 injectHeaderActionButtons();
             }
@@ -1834,6 +1850,13 @@
                 });
 
                 const mutationObserver = new MutationObserver((mutations) => {
+                    if (!isSharePage()) {
+                        if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) {
+                            removeStaleButtons();
+                        }
+                        return;
+                    }
+
                     let needsReinjection = false;
                     for (const mutation of mutations) {
                         if (mutation.removedNodes.length >= 3) { needsReinjection = true; break; }
@@ -1862,7 +1885,8 @@
     // ==========================================
     Modules.source_link = {
         init: function() {
-            const currentHostname = location.hostname;
+            if (location.hostname.includes('novelia.cc')) return;
+            const currentHostName = location.hostname;
 
             function processAnchor(anchorLink) {
                 if (anchorLink.dataset.noveliaSourceLinkProcessed) return;
@@ -1872,33 +1896,29 @@
                 let sourceSiteType;
                 let novelId = '';
 
-                if (linkHref.startsWith('https://syosetu.org/novel/')) {
-                    const matchResult = linkHref.match(/https:\/\/syosetu\.org\/novel\/(\d+)/);
-                    if (!matchResult) return;
+                if (linkHref.includes('n.novelia.cc')) return;
+
+                const syosetuRegex = /https?:\/\/(ncode|novel18)\.syosetu\.com\/([^/]+)/;
+                const hamelnRegex = /https?:\/\/syosetu\.org\/novel\/(\d+)/;
+
+                let match = linkHref.match(syosetuRegex);
+                if (match) {
+                    sourceSiteType = "syosetu";
+                    novelId = match[2];
+                } else if ((match = linkHref.match(hamelnRegex))) {
                     sourceSiteType = "hameln";
-                    novelId = matchResult[1];
-                } else if (linkHref.startsWith('https://ncode.syosetu.com/')) {
-                    const matchResult = linkHref.match(/https:\/\/ncode\.syosetu\.com\/([^/]+)/);
-                    if (!matchResult) return;
-                    sourceSiteType = "syosetu";
-                    novelId = matchResult[1];
-                } else if (linkText.startsWith('https://ncode.syosetu.com/')) {
-                    const matchResult = linkText.match(/https:\/\/ncode\.syosetu\.com\/([^/]+)/);
-                    if (!matchResult) return;
-                    sourceSiteType = "syosetu";
-                    novelId = matchResult[1];
-                } else if (linkText.startsWith('https://kakuyomu.jp/works/')) {
-                    const matchResult = linkText.match(/https:\/\/kakuyomu\.jp\/works\/(\d+)/);
-                    if (!matchResult) return;
-                    sourceSiteType = "kakuyomu";
-                    novelId = matchResult[1];
-                } else if (linkText.startsWith('https://www.pixiv.net/novel/series/')) {
-                    const matchResult = linkText.match(/https:\/\/www\.pixiv\.net\/novel\/series\/(\d+)/);
-                    if (!matchResult) return;
-                    sourceSiteType = "pixiv";
-                    novelId = matchResult[1];
+                    novelId = match[1];
                 } else {
-                    return;
+                    match = linkText.match(syosetuRegex);
+                    if (match) {
+                        sourceSiteType = "syosetu";
+                        novelId = match[2];
+                    } else if ((match = linkText.match(hamelnRegex))) {
+                        sourceSiteType = "hameln";
+                        novelId = match[1];
+                    } else {
+                        return;
+                    }
                 }
 
                 anchorLink.dataset.noveliaSourceLinkProcessed = "1";
@@ -1918,7 +1938,7 @@
                     window.open(`https://n.novelia.cc/novel/${sourceSiteType}/${novelId}`, '_blank');
                 });
 
-                if (currentHostname.includes("syosetu.com")) {
+                if (currentHostName.includes("syosetu.com")) {
                     anchorLink.appendChild(jumpButton);
                 } else {
                     anchorLink.insertAdjacentElement('afterend', jumpButton);
