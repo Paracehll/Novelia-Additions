@@ -60,6 +60,29 @@
 
     initMenu();
 
+    function setupRouterObserver() {
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+
+        history.pushState = function(...args) {
+            const result = originalPushState.apply(this, args);
+            window.dispatchEvent(new Event("tm-locationchange"));
+            return result;
+        };
+
+        history.replaceState = function(...args) {
+            const result = originalReplaceState.apply(this, args);
+            window.dispatchEvent(new Event("tm-locationchange"));
+            return result;
+        };
+
+        window.addEventListener('popstate', () => {
+            window.dispatchEvent(new Event("tm-locationchange"));
+        });
+    }
+
+    setupRouterObserver();
+
     // ==========================================
     // 1. Web 評論數追蹤 (Modules.comment_count)
     // ==========================================
@@ -611,9 +634,9 @@
             const FORUM_SEARCH_AUTHORS_KEY = 'novelia_forum_search_authors_v1';
             const FORUM_SEARCH_SETTINGS_KEY = 'novelia_forum_search_settings_v1';
             const FORUM_SEARCH_COLLAPSED_KEY = 'novelia_forum_search_collapsed_v1';
-            const TARGET_BOARD_LABEL = '小說交流';
+            const TARGET_BOARD_LABEL = '小说交流';
             const FORUM_API_URL_GENERATOR = (pageNumber) => `https://n.novelia.cc/api/article?page=${pageNumber - 1}&pageSize=20&category=General`;
-            const RELATIVE_TIME_UNIT_MS = { '分鐘前': 6e4, '小時前': 36e5, '天前': 864e5, '個月前': 2592e6, '年前': 31536e6 };
+            const RELATIVE_TIME_UNIT_MS = { '分钟前': 6e4, '小时前': 36e5, '天前': 864e5, '个月前': 2592e6, '年前': 31536e6 };
             const DEFAULT_FORUM_SETTINGS = {
                 refreshIntervalMin: 30,
                 refreshPages: 3,
@@ -631,11 +654,11 @@
                 if (!timestamp) return '未知';
                 const minutes = Math.floor((Date.now() - timestamp) / 60000);
                 const hours = Math.floor(minutes / 60), days = Math.floor(hours / 24);
-                if (minutes < 1) return '剛剛';
-                if (hours < 1) return `${minutes} 分鐘前`;
-                if (days < 1) return `${hours} 小時前`;
+                if (minutes < 1) return '刚刚';
+                if (hours < 1) return `${minutes} 分钟前`;
+                if (days < 1) return `${hours} 小时前`;
                 if (days < 30) return `${days} 天前`;
-                if (days < 365) return `${Math.floor(days / 30)} 個月前`;
+                if (days < 365) return `${Math.floor(days / 30)} 个月前`;
                 return `${Math.floor(days / 365)} 年前`;
             }
 
@@ -1345,7 +1368,10 @@
                     return;
                 }
 
-                const boardLabelElement = Array.from(document.querySelectorAll('.n-text')).find(el => el.textContent.trim() === '版塊');
+                const boardLabelElement = Array.from(document.querySelectorAll('.n-text')).find(el => {
+                    const text = el.textContent.trim();
+                    return text === '版块' || text === '版塊';
+                });
                 const filterRowElement = boardLabelElement ? boardLabelElement.closest('.n-flex') : null;
                 if (!filterRowElement) return;
 
