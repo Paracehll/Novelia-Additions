@@ -3,7 +3,6 @@
 // @namespace    novelia-enhanced
 // @version      1.1.0
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉及編輯器增強。
-// @author       Jules
 // @match        *://n.novelia.cc/*
 // @match        *://syosetu.org/*
 // @match        *://syosetu.com/*
@@ -643,19 +642,13 @@
                 observer.observe(document.body, { childList: true, subtree: true });
             }
 
-            function observeRouteChanges() {
-                const notifyScan = () => { schedulePageScan({ isInitial: false }); setTimeout(() => scanPage({ isInitial: false }), 500); };
-                const originalPushState = history.pushState;
-                history.pushState = function (...args) { originalPushState.apply(this, args); notifyScan(); };
-                const originalReplaceState = history.replaceState;
-                history.replaceState = function (...args) { originalReplaceState.apply(this, args); notifyScan(); };
-                window.addEventListener('popstate', notifyScan);
-            }
-
             function main() {
                 scanPage({ isInitial: true });
                 observeDomChanges();
-                observeRouteChanges();
+                window.addEventListener("tm-locationchange", () => {
+                    schedulePageScan({ isInitial: false });
+                    setTimeout(() => scanPage({ isInitial: false }), 500);
+                });
             }
 
             main();
@@ -676,7 +669,6 @@
             const FORUM_SEARCH_COLLAPSED_KEY = 'novelia_forum_search_collapsed_v1';
             const TARGET_BOARD_LABEL = '小说交流';
             const FORUM_API_URL_GENERATOR = (pageNumber) => `https://n.novelia.cc/api/article?page=${pageNumber - 1}&pageSize=20&category=General`;
-            const RELATIVE_TIME_UNIT_MS = { '分钟前': 6e4, '小时前': 36e5, '天前': 864e5, '个月前': 2592e6, '年前': 31536e6 };
             const DEFAULT_FORUM_SETTINGS = {
                 refreshIntervalMin: 30,
                 refreshPages: 3,
@@ -1643,10 +1635,22 @@
                 }
             }
 
+            function isSharePage() {
+                const path = location.pathname;
+                return path === '/' ||
+                       path.startsWith('/novel') ||
+                       path.startsWith('/favorite') ||
+                       path.startsWith('/wenku') ||
+                       path.startsWith('/search');
+            }
+
             function triggerUIRefresh() {
                 removeStaleButtons(true);
-                requestAnimationFrame(() => requestAnimationFrame(performFullScan));
-                showCopyToast("🔄 已重新偵測當前頁面並重新注入按鈕！");
+                // Ensure DOM has settled before re-scanning
+                setTimeout(() => {
+                    performFullScan();
+                    showCopyToast("🔄 已重新偵測當前頁面並重新注入按鈕！");
+                }, 100);
             }
 
             function createCopyButton(formattedLink) {
@@ -1721,7 +1725,16 @@
 
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
+
                 const h1Element = document.querySelector("h1");
+                const existingButtons = document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`);
+
+                if (!isSharePage()) {
+                    existingButtons.forEach(btn => btn.remove());
+                    if (h1Element) delete h1Element.dataset[HEADER_INJECTION_MARK];
+                    return;
+                }
+
                 if (!h1Element || h1Element.dataset[HEADER_INJECTION_MARK]) return;
                 h1Element.dataset[HEADER_INJECTION_MARK] = "1";
                 Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
@@ -1792,6 +1805,12 @@
 
             function main() {
                 performFullScan();
+
+                window.addEventListener("tm-locationchange", () => {
+                    // Slight delay to allow DOM to update after SPA navigation
+                    setTimeout(performFullScan, 200);
+                });
+
                 const mutationObserver = new MutationObserver((mutations) => {
                     let needsReinjection = false;
                     for (const mutation of mutations) {
