@@ -60,6 +60,66 @@
 
     initMenu();
 
+    function injectGlobalStyles() {
+        if (document.getElementById('novelia-bundle-global-styles')) return;
+        const styleElement = document.createElement('style');
+        styleElement.id = 'novelia-bundle-global-styles';
+        styleElement.textContent = `
+            .novelia-bundle-btn {
+                font-weight: 400;
+                line-height: 1;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+                cursor: pointer;
+                text-align: center;
+                border-radius: 3px;
+                padding: 0 10px;
+                height: 28px;
+                font-size: 13px;
+                transition: color .3s, background-color .3s, border-color .3s, opacity .3s;
+                white-space: nowrap;
+                vertical-align: middle;
+                box-sizing: border-box;
+                background-color: transparent;
+                border: 1px solid rgba(0, 0, 0, 0.2);
+                color: #333;
+                gap: 6px;
+                margin-left: 10px;
+            }
+            .novelia-bundle-btn:hover {
+                background-color: rgba(99, 226, 183, 0.1);
+                border-color: #63e2b7;
+                color: #63e2b7;
+            }
+            .novelia-bundle-btn:disabled {
+                cursor: not-allowed;
+                opacity: 0.5;
+            }
+            .novelia-bundle-btn svg {
+                width: 14px;
+                height: 14px;
+                fill: currentColor;
+            }
+            @media (prefers-color-scheme: dark) {
+                .novelia-bundle-btn {
+                    border-color: rgba(255, 255, 255, 0.24);
+                    color: rgba(255, 255, 255, 0.82);
+                }
+            }
+            /* Dark mode override for the site if it uses a specific class on body/html */
+            body.dark .novelia-bundle-btn,
+            .n-config-provider .novelia-bundle-btn {
+                border-color: rgba(255, 255, 255, 0.24);
+                color: rgba(255, 255, 255, 0.82);
+            }
+        `;
+        document.head.appendChild(styleElement);
+    }
+
+    injectGlobalStyles();
+
     function setupRouterObserver() {
         const originalPushState = history.pushState;
         const originalReplaceState = history.replaceState;
@@ -96,37 +156,15 @@
             const COMMENT_ICON = '💬';
             const BADGE_ALIGN_ITEMS = 'auto';
             const INCREMENT_COLOR = '#63e2b7';
-            const UPDATE_BUTTON_CONTENT = '🔄 批次更新';
+            const UPDATE_BUTTON_LABEL = '批次更新';
             const COUNT_REPLIES = true;
             const CACHE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
+            const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
+            const SVG_BULK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>';
+
             const styleElement = document.createElement('style');
             styleElement.textContent = `
-                .novelia-update-button, .novelia-bulk-update-button {
-                  margin-left: 10px;
-                  padding: 0 10px;
-                  height: 28px;
-                  font-size: 13px;
-                  cursor: pointer;
-                  background: #fff;
-                  border: 1px solid #ccc;
-                  border-radius: 6px;
-                  transition: background .2s;
-                  color: #333;
-                  font-weight: normal;
-                  display: inline-flex;
-                  align-items: center;
-                  justify-content: center;
-                  box-sizing: border-box;
-                  vertical-align: middle;
-                }
-                .novelia-update-button:hover, .novelia-bulk-update-button:hover {
-                  background: #f0f0f0;
-                }
-                .novelia-update-button:disabled, .novelia-bulk-update-button:disabled {
-                  cursor: not-allowed;
-                  opacity: 0.6;
-                }
                 .novelia-comment-badge, .novelia-h1-comment-badge {
                   opacity: 0.85;
                   white-space: nowrap;
@@ -440,14 +478,15 @@
 
             function createUpdateButton(source, id, novelKey, badgeElement) {
                 const buttonElement = document.createElement('button');
-                buttonElement.className = 'novelia-update-button';
-                buttonElement.textContent = UPDATE_BUTTON_CONTENT + ' 更新';
+                buttonElement.className = 'novelia-bundle-btn novelia-update-button';
+                buttonElement.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
                 buttonElement.dataset.noveliaNovelKey = novelKey;
                 buttonElement.title = '手動更新留言數';
                 buttonElement.addEventListener('click', async () => {
                     if (buttonElement.disabled) return;
                     buttonElement.disabled = true;
-                    buttonElement.textContent = '⏳ 更新中';
+                    const originalContent = buttonElement.innerHTML;
+                    buttonElement.innerHTML = `<span>⏳ 刷新中</span>`;
                     try {
                         const result = await getCommentCount(source, id, { force: true });
                         if (result) {
@@ -461,10 +500,10 @@
                                 }
                             });
                         }
-                        buttonElement.textContent = UPDATE_BUTTON_CONTENT + ' 更新';
+                        buttonElement.innerHTML = originalContent;
                     } catch (error) {
-                        buttonElement.textContent = '⚠️';
-                        setTimeout(() => { buttonElement.textContent = UPDATE_BUTTON_CONTENT + ' 更新'; }, 1500);
+                        buttonElement.innerHTML = '<span>⚠️</span>';
+                        setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
                     } finally {
                         buttonElement.disabled = false;
                     }
@@ -520,13 +559,14 @@
 
             function createBulkUpdateButton() {
                 const buttonElement = document.createElement('button');
-                buttonElement.className = 'novelia-bulk-update-button';
-                buttonElement.textContent = UPDATE_BUTTON_CONTENT;
+                buttonElement.className = 'novelia-bundle-btn novelia-bulk-update-button';
+                buttonElement.innerHTML = `${SVG_BULK}<span>${UPDATE_BUTTON_LABEL}</span>`;
                 buttonElement.title = '手動更新本頁所有留言數';
                 buttonElement.addEventListener('click', async () => {
                     if (buttonElement.disabled) return;
                     buttonElement.disabled = true;
-                    buttonElement.textContent = '⏳ 批次更新中';
+                    const originalContent = buttonElement.innerHTML;
+                    buttonElement.innerHTML = '<span>⏳ 批次更新中</span>';
                     try {
                         const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
                         const groupsMap = new Map();
@@ -545,10 +585,10 @@
                                 novelGroup.targets.forEach((targetElement) => renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
                             }
                         })));
-                        buttonElement.textContent = UPDATE_BUTTON_CONTENT;
+                        buttonElement.innerHTML = originalContent;
                     } catch (error) {
-                        buttonElement.textContent = '⚠️ 失敗';
-                        setTimeout(() => { buttonElement.textContent = UPDATE_BUTTON_CONTENT; }, 1500);
+                        buttonElement.innerHTML = '<span>⚠️ 失敗</span>';
+                        setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
                     } finally {
                         buttonElement.disabled = false;
                     }
@@ -1525,6 +1565,10 @@
                 HEADER_INJECTION_MARK = "noveliaHeaderInjected",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]';
 
+            const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
+            const SVG_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
+            const SVG_VIEW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+
             let linkCache = [],
                 toastNotificationTimer;
 
@@ -1536,8 +1580,6 @@
                 @keyframes novelia-ripple{0%{width:0;height:0;opacity:1}100%{width:120px;height:120px;opacity:0}}
                 .${TOAST_NOTIFICATION_CLASS}{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}
                 .${TOAST_NOTIFICATION_CLASS}.show{top:30px;opacity:1}
-                .${HEADER_BUTTON_CLASS}{margin-left:10px;padding:0 10px;height: 28px;font-size:13px;cursor:pointer;background:#fff;border:1px solid #ccc;border-radius:6px;transition:background .2s;color:#333;font-weight:normal;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;vertical-align:middle}
-                .${HEADER_BUTTON_CLASS}:hover{background:#f0f0f0}
                 .novelia-grid-wrapper{display:inline-flex;align-items:flex-start;width:100%}
             `;
             document.head.appendChild(styleElement);
@@ -1685,18 +1727,18 @@
                 Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
 
                 const refreshBtn = document.createElement("button");
-                refreshBtn.className = HEADER_BUTTON_CLASS;
-                refreshBtn.textContent = "🔄 刷新";
+                refreshBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                refreshBtn.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
                 refreshBtn.addEventListener("click", (event) => { event.preventDefault(); triggerUIRefresh(); });
 
                 const clearBtn = document.createElement("button");
-                clearBtn.className = HEADER_BUTTON_CLASS;
-                clearBtn.textContent = "🧹 清除快取";
+                clearBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                clearBtn.innerHTML = `${SVG_CLEAR}<span>清除快取</span>`;
                 clearBtn.addEventListener("click", (event) => { event.preventDefault(); clearLinkCache(); });
 
                 const viewBtn = document.createElement("button");
-                viewBtn.className = HEADER_BUTTON_CLASS;
-                viewBtn.textContent = "📂 查看快取";
+                viewBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                viewBtn.innerHTML = `${SVG_VIEW}<span>查看快取</span>`;
                 viewBtn.addEventListener("click", (event) => { event.preventDefault(); viewLinkCache(); });
 
                 h1Element.appendChild(refreshBtn);
