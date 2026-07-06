@@ -379,6 +379,7 @@
         if (result) {
           delete badge.dataset.noveliaRenderedText;
           renderH1Badge(badge, result.entry);
+          injectH2CommentCount();
           document.querySelectorAll('a[href][data-novelia-comment-tracked]').forEach((a) => {
             const n = parseNovelPath(a);
             if (n && n.source === source && n.id === id) {
@@ -422,6 +423,26 @@
         const lastHdrBtn = Array.from(h1.querySelectorAll('.novelia-header-btn')).pop();
         if (lastHdrBtn) { lastHdrBtn.after(btn); btn.after(badge); }
         else { h1.prepend(badge); h1.prepend(btn); }
+      }
+      if (badge) renderH1Badge(badge, stored);
+    });
+  }
+
+  function injectH2CommentCount() {
+    const novel = matchNovelPath(location.pathname);
+    if (!novel) return;
+    const h2s = Array.from(document.querySelectorAll('h2')).filter((h) => h.textContent.trim() === '评论');
+    if (!h2s.length) return;
+    const key = `${novel.source}/${novel.id}`;
+    const stored = getStoredEntry(novel.source, novel.id);
+    h2s.forEach((h2) => {
+      h2.style.display = 'flex';
+      h2.style.alignItems = 'center';
+      h2.style.flexWrap = 'wrap';
+      let badge = h2.querySelector('.novelia-h1-comment-badge');
+      if (!badge) {
+        badge = createH1Badge(key);
+        h2.appendChild(badge);
       }
       if (badge) renderH1Badge(badge, stored);
     });
@@ -483,6 +504,7 @@
     const groups = collectPendingAnchors();
     groups.forEach((g) => processGroup(g, { isInitial }));
     injectUpdateButtonsForCurrentNovel();
+    injectH2CommentCount();
     injectBulkUpdateButtons();
   }
 
