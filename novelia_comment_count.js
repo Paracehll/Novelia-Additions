@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Web評論數
 // @namespace    novelia-comment-tracker
-// @version      1.0.0
+// @version      1.0.1
 // @description  掃描頁面上的小說連結，透過官方 /api/comment 取得留言數，存入 localStorage 並定期更新，提供手動更新按鈕。
 // @match        https://n.novelia.cc/*
 // @grant        none
@@ -454,10 +454,10 @@
             group.targets.forEach((t) => renderPlainBadge(t, `${ICON} ?`, { isError: true }));
           }
         })));
-        btn.textContent = UPDATE_BTN_CONTENT + ' 批次更新';
+        btn.textContent = UPDATE_BTN_CONTENT;
       } catch (e) {
         btn.textContent = '⚠️ 失敗';
-        setTimeout(() => { btn.textContent = UPDATE_BTN_CONTENT + ' 批次更新'; }, 1500);
+        setTimeout(() => { btn.textContent = UPDATE_BTN_CONTENT; }, 1500);
       } finally {
         btn.disabled = false;
       }
