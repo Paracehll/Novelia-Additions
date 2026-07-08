@@ -3,6 +3,8 @@
 // @namespace    novelia-enhanced
 // @version      1.2.0
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強及評論回覆摺疊。
+// @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
+// @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @match        *://n.novelia.cc/*
 // @match        *://syosetu.org/*
 // @match        *://syosetu.com/*
