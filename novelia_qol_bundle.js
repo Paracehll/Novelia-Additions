@@ -547,6 +547,22 @@
                     }
                     if (badgeElement) renderH1Badge(badgeElement, storedEntry);
                 });
+                if (!storedEntry) {
+                    getCommentCount(novelInfo.source, novelInfo.id).then((result) => {
+                        if (result) {
+                            const currentH1s = document.querySelectorAll('h1');
+                            currentH1s.forEach((h1) => {
+                                const badge = h1.querySelector('.novelia-h1-comment-badge');
+                                if (badge && badge.dataset.noveliaNovelKey === novelKey) {
+                                    renderH1Badge(badge, result.entry);
+                                }
+                            });
+                            injectH2CommentCount();
+                        }
+                    }).catch((error) => {
+                        console.error('[novelia-comments] 首次加載失敗:', error);
+                    });
+                }
             }
 
             function injectH2CommentCount() {
