@@ -548,7 +548,7 @@
                     if (badgeElement) renderH1Badge(badgeElement, storedEntry);
                 });
                 if (!storedEntry) {
-                    getCommentCount(novelInfo.source, novelInfo.id).then((result) => {
+                    getCommentCount(novelInfo.source, novelInfo.id, { force: true }).then((result) => {
                         if (result) {
                             const currentH1s = document.querySelectorAll('h1');
                             currentH1s.forEach((h1) => {
