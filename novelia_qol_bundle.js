@@ -331,6 +331,7 @@
 
             function isAllowedPage() {
                 const path = window.__noveliaMockPath || location.pathname;
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
                 return path === '/' ||
                 path.startsWith('/novel') ||
                 path.startsWith('/favorite') ||
@@ -427,6 +428,7 @@
                 const anchors = document.querySelectorAll(`a[href]:not([data-novelia-comment-tracked])`);
                 const groupsMap = new Map();
                 anchors.forEach((anchorElement) => {
+                    if (anchorElement.closest('.n-drawer')) return;
                     const novelInfo = parseNovelPath(anchorElement);
                     if (!novelInfo) return;
                     anchorElement.dataset['noveliaCommentTracked'] = '1';
@@ -526,6 +528,7 @@
                 const novelKey = `${novelInfo.source}/${novelInfo.id}`;
                 const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
                 h1Elements.forEach((h1Element) => {
+                    if (h1Element.closest('.n-drawer')) return;
                     Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
                     let updateButton = h1Element.querySelector('.novelia-update-button');
                     if (updateButton && updateButton.dataset.noveliaNovelKey !== novelKey) {
@@ -555,6 +558,7 @@
                 const novelKey = `${novelInfo.source}/${novelInfo.id}`;
                 const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
                 h2Elements.forEach((h2Element) => {
+                    if (h2Element.closest('.n-drawer')) return;
                     Object.assign(h2Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
                     let badgeElement = h2Element.querySelector('.novelia-h1-comment-badge');
                     if (!badgeElement) {
@@ -606,7 +610,7 @@
 
             function injectBulkUpdateButtons() {
                 const h1Element = document.querySelector('h1');
-                if (!h1Element || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
+                if (!h1Element || h1Element.closest('.n-drawer') || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
 
                 Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
                 const bulkButton = createBulkUpdateButton();
@@ -1649,6 +1653,8 @@
 
             function isSharePage() {
                 const path = location.pathname;
+                // 黑名單: n.novelia.cc/novel/*/*/*
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
                 // 排除 /novel/source/id 格式的小說詳情頁
                 if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(path)) return false;
 
@@ -1702,6 +1708,7 @@
                 if (!isSharePage()) return;
                 // For novel lists (Home, Search, Favorites)
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
+                    if (itemElement.closest('.n-drawer')) return;
                     if (itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
 
                     // Find the main novel link.
@@ -1732,6 +1739,7 @@
 
                 // For Wenku grid
                 parentElement.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
+                    if (anchorElement.closest('.n-drawer')) return;
                     if (anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const textSpanElement = anchorElement.querySelector("span.n-text");
                     if (!textSpanElement) return;
@@ -1767,7 +1775,7 @@
                     return;
                 }
 
-                if (!h1Element || h1Element.dataset[HEADER_INJECTION_MARK]) return;
+                if (!h1Element || h1Element.closest('.n-drawer') || h1Element.dataset[HEADER_INJECTION_MARK]) return;
 
                 // Double check if buttons already exist (manual check instead of just dataset)
                 if (h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;

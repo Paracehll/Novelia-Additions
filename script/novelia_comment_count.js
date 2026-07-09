@@ -216,6 +216,7 @@
 
   function isAllowedPage() {
     const path = window.__noveliaMockPath || location.pathname;
+    if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
     return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite');
   }
 
@@ -309,6 +310,7 @@
     const anchors = document.querySelectorAll(`a[href]:not([data-novelia-comment-tracked])`);
     const groups = new Map();
     anchors.forEach((a) => {
+      if (a.closest('.n-drawer')) return;
       const novel = parseNovelPath(a);
       if (!novel) return;
       a.dataset['noveliaCommentTracked'] = '1';
@@ -406,6 +408,7 @@
     const key = `${novel.source}/${novel.id}`;
     const stored = getStoredEntry(novel.source, novel.id);
     h1s.forEach((h1) => {
+      if (h1.closest('.n-drawer')) return;
       Object.assign(h1.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
       let btn = h1.querySelector('.novelia-update-button');
       if (btn && btn.dataset.noveliaNovelKey !== key) {
@@ -434,6 +437,7 @@
     const key = `${novel.source}/${novel.id}`;
     const stored = getStoredEntry(novel.source, novel.id);
     h2s.forEach((h2) => {
+      if (h2.closest('.n-drawer')) return;
       Object.assign(h2.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
       let badge = h2.querySelector('.novelia-h1-comment-badge');
       if (!badge) {
@@ -484,7 +488,7 @@
 
   function injectBulkUpdateButtons() {
     const h1 = document.querySelector('h1');
-    if (!h1 || h1.querySelector(':scope > .novelia-bulk-update-button')) return;
+    if (!h1 || h1.closest('.n-drawer') || h1.querySelector(':scope > .novelia-bulk-update-button')) return;
 
     Object.assign(h1.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
     const btn = createBulkUpdateButton();

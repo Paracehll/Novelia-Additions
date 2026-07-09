@@ -116,8 +116,14 @@
       o
     );
   }
+  function isBlacklistedPage() {
+    const path = location.pathname;
+    return /^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path);
+  }
   function injectItemButtons(e) {
+    if (isBlacklistedPage()) return;
     (e.querySelectorAll(ITEM_SELECTOR).forEach((e) => {
+      if (e.closest('.n-drawer')) return;
       if (e.querySelector(`.${BTN_CLASS}`)) return;
       const t = e.querySelector(":scope > a"),
         o = e.querySelector(":scope > span:first-of-type");
@@ -134,6 +140,7 @@
         l.appendChild(t));
     }),
       e.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((e) => {
+        if (e.closest('.n-drawer')) return;
         if (e.querySelector(`.${BTN_CLASS}`)) return;
         const t = e.querySelector("span.n-text");
         if (!t) return;
@@ -158,9 +165,10 @@
     );
   }
   function injectHeaderButtons() {
+    if (isBlacklistedPage()) return;
     if (!shouldShowHeaderBtns()) return;
     const e = document.querySelector("h1");
-    if (!e || e.dataset[HDR_MARK]) return;
+    if (!e || e.closest('.n-drawer') || e.dataset[HDR_MARK]) return;
     ((e.dataset[HDR_MARK] = "1"),
       (e.style.display = "flex"),
       (e.style.alignItems = "center"),
@@ -222,10 +230,18 @@
     }
   }
   function fullScan() {
+    if (isBlacklistedPage()) {
+      removeStaleButtons();
+      return;
+    }
     (injectItemButtons(document), injectHeaderButtons());
   }
   fullScan();
   const observer = new MutationObserver((e) => {
+    if (isBlacklistedPage()) {
+      removeStaleButtons();
+      return;
+    }
     let t = !1;
     for (const o of e)
       if (o.removedNodes.length >= 3) {
