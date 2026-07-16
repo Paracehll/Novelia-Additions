@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.2.1
-// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強及評論回覆摺疊。
+// @version      1.3.0
+// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @match        *://n.novelia.cc/*
@@ -27,7 +27,8 @@
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
         { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
-        { id: 'collapse_replies', name: '摺疊評論區回覆', default: true }
+        { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
+        { id: 'collapse_images', name: '預設摺疊圖片', default: true }
     ];
 
     const config = {};
@@ -2442,6 +2443,198 @@
             setTimeout(() => {
                 document.querySelectorAll('.n-flex b').forEach(processCommentThread);
             }, 500);
+        }
+    };
+
+    // ==========================================
+    // 7. 預設摺疊圖片 (Modules.collapse_images)
+    // ==========================================
+    Modules.collapse_images = {
+        init: function() {
+            if (location.hostname !== 'n.novelia.cc') return;
+
+            GM_addStyle(`
+                .novelia-image-wrapper {
+                    display: inline-flex;
+                    flex-direction: column;
+                    margin: 8px 0 32px 0;
+                    max-width: 100%;
+                }
+                .novelia-image-btn {
+                    align-self: flex-start;
+                    background-color: var(--n-color, rgba(0, 0, 0, 0.05));
+                    border: 1px solid var(--n-border-color, rgba(0, 0, 0, 0.15));
+                    border-radius: 4px;
+                    color: var(--n-text-color, #333);
+                    cursor: pointer;
+                    font-size: 18px;
+                    padding: 6px 12px;
+                    margin-bottom: 6px;
+                    transition: background-color 0.2s, border-color 0.2s;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-family: inherit;
+                }
+                .dark .novelia-image-btn,
+                body.dark .novelia-image-btn {
+                    background-color: rgba(255, 255, 255, 0.1);
+                    border-color: rgba(255, 255, 255, 0.2);
+                    color: rgba(255, 255, 255, 0.82);
+                }
+                .novelia-image-btn:hover {
+                    background-color: rgba(99, 226, 183, 0.15);
+                    border-color: #63e2b7;
+                    color: #63e2b7;
+                }
+                .novelia-image-btn-icon {
+                    transition: transform 0.15s ease-in-out;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 18px;
+                    height: 18px;
+                }
+                .novelia-image-btn-icon.collapsed {
+                    transform: rotate(0deg);
+                }
+                .novelia-image-btn-icon.expanded {
+                    transform: rotate(90deg);
+                }
+                .novelia-image-container {
+                    display: grid;
+                    transition: grid-template-rows 0.15s ease-in-out;
+                    overflow: hidden;
+                }
+                .novelia-image-container.collapsed {
+                    grid-template-rows: 0fr;
+                }
+                .novelia-image-container.expanded {
+                    grid-template-rows: 1fr;
+                }
+                .novelia-image-inner {
+                    overflow: hidden;
+                    display: flow-root;
+                }
+                .novelia-image-inner img {
+                    max-width: 100%;
+                    height: auto;
+                    display: block;
+                }
+            `);
+
+            const chevronSvg = `
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path>
+                </svg>
+            `;
+
+            function shouldCollapseImage(img) {
+                if (img.dataset.noveliaImageProcessed) return false;
+
+                if (img.naturalWidth > 0 && img.naturalWidth <= 40) return false;
+                if (img.naturalHeight > 0 && img.naturalHeight <= 40) return false;
+
+                if (img.closest('.n-avatar, [class*="avatar"], [class*="Avatar"], [class*="emoji"], [class*="icon"], [class*="logo"], header, footer, nav, .n-drawer, #tm-fixed-nav-buttons, .fs-search-wrap, .novelia-update-button')) {
+                    return false;
+                }
+
+                const src = img.getAttribute('src') || '';
+                const className = img.className || '';
+                const id = img.id || '';
+
+                const ignoreRegex = /avatar|logo|emoji|icon|captcha|loading|spinner|badge/i;
+                if (ignoreRegex.test(src) || ignoreRegex.test(className) || ignoreRegex.test(id)) {
+                    return false;
+                }
+
+                if (src.startsWith('data:') && src.length < 2048) {
+                    return false;
+                }
+
+                return true;
+            }
+
+            function wrapImage(img) {
+                if (!shouldCollapseImage(img)) return;
+                img.dataset.noveliaImageProcessed = "true";
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'novelia-image-wrapper';
+
+                const btn = document.createElement('button');
+                btn.className = 'novelia-image-btn';
+                btn.type = 'button';
+                btn.innerHTML = `
+                    <span class="novelia-image-btn-icon collapsed">${chevronSvg}</span>
+                    <span class="novelia-image-btn-text">顯示圖片</span>
+                `;
+
+                const container = document.createElement('div');
+                container.className = 'novelia-image-container collapsed';
+
+                const inner = document.createElement('div');
+                inner.className = 'novelia-image-inner';
+
+                img.parentNode.insertBefore(wrapper, img);
+                inner.appendChild(img);
+                container.appendChild(inner);
+                wrapper.appendChild(btn);
+                wrapper.appendChild(container);
+
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const isCollapsed = container.classList.contains('collapsed');
+                    const icon = btn.querySelector('.novelia-image-btn-icon');
+                    if (isCollapsed) {
+                        container.classList.remove('collapsed');
+                        container.classList.add('expanded');
+                        icon.classList.remove('collapsed');
+                        icon.classList.add('expanded');
+                        btn.querySelector('.novelia-image-btn-text').textContent = '收起圖片';
+                    } else {
+                        container.classList.remove('expanded');
+                        container.classList.add('collapsed');
+                        icon.classList.remove('expanded');
+                        icon.classList.add('collapsed');
+                        btn.querySelector('.novelia-image-btn-text').textContent = '顯示圖片';
+                    }
+                });
+            }
+
+            // Use debounced MutationObserver to handle dynamically added content safely
+            function scanImages(root = document) {
+                root.querySelectorAll('img').forEach(wrapImage);
+            }
+
+            let scanTimer = null;
+            const observer = new MutationObserver((mutations) => {
+                let hasNewImages = false;
+                for (const mutation of mutations) {
+                    if (mutation.addedNodes.length > 0) {
+                        for (const node of mutation.addedNodes) {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                if (node.tagName === 'IMG' || node.querySelector('img')) {
+                                    hasNewImages = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (hasNewImages) break;
+                }
+                if (hasNewImages) {
+                    clearTimeout(scanTimer);
+                    scanTimer = setTimeout(() => {
+                        scanImages();
+                    }, 100);
+                }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            scanImages();
         }
     };
 
