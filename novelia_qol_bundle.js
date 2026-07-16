@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.3.0
+// @version      1.3.1
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2529,6 +2529,11 @@
                 </svg>
             `;
 
+            function isChapterPage() {
+                const path = window.__noveliaMockPath || location.pathname;
+                return /^\/novel\/[^/]+\/[^/]+\/[^/]+/i.test(path);
+            }
+
             function shouldCollapseImage(img) {
                 if (img.dataset.noveliaImageProcessed) return false;
 
@@ -2556,6 +2561,7 @@
             }
 
             function wrapImage(img) {
+                if (!isChapterPage()) return;
                 if (!shouldCollapseImage(img)) return;
                 img.dataset.noveliaImageProcessed = "true";
 
@@ -2605,11 +2611,13 @@
 
             // Use debounced MutationObserver to handle dynamically added content safely
             function scanImages(root = document) {
+                if (!isChapterPage()) return;
                 root.querySelectorAll('img').forEach(wrapImage);
             }
 
             let scanTimer = null;
             const observer = new MutationObserver((mutations) => {
+                if (!isChapterPage()) return;
                 let hasNewImages = false;
                 for (const mutation of mutations) {
                     if (mutation.addedNodes.length > 0) {
@@ -2634,7 +2642,18 @@
 
             observer.observe(document.body, { childList: true, subtree: true });
 
-            scanImages();
+            window.addEventListener("tm-locationchange", () => {
+                if (isChapterPage()) {
+                    scanImages();
+                    setTimeout(scanImages, 100);
+                    setTimeout(scanImages, 300);
+                    setTimeout(scanImages, 600);
+                }
+            });
+
+            if (isChapterPage()) {
+                scanImages();
+            }
         }
     };
 
