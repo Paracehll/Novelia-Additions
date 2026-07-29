@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         哈梅林爬取器 v2.0
+// @name         哈梅林爬取器 v3.0
 // @namespace    https://syosetu.org/
-// @version      2.0.0
-// @description  爬取 syosetu.org 小說全文並合併為 TXT/EPUB 下載；支援章節範圍、快取（v2 緊湊格式）、匯入/匯出；一(兩)鍵加入 Novelia 本地書架
+// @version      3.0.0
+// @description  爬取 syosetu.org 小說全文並合併為 TXT/EPUB 下載；支援章節範圍、快取（v2 緊湊格式）、匯入/匯出；一(兩)鍵加入 Novelia 本地書架；適配新版 episode-list 目錄結構
 // @author       Mr.Claude
 // @match        https://syosetu.org/novel/*
 // @match        https://syosetu.org/novel/*/
@@ -15,7 +15,7 @@
 (function () {
   "use strict";
 
-  const fetchPageDelay = 500;
+  const fetchDelay = 500; // ms
 
   if (window.top !== window.self) return;
 
@@ -337,9 +337,15 @@
     },
     detectMaxPage(htmlOrDoc) {
       const doc = (typeof htmlOrDoc === "string") ? new DOMParser().parseFromString(htmlOrDoc, "text/html") : htmlOrDoc;
-      const ssDivs = doc.querySelectorAll("div.ss");
-      const searchRoot = ssDivs[2] || doc;
       const pattern = new RegExp(`^(?:https?://syosetu\\.org)?/novel/${Config.NOVEL_ID}/(\\d+)\\.html$`);
+      // 新版目錄：優先在 .episode-list 容器內搜尋（更精準，避免命中其他區塊的連結）
+      const episodeList = doc.querySelector(".episode-list");
+      let searchRoot = episodeList;
+      if (!searchRoot) {
+        // 舊版目錄：回退到第三個 div.ss 區塊
+        const ssDivs = doc.querySelectorAll("div.ss");
+        searchRoot = ssDivs[2] || doc;
+      }
       let max = 0;
       searchRoot.querySelectorAll("a[href]").forEach((a) => {
         const href = a.getAttribute("href") || "";
@@ -500,7 +506,7 @@
     refs: {},
     init() {
       const style = document.createElement("style");
-      style.textContent = `#syo-scraper-panel{position:fixed;bottom:24px;right:24px;z-index:999999;font-family:'Hiragino Kaku Gothic Pro','Meiryo',sans-serif;user-select:none;width:300px;}#syo-scraper-btn{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#e2b96f;border:1.5px solid #e2b96f;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:bold;cursor:pointer;box-shadow:0 4px 20px rgba(226,185,111,0.25);letter-spacing:0.05em;transition:all 0.2s;display:flex;align-items:center;gap:8px;width:100%;justify-content:center;}#syo-scraper-btn:hover:not(:disabled){background:linear-gradient(135deg,#16213e 0%,#0f3460 50%,#1a1a2e 100%);box-shadow:0 6px 28px rgba(226,185,111,0.4);transform:translateY(-1px);}#syo-scraper-btn:disabled{opacity:0.6;cursor:not-allowed;}#syo-scraper-main{margin-top:8px;background:rgba(10,10,20,0.95);border:1px solid #2a3a5c;border-radius:12px;padding:12px 14px;font-size:12px;color:#a8c4e0;display:none;}#syo-scraper-main.visible{display:block;}.syo-section-label{color:#e2b96f;font-size:11px;font-weight:bold;letter-spacing:0.08em;margin-bottom:6px;margin-top:10px;opacity:0.85;}.syo-section-label:first-child{margin-top:0;}.syo-range-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}.syo-range-input{background:#0d1a2e;border:1px solid #2a3a5c;border-radius:6px;color:#e2b96f;font-size:12px;padding:4px 8px;width:70px;outline:none;transition:border 0.2s;}.syo-range-input:focus{border-color:#e2b96f;}#syo-status-text{margin-bottom:6px;line-height:1.55;min-height:18px;}#syo-progress-bar-wrap{width:100%;height:4px;background:#1e2d42;border-radius:2px;overflow:hidden;margin-bottom:10px;}#syo-progress-bar{height:100%;background:linear-gradient(90deg,#e2b96f,#f5daa0);width:0%;transition:width 0.4s ease;border-radius:2px;}#syo-cache-info{background:#0d1a2e;border:1px solid #1e3050;border-radius:8px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#7090b0;line-height:1.6;}#syo-cache-info .syo-cache-title{color:#a8c4e0;font-weight:bold;margin-bottom:2px;}.syo-btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}.syo-action-btn{background:#0d1a2e;border:1px solid #2a3a5c;border-radius:7px;color:#a8c4e0;font-size:11px;padding:5px 10px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:4px;white-space:nowrap;}.syo-action-btn:hover{border-color:#e2b96f;color:#e2b96f;}.syo-action-btn.danger:hover{border-color:#e25555;color:#e25555;}.syo-action-btn:disabled{opacity:0.4;cursor:not-allowed;}.syo-action-btn.primary{background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%);border-color:#e2b96f;color:#e2b96f;font-weight:bold;}.syo-action-btn.epub{border-color:#7b5ea7;color:#c8a8f0;}.syo-action-btn.novelia{border-color:#4a9a6f;color:#7dcfa0;}.syo-divider{border:none;border-top:1px solid #1e2d42;margin:10px 0;}.syo-icon{font-size:14px;line-height:1;}`;
+      style.textContent = `#syo-scraper-panel{position:fixed;bottom:24px;right:24px;z-index:999999;font-family:'Hiragino Kaku Gothic Pro','Meiryo',sans-serif;user-select:none;width:300px;}#syo-scraper-btn{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#e2b96f;border:1.5px solid #e2b96f;border-radius:12px;padding:12px 22px;font-size:14px;font-weight:bold;cursor:pointer;box-shadow:0 4px 20px rgba(226,185,111,0.25);letter-spacing:0.05em;transition:all 0.2s;display:flex;align-items:center;gap:8px;width:100%;justify-content:center;}#syo-scraper-btn:hover:not(:disabled){background:linear-gradient(135deg,#16213e 0%,#0f3460 50%,#1a1a2e 100%);box-shadow:0 6px 28px rgba(226,185,111,0.4);transform:translateY(-1px);}#syo-scraper-btn:disabled{opacity:0.6;cursor:not-allowed;}#syo-scraper-main{margin-top:8px;background:rgba(10,10,20,0.95);border:1px solid #2a3a5c;border-radius:12px;padding:12px 14px;font-size:12px;color:#a8c4e0;display:none;}#syo-scraper-main.visible{display:block;}.syo-section-label{color:#e2b96f;font-size:11px;font-weight:bold;letter-spacing:0.08em;margin-bottom:6px;margin-top:10px;opacity:0.85;}.syo-section-label:first-child{margin-top:0;}.syo-range-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}.syo-range-input{background:#0d1a2e;border:1px solid #2a3a5c;border-radius:6px;color:#e2b96f;font-size:12px;padding:4px 8px;width:70px;outline:none;transition:border 0.2s;}.syo-range-input:focus{border-color:#e2b96f;}#syo-status-text{margin-bottom:6px;line-height:1.55;min-height:18px;}#syo-progress-bar-wrap{width:100%;height:4px;background:#1e2d42;border-radius:2px;overflow:hidden;margin-bottom:10px;}#syo-progress-bar{height:100%;background:linear-gradient(90deg,#e2b96f,#f5daa0);width:0%;transition:width 0.4s ease;border-radius:2px;}#syo-cache-info{background:#0d1a2e;border:1px solid #1e3050;border-radius:8px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#7090b0;line-height:1.6;}#syo-cache-info .syo-cache-title{color:#a8c4e0;font-weight:bold;margin-bottom:2px;}.syo-btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}.syo-action-btn{background:#0d1a2e;border:1px solid #2a3a5c;border-radius:7px;color:#a8c4e0;font-size:11px;padding:5px 10px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:4px;white-space:nowrap;}.syo-action-btn:hover{border-color:#e2b96f;color:#e2b96f;}.syo-action-btn.danger:hover{border-color:#e25555;color:#e25555;}.syo-action-btn:disabled{opacity:0.4;cursor:not-allowed;}.syo-action-btn.primary{background:linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%);border-color:#e2b96f;color:#e2b96f;font-weight:bold;}.syo-action-btn.epub{border-color:#7b5ea7;color:#c8a8f0;}.syo-action-btn.novelia{border-color:#4a9a6f;color:#7dcfa0;}.syo-divider{border:none;border-top:1px solid #1e2d42;margin:10px 0;}.syo-icon{font-size:14px;line-height:1;}.syo-toc-btn{margin-left:6px;border:none;background:none;cursor:pointer;font-size:13px;color:#007bff;line-height:1;vertical-align:middle;padding:0 2px;}.syo-toc-btn:hover{opacity:0.7;}`;
       document.head.appendChild(style);
 
       this.panel = document.createElement("div");
@@ -548,19 +554,22 @@
     },
 
     injectToCButtons() {
-      const links = document.querySelectorAll('#maind div.ss table a[href*=".html"]');
+      // 同時相容舊版（table 內連結）與新版（episode-list__link）目錄結構
+      const links = document.querySelectorAll(
+        '#maind div.ss table a[href*=".html"], .episode-list__link[href*=".html"]'
+      );
       links.forEach(link => {
         const m = link.getAttribute("href").match(/\/?(\d+)\.html$/);
         if (!m) return;
         const pageNum = m[1];
+
         const btn = document.createElement("button");
+        btn.className = "syo-toc-btn";
         btn.innerHTML = "🚀";
-        Object.assign(btn.style, {
-          marginLeft: "6px", border: "none", background: "none", cursor: "pointer", fontSize: "14px", color: "#007bff"
-        });
         btn.title = `從第 ${pageNum} 話開始爬取`;
         btn.onclick = (e) => {
           e.preventDefault();
+          e.stopPropagation();
           this.refs.rangeFrom.value = pageNum;
           this.refs.scrape.click();
           if (!this.mainBox.classList.contains("visible")) {
@@ -568,7 +577,15 @@
           }
           this.mainBox.scrollIntoView({ behavior: "smooth", block: "end" });
         };
-        link.parentNode.insertBefore(btn, link.nextSibling);
+
+        // 新版結構：按鈕插入到 .episode-list__title 右側（同一個 <a> 內）
+        const titleSpan = link.querySelector(".episode-list__title");
+        if (titleSpan) {
+          titleSpan.insertAdjacentElement("afterend", btn);
+        } else {
+          // 舊版結構：按鈕插入到整個連結之後
+          link.parentNode.insertBefore(btn, link.nextSibling);
+        }
       });
     },
 
@@ -616,7 +633,7 @@
               cache.chapters[String(p)] = { title: "", content: `（爬取失敗：${err.message}）` };
             }
             if (fetched % 5 === 0) Store.save(cache);
-            if (p < pTo) await Utils.delay(fetchPageDelay);
+            if (p < pTo) await Utils.delay(fetchDelay);
           }
           Store.save(cache);
           this.setStatus(`✅ 爬取完成！第 ${pFrom}～${pTo} 話已存入快取`, 100);
