@@ -471,11 +471,8 @@
                         <tr>
                             <th>小說 ID</th>
                             <th>標題</th>
-                            <th>檢測起始章</th>
-                            <th>本地最新章</th>
-                            <th>網頁最新章</th>
+                            <th>範圍 (From ~ To)</th>
                             <th>檢測間隔</th>
-                            <th>下次檢測倒數</th>
                             <th>目前狀態</th>
                             <th>操作</th>
                         </tr>
@@ -483,7 +480,7 @@
                     <tbody id="novels-table-body">
                         <!-- 動態填充 -->
                         <tr>
-                            <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td>
                         </tr>
                     </tbody>
                 </table>
@@ -715,15 +712,14 @@
             fetchPage(url, timeoutMs = 30000) {
                 return new Promise((resolve, reject) => {
                     let resolved = false;
-                    let popupWin = null;
+                    let worker = null;
 
                     const cleanup = () => {
-                        postMessageCallbacks.delete(url);
-                        if (popupWin) {
+                        if (worker) {
                             try {
-                                popupWin.location.href = 'about:blank';
-                                popupWin.close();
+                                worker.terminate();
                             } catch (e) {}
+                            worker = null;
                         }
                     };
 
@@ -734,42 +730,44 @@
                         }
                     }, timeoutMs);
 
-                    // 1. 註冊 postMessage 回呼
-                    postMessageCallbacks.set(url, (htmlString) => {
-                        if (resolved) return;
+                    log(`[模式] Web Worker 載入: ${url}`);
+                    try {
+                        worker = new Worker('worker.js');
+                        worker.onmessage = (e) => {
+                            if (resolved) return;
+                            const data = e.data;
+                            if (data && data.success) {
+                                resolved = true;
+                                clearTimeout(timer);
+                                cleanup();
+                                try {
+                                    const parser = new DOMParser();
+                                    const doc = parser.parseFromString(data.html, 'text/html');
+                                    resolve(doc);
+                                } catch (err) {
+                                    reject(err);
+                                }
+                            } else {
+                                resolved = true;
+                                clearTimeout(timer);
+                                cleanup();
+                                reject(new Error((data && data.error) || "Worker 讀取失敗"));
+                            }
+                        };
+                        worker.onerror = (err) => {
+                            if (resolved) return;
+                            resolved = true;
+                            clearTimeout(timer);
+                            cleanup();
+                            reject(new Error("Worker 發生異常: " + err.message));
+                        };
+                        worker.postMessage({ url });
+                    } catch (e) {
                         resolved = true;
                         clearTimeout(timer);
                         cleanup();
-                        try {
-                            const parser = new DOMParser();
-                            const doc = parser.parseFromString(htmlString, 'text/html');
-                            resolve(doc);
-                        } catch (e) {
-                            reject(e);
-                        }
-                    });
-
-                    log(`[模式] 分頁模式載入: ${url}`);
-                    // 開啟或重用獨立工作分頁
-                    popupWin = window.open(url, 'hameln_seeker_worker');
-
-                    // 檢查用戶是否封鎖了彈出式視窗
-                    if (!popupWin) {
-                        clearTimeout(timer);
-                        postMessageCallbacks.delete(url);
-                        reject(new Error("POPUP_BLOCKED"));
-                        return;
+                        reject(e);
                     }
-
-                    // 【修復網頁 focus 被轉移到新分頁】
-                    // 在開啟分頁後的接下來的 500ms 內持續高頻率重新強制主頁面聚焦
-                    [0, 50, 150, 300, 500].forEach(delay => {
-                        setTimeout(() => {
-                            try {
-                                window.focus();
-                            } catch (e) {}
-                        }, delay);
-                    });
                 });
             },
 
@@ -861,7 +859,7 @@
             if (!tbody) return;
 
             if (novels.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td></tr>`;
                 return;
             }
 
@@ -869,13 +867,6 @@
 
             tbody.innerHTML = novels.map(n => {
                 const intervalStr = n.interval === 'global' ? `全域 (${ConfigManager.getGlobalSettings().interval}分)` : `${n.interval}分鐘`;
-                let countdownStr = '--:--';
-                if (n.nextCheckTime) {
-                    const diff = Math.max(0, Math.round((n.nextCheckTime - Date.now()) / 1000));
-                    const mins = Math.floor(diff / 60);
-                    const secs = diff % 60;
-                    countdownStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-                }
 
                 let badgeClass = 'idle';
                 let badgeText = '監測中';
@@ -884,13 +875,13 @@
                 else if (n.status === 'error') { badgeClass = 'error'; badgeText = '錯誤'; }
                 else if (justCompleted.includes(n.id) || n.localLatest < n.webLatest) { badgeClass = 'updated'; badgeText = '有更新'; }
 
-                const downloadBtn = n.localLatest > 0
-                    ? `<button class="btn btn-green btn-sm" onclick="downloadEpub('${n.id}')">📥 EPUB</button>`
-                    : `<button class="btn btn-secondary btn-sm" disabled>無章節</button>`;
+                const downloadBtn = `<button class="btn btn-green btn-sm" onclick="downloadEpub('${n.id}')">📥 EPUB</button>`;
 
                 const displayTitle = n.title || `syosetu_${n.id}`;
-                // 限制標題長度，長度大於 25 個字自動截斷並加上 ...
                 const truncatedTitle = displayTitle.length > 25 ? displayTitle.slice(0, 25) + '...' : displayTitle;
+
+                const fromValue = n.fromCh || n.startChapter || 1;
+                const toValue = n.toCh || '';
 
                 return `
                     <tr id="row-${n.id}">
@@ -900,11 +891,14 @@
                             </a>
                         </td>
                         <td class="novel-title-cell" title="${displayTitle}">${truncatedTitle}</td>
-                        <td>第 ${n.startChapter} 章</td>
-                        <td>第 ${n.localLatest} 章</td>
-                        <td>第 ${n.webLatest || '--'} 章</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" min="1" value="${fromValue}" onchange="updateNovelRange('${n.id}', this.value, 'fromCh')" style="width: 70px; background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); padding: 4px 6px; text-align: center;">
+                                <span style="color: var(--text-muted);">~</span>
+                                <input type="number" min="1" value="${toValue}" placeholder="最新" onchange="updateNovelRange('${n.id}', this.value, 'toCh')" style="width: 70px; background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); padding: 4px 6px; text-align: center;">
+                            </div>
+                        </td>
                         <td>${intervalStr}</td>
-                        <td id="countdown-${n.id}">${countdownStr}</td>
                         <td><span class="status-badge ${badgeClass}">${badgeText}</span></td>
                         <td>
                             <div class="row-actions">
@@ -917,6 +911,20 @@
                 `;
             }).join('');
         }
+
+        window.updateNovelRange = function(id, value, field) {
+            let novels = ConfigManager.getNovels();
+            const n = novels.find(x => x.id === String(id));
+            if (n) {
+                if (field === 'fromCh') {
+                    n.fromCh = parseInt(value, 10) || 1;
+                } else if (field === 'toCh') {
+                    n.toCh = (value === '' || value === null || value === undefined) ? null : parseInt(value, 10);
+                }
+                ConfigManager.saveNovels(novels);
+                log(`⚙️ 已更新小說 [${n.title || n.id}] 的範圍設定 (${field}): ${value || '最新'}`);
+            }
+        };
 
         // 定時刷新倒數計時與檢查判定
         function startCountdownTimers() {
@@ -931,13 +939,8 @@
 
                 // 更新個別小說倒數
                 novels.forEach(n => {
-                    const el = document.getElementById(`countdown-${n.id}`);
-                    if (el && n.nextCheckTime) {
+                    if (n.nextCheckTime) {
                         const diff = Math.max(0, Math.round((n.nextCheckTime - now) / 1000));
-                        const mins = Math.floor(diff / 60);
-                        const secs = diff % 60;
-                        el.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-
                         if (diff <= 0 && settings.autoCheck && !isSystemRunning) {
                             needsCheck = true;
                         }
@@ -1006,19 +1009,30 @@
                     // 將作品描述儲存至本機 IndexedDB 快取，不佔用 localStorage 儲存空間
                     await HamelnSeekerDB.saveDescription(n.id, desc);
 
-                    let fromCh = n.startChapter;
-                    if (n.localLatest > 0) {
-                        fromCh = n.localLatest + 1;
+                    // 取得目前本機資料庫中已有的章節編號
+                    const existingChs = await HamelnSeekerDB.getChapters(n.id);
+                    const existingNums = new Set(existingChs.map(c => c.chapterNum));
+
+                    const startVal = parseInt(n.fromCh || n.startChapter || 1, 10);
+                    const endVal = (n.toCh !== null && n.toCh !== undefined && n.toCh !== '') ? Math.min(maxPage, parseInt(n.toCh, 10)) : maxPage;
+
+                    let neededChs = [];
+                    for (let ch = startVal; ch <= endVal; ch++) {
+                        if (!existingNums.has(ch)) {
+                            neededChs.push(ch);
+                        }
                     }
 
-                    if (maxPage >= fromCh) {
-                        log(`⚡ 檢測到更新！[${title}] 最新網頁章節：${maxPage} 話 (本地：${n.localLatest} 話)`, 'warning');
+                    n.localLatest = existingChs.length > 0 ? Math.max(...existingChs.map(c => c.chapterNum)) : 0;
+
+                    if (neededChs.length > 0) {
+                        log(`⚡ 檢測到更新或範圍內缺失章節！[${title}] 需要爬取的章節：${neededChs.join(', ')} 話`, 'warning');
                         updatedNovels.push(n.id);
-                        for (let ch = fromCh; ch <= maxPage; ch++) {
+                        for (let ch of neededChs) {
                             crawlQueue.push({ novelId: n.id, chapterNum: ch });
                         }
                     } else {
-                        log(`✅ [${title}] 無最新更新。`);
+                        log(`✅ [${title}] 指定範圍 [${startVal} ~ ${endVal}] 內的章節已全部下載。`);
                     }
                     n.status = 'idle';
                 } catch (err) {
@@ -1250,9 +1264,19 @@
             }
 
             try {
-                const chs = await HamelnSeekerDB.getChapters(novelId);
+                let chs = await HamelnSeekerDB.getChapters(novelId);
                 if (chs.length === 0) {
                     log('❌ 本地快取無任何章節內容，無法生成 EPUB。請先執行檢測爬取！', 'error');
+                    return;
+                }
+
+                // 根據使用者設定的 [From ~ To] 範圍過濾要打包的章節
+                const fromCh = parseInt(n.fromCh || n.startChapter || 1, 10);
+                const toCh = (n.toCh !== null && n.toCh !== undefined && n.toCh !== '') ? parseInt(n.toCh, 10) : Infinity;
+
+                chs = chs.filter(c => c.chapterNum >= fromCh && c.chapterNum <= toCh);
+                if (chs.length === 0) {
+                    log(`❌ 在指定範圍 [${fromCh} ~ ${toCh === Infinity ? '最新' : toCh}] 內無任何快取章節，無法生成 EPUB。`, 'error');
                     return;
                 }
 
@@ -1391,6 +1415,8 @@
                     id: id,
                     title: `syosetu_${id}`,
                     startChapter: startCh,
+                    fromCh: startCh,
+                    toCh: null,
                     localLatest: 0,
                     webLatest: 0,
                     interval: interval,
