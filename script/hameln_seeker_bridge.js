@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         哈梅林更新檢測 跨域對接橋樑 (Hameln Seeker Bridge)
 // @namespace    https://syosetu.org/
-// @version      1.0.0
-// @description  協助 Hameln Seeker 跨越同源政策 (SOP) 限制，將 iframe 中的小說目錄與章節 HTML 安全地回傳給父視窗。
+// @version      1.1.0
+// @description  協助 Hameln Seeker 跨越同源政策 (SOP) 與 file:// 限制，將 iframe 或彈出視窗中的小說目錄與章節 HTML 安全地回傳給父視窗。
 // @author       Mr.Claude
 // @match        https://syosetu.org/novel/*
 // @run-at       document-end
@@ -11,10 +11,13 @@
 (function() {
     'use strict';
 
-    // 只有在 iframe 當中運作時才執行對接
-    if (window.top === window.self) return;
+    // 只有在 iframe 當中或是新開彈出視窗時才執行對接
+    const isIframe = window.top !== window.self;
+    const isPopup = !!window.opener;
 
-    console.log('[Hameln Seeker Bridge] 檢測到運行於 iframe，準備回傳內容...');
+    if (!isIframe && !isPopup) return;
+
+    console.log(`[Hameln Seeker Bridge] 檢測到運行於 ${isIframe ? 'iframe' : 'popup 視窗'}，準備回傳內容...`);
 
     // 取得當前網頁的完整 HTML 與網址
     const messageData = {
@@ -24,7 +27,8 @@
     };
 
     // 透過 postMessage 安全地傳遞給父視窗 (Seeker)
-    window.parent.postMessage(messageData, '*');
+    const targetWindow = isPopup ? window.opener : window.parent;
+    targetWindow.postMessage(messageData, '*');
 
     console.log('[Hameln Seeker Bridge] 內容已成功傳送！');
 })();

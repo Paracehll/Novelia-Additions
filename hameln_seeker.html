@@ -40,7 +40,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1250px;
             margin: 0 auto;
         }
 
@@ -101,12 +101,12 @@
 
         /* Alert/Help Panel */
         .alert-panel {
-            background-color: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.3);
+            background-color: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: var(--radius-lg);
             padding: 15px;
             margin-bottom: 20px;
-            color: #fef3c7;
+            color: #f1f5f9;
         }
 
         .alert-panel h3 {
@@ -115,7 +115,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            color: var(--accent-orange);
+            color: var(--accent-blue);
         }
 
         .alert-panel p {
@@ -128,7 +128,7 @@
             padding: 2px 6px;
             border-radius: var(--radius-sm);
             font-family: monospace;
-            color: #fbbf24;
+            color: var(--accent-orange);
         }
 
         /* Top Grid: Add Novel & Settings */
@@ -299,19 +299,12 @@
         }
 
         .novel-title-cell {
-            max-width: 280px;
+            max-width: 250px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-        }
-
-        .novel-title-cell a {
-            color: var(--accent-blue);
-            text-decoration: none;
-        }
-
-        .novel-title-cell a:hover {
-            text-decoration: underline;
+            color: var(--text-primary);
+            font-weight: 500;
         }
 
         .status-badge {
@@ -381,42 +374,6 @@
             color: var(--accent-orange);
         }
 
-        /* Iframe Preview Container */
-        .iframe-container {
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            overflow: hidden;
-            background-color: #000;
-            margin-bottom: 20px;
-        }
-
-        .iframe-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 20px;
-            background-color: var(--bg-card);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .iframe-header h3 {
-            font-size: 1rem;
-            color: var(--text-primary);
-        }
-
-        iframe {
-            width: 100%;
-            height: 250px;
-            border: none;
-            background-color: #ffffff;
-            display: block;
-        }
-
-        /* Hide visually but keep in DOM if toggle off */
-        .hidden {
-            display: none !important;
-        }
-
         /* Input error border */
         .input-error {
             border-color: var(--accent-red) !important;
@@ -426,19 +383,17 @@
 <body>
     <div class="container">
         <header>
-            <h1>🔍 哈梅林更新檢測爬取器 <span style="font-size: 1rem; font-weight: normal; color: var(--text-muted);">v1.0.0</span></h1>
+            <h1>🔍 哈梅林更新檢測爬取器 <span style="font-size: 1rem; font-weight: normal; color: var(--text-muted);">v1.2.0</span></h1>
             <div class="system-status">
                 <span class="status-dot idle" id="global-status-dot"></span>
                 <span id="global-status-text">系統就緒</span>
             </div>
         </header>
 
-        <!-- CORS Warning Alert -->
-        <div class="alert-panel" id="cors-warning-alert">
-            <h3>⚠️ 跨來源存取 (CORS) 與 iframe 安全限制說明</h3>
-            <p>本工具在瀏覽器沙盒中運作。檢查與爬取時需要載入 <code>https://syosetu.org</code> 的 iframe。如果您直接開啟本地檔案，可能會因為<b>同源政策 (Same-Origin Policy)</b> 而無法讀取 iframe 內容。建議：</p>
-            <p style="margin-top: 5px; text-indent: 10px;">1. 啟動 Chrome 時加上 <code>--disable-web-security --user-data-dir="some_temp_path"</code> 參數關閉安全限制。</p>
-            <p style="margin-top: 2px; text-indent: 10px;">2. 安裝配對的 Tampermonkey 腳本，透過 iframe 中的 <code>postMessage</code> 傳遞網頁內容給父視窗（本頁已支援此雙重對接模式）。</p>
+        <!-- Separate Tab Mode Guide -->
+        <div class="alert-panel">
+            <h3>📖 分頁爬取模式說明</h3>
+            <p>本工具採用<b>獨立分頁模式</b>運作，可完全避免網頁同源政策 (CORS/SOP) 的阻礙。請務必安裝 Tampermonkey 橋樑腳本，並在瀏覽器設定中為本站<b>「允許彈出式視窗與重新導向」</b>以使其自動運作，本工具在開啟分頁時會<b>自動保持主視窗聚焦</b>，且<b>一律重用單一分頁</b>進行更新檢測與章節爬取，不會造成分頁氾濫與焦點切換困擾。</p>
         </div>
 
         <div class="top-grid">
@@ -480,6 +435,12 @@
                     <label for="global-interval">預設全域檢測間隔 (分鐘)</label>
                     <input type="number" id="global-interval" min="1" value="10" required>
                 </div>
+                <div class="form-group">
+                    <label>工作與爬取模式</label>
+                    <div style="background-color: var(--bg-input); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: var(--radius-md); font-size: 0.95rem; color: var(--accent-blue); font-weight: bold;">
+                        分頁模式 (已啟用)
+                    </div>
+                </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
                     <input type="checkbox" id="auto-check-toggle" checked style="width: 18px; height: 18px; cursor: pointer;">
                     <label for="auto-check-toggle" style="margin-bottom: 0; cursor: pointer; user-select: none;">啟用每隔 n 分鐘自動檢測</label>
@@ -509,6 +470,7 @@
                     <thead>
                         <tr>
                             <th>小說 ID</th>
+                            <th>標題</th>
                             <th>檢測起始章</th>
                             <th>本地最新章</th>
                             <th>網頁最新章</th>
@@ -521,7 +483,7 @@
                     <tbody id="novels-table-body">
                         <!-- 動態填充 -->
                         <tr>
-                            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td>
+                            <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td>
                         </tr>
                     </tbody>
                 </table>
@@ -538,24 +500,8 @@
                 <div class="console-line"><span class="console-time">[00:00:00]</span> 系統初始化完成。</div>
             </div>
         </div>
-
-        <!-- Iframe Preview Section -->
-        <div class="iframe-container">
-            <div class="iframe-header">
-                <h3>🖥️ 爬取核心工作視窗 (Iframe)</h3>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <input type="checkbox" id="iframe-visible-toggle" style="width: 15px; height: 15px; cursor: pointer;">
-                    <label for="iframe-visible-toggle" style="margin-bottom: 0; cursor: pointer; user-select: none; font-size: 0.85rem;">顯示工作視窗</label>
-                </div>
-            </div>
-            <!-- iframes of syosetu.org -->
-            <div id="iframe-wrapper" class="hidden">
-                <iframe id="seeker-crawler-iframe" src="about:blank"></iframe>
-            </div>
-        </div>
     </div>
 
-    <!-- JS Logic Scaffold for Next Steps -->
     <script>
         // 初始化日誌
         function log(message, type = 'info') {
@@ -578,16 +524,6 @@
         document.getElementById('btn-clear-log').onclick = () => {
             document.getElementById('console-log-box').innerHTML = '';
             log('日誌已清除。');
-        };
-
-        // 綁定 Iframe 顯示切換
-        document.getElementById('iframe-visible-toggle').onchange = (e) => {
-            const wrapper = document.getElementById('iframe-wrapper');
-            if (e.target.checked) {
-                wrapper.classList.remove('hidden');
-            } else {
-                wrapper.classList.add('hidden');
-            }
         };
 
         // ── 1. 網址解析與快取管理 ──────────────────────────────────────────
@@ -636,6 +572,37 @@
                 });
             },
 
+            async saveDescription(novelId, description) {
+                const db = await this.open();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction([STORE_NAME], 'readwrite');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const data = {
+                        id: `${novelId}_desc`,
+                        novelId: String(novelId),
+                        description: description || '',
+                        updatedAt: Date.now()
+                    };
+                    const request = store.put(data);
+                    request.onsuccess = () => resolve();
+                    request.onerror = (e) => reject(e.target.error);
+                });
+            },
+
+            async getDescription(novelId) {
+                const db = await this.open();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction([STORE_NAME], 'readonly');
+                    const store = transaction.objectStore(STORE_NAME);
+                    const request = store.get(`${novelId}_desc`);
+                    request.onsuccess = (e) => {
+                        const res = e.target.result;
+                        resolve(res ? res.description : '');
+                    };
+                    request.onerror = (e) => reject(e.target.error);
+                });
+            },
+
             async getChapters(novelId) {
                 const db = await this.open();
                 return new Promise((resolve, reject) => {
@@ -644,7 +611,7 @@
                     const request = store.getAll();
                     request.onsuccess = (e) => {
                         const all = e.target.result;
-                        const filtered = all.filter(ch => ch.novelId === String(novelId))
+                        const filtered = all.filter(ch => ch.novelId === String(novelId) && ch.chapterNum !== undefined)
                                            .sort((a, b) => a.chapterNum - b.chapterNum);
                         resolve(filtered);
                     };
@@ -697,13 +664,26 @@
             getNovels() {
                 try {
                     const raw = localStorage.getItem('hameln_seeker_novels');
-                    return raw ? JSON.parse(raw) : [];
+                    const novels = raw ? JSON.parse(raw) : [];
+                    // 強制從 localstorage 回傳資料中移除 description 與 url 欄位
+                    return novels.map(n => {
+                        delete n.description;
+                        delete n.url;
+                        return n;
+                    });
                 } catch {
                     return [];
                 }
             },
             saveNovels(novels) {
-                localStorage.setItem('hameln_seeker_novels', JSON.stringify(novels));
+                // 強制在存入 localstorage 之前移除 description 與 url 欄位
+                const cleaned = novels.map(n => {
+                    const copy = { ...n };
+                    delete copy.description;
+                    delete copy.url;
+                    return copy;
+                });
+                localStorage.setItem('hameln_seeker_novels', JSON.stringify(cleaned));
             },
             getGlobalSettings() {
                 return {
@@ -732,16 +712,19 @@
         });
 
         const Parser = {
-            fetchPage(url, iframeId = 'seeker-crawler-iframe', timeoutMs = 30000) {
+            fetchPage(url, timeoutMs = 30000) {
                 return new Promise((resolve, reject) => {
-                    const ifr = document.getElementById(iframeId);
-                    if (!ifr) return reject(new Error("找不到核心工作 iframe"));
-
                     let resolved = false;
+                    let popupWin = null;
 
                     const cleanup = () => {
-                        ifr.onload = null;
                         postMessageCallbacks.delete(url);
+                        if (popupWin) {
+                            try {
+                                popupWin.location.href = 'about:blank';
+                                popupWin.close();
+                            } catch (e) {}
+                        }
                     };
 
                     const timer = setTimeout(() => {
@@ -766,27 +749,27 @@
                         }
                     });
 
-                    // 2. 註冊 iframe 傳統 onload (同源/無 CORS 政策時直接讀取)
-                    ifr.onload = () => {
-                        setTimeout(() => {
-                            if (resolved) return;
-                            try {
-                                const doc = ifr.contentDocument || ifr.contentWindow.document;
-                                if (doc && doc.body && doc.body.innerHTML.trim().length > 0) {
-                                    resolved = true;
-                                    clearTimeout(timer);
-                                    cleanup();
-                                    resolve(doc);
-                                }
-                            } catch (e) {
-                                // 發生 CORS 錯誤，不處理，等候 postMessage 傳回
-                                console.log("[CORS] iframe 讀取受阻，等候跨域橋樑 (Bridge) 觸發 postMessage...", e.message);
-                            }
-                        }, 500);
-                    };
+                    log(`[模式] 分頁模式載入: ${url}`);
+                    // 開啟或重用獨立工作分頁
+                    popupWin = window.open(url, 'hameln_seeker_worker');
 
-                    // 觸發載入
-                    ifr.src = url;
+                    // 檢查用戶是否封鎖了彈出式視窗
+                    if (!popupWin) {
+                        clearTimeout(timer);
+                        postMessageCallbacks.delete(url);
+                        reject(new Error("POPUP_BLOCKED"));
+                        return;
+                    }
+
+                    // 【修復網頁 focus 被轉移到新分頁】
+                    // 在開啟分頁後的接下來的 500ms 內持續高頻率重新強制主頁面聚焦
+                    [0, 50, 150, 300, 500].forEach(delay => {
+                        setTimeout(() => {
+                            try {
+                                window.focus();
+                            } catch (e) {}
+                        }, delay);
+                    });
                 });
             },
 
@@ -878,7 +861,7 @@
             if (!tbody) return;
 
             if (novels.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td></tr>`;
                 return;
             }
 
@@ -905,13 +888,18 @@
                     ? `<button class="btn btn-green btn-sm" onclick="downloadEpub('${n.id}')">📥 EPUB</button>`
                     : `<button class="btn btn-secondary btn-sm" disabled>無章節</button>`;
 
+                const displayTitle = n.title || `syosetu_${n.id}`;
+                // 限制標題長度，長度大於 25 個字自動截斷並加上 ...
+                const truncatedTitle = displayTitle.length > 25 ? displayTitle.slice(0, 25) + '...' : displayTitle;
+
                 return `
                     <tr id="row-${n.id}">
                         <td>
-                            <a href="${n.url}" target="_blank" style="text-decoration: none;" title="${n.title || ''}">
+                            <a href="https://syosetu.org/novel/${n.id}/" target="_blank" style="text-decoration: none;" title="${displayTitle}">
                                 <code style="color: var(--accent-blue); font-weight: bold; cursor: pointer; text-decoration: underline;">${n.id}</code>
                             </a>
                         </td>
+                        <td class="novel-title-cell" title="${displayTitle}">${truncatedTitle}</td>
                         <td>第 ${n.startChapter} 章</td>
                         <td>第 ${n.localLatest} 章</td>
                         <td>第 ${n.webLatest || '--'} 章</td>
@@ -999,20 +987,24 @@
 
             log(`📢 開始檢查 ${targets.length} 本小說是否更新...`);
 
+            let popupBlockedDetected = false;
+
             for (const n of targets) {
                 n.status = 'checking';
                 renderNovelsTable();
                 log(`🔍 正在檢查 [${n.title || n.id}] 目錄資訊...`);
 
                 try {
-                    const doc = await Parser.fetchPage(n.url);
+                    const doc = await Parser.fetchPage(`https://syosetu.org/novel/${n.id}/`);
                     const maxPage = Parser.detectMaxPage(doc, n.id);
                     const title = Parser.extractNovelTitle(doc, n.id);
                     const desc = Parser.extractNovelDescription(doc);
 
                     n.title = title;
-                    n.description = desc;
                     n.webLatest = maxPage;
+
+                    // 將作品描述儲存至本機 IndexedDB 快取，不佔用 localStorage 儲存空間
+                    await HamelnSeekerDB.saveDescription(n.id, desc);
 
                     let fromCh = n.startChapter;
                     if (n.localLatest > 0) {
@@ -1030,6 +1022,11 @@
                     }
                     n.status = 'idle';
                 } catch (err) {
+                    if (err.message === "POPUP_BLOCKED") {
+                        popupBlockedDetected = true;
+                        n.status = 'error';
+                        break;
+                    }
                     log(`❌ 檢查 [${n.id}] 失敗: ${err.message}`, 'error');
                     n.status = 'error';
                 }
@@ -1039,6 +1036,22 @@
                 ConfigManager.saveNovels(novels);
                 renderNovelsTable();
                 await new Promise(r => setTimeout(r, 500));
+            }
+
+            // 如果發生彈窗封鎖，暫停檢測流程，不進行 reload，並等待使用者解除封鎖
+            if (popupBlockedDetected) {
+                log('🚨 偵測到「已封鎖彈出式視窗」！請於瀏覽器網址列右側允許本網頁彈出視窗與分頁，以開啟背景對接。', 'error');
+                log('🔔 本工具已停止檢測，正等待您開啟權限。開啟後可手動點擊「立即檢測全部」或等待下一次排程。', 'warning');
+                isSystemRunning = false;
+                updateSystemStatus('idle', '等待彈出視窗權限中');
+
+                // 重設其餘 checking 的小說狀態
+                novels.forEach(n => {
+                    if (n.status === 'checking' || n.status === 'scraping') n.status = 'idle';
+                });
+                ConfigManager.saveNovels(novels);
+                renderNovelsTable();
+                return;
             }
 
             // 開始爬取排程章節
@@ -1063,11 +1076,30 @@
                         n.localLatest = item.chapterNum;
                         ConfigManager.saveNovels(novels);
                     } catch (err) {
+                        if (err.message === "POPUP_BLOCKED") {
+                            popupBlockedDetected = true;
+                            n.status = 'error';
+                            break;
+                        }
                         log(`❌ 爬取 [${n.title}] 第 ${item.chapterNum} 話失敗: ${err.message}`, 'error');
                         n.status = 'error';
                         break; // 發生錯誤時中斷該本小說後續爬取
                     }
                     await new Promise(r => setTimeout(r, 500));
+                }
+
+                if (popupBlockedDetected) {
+                    log('🚨 偵測到「已封鎖彈出式視窗」！請於瀏覽器網址列右側允許本網頁彈出視窗與分頁，以開啟背景對接。', 'error');
+                    log('🔔 本工具已停止檢測，正等待您開啟權限。開啟後可手動點擊「立即檢測全部」或等待下一次排程。', 'warning');
+                    isSystemRunning = false;
+                    updateSystemStatus('idle', '等待彈出視窗權限中');
+
+                    novels.forEach(n => {
+                        if (n.status === 'checking' || n.status === 'scraping') n.status = 'idle';
+                    });
+                    ConfigManager.saveNovels(novels);
+                    renderNovelsTable();
+                    return;
                 }
 
                 // 還原 status
@@ -1087,10 +1119,9 @@
             const settings = ConfigManager.getGlobalSettings();
             localStorage.setItem('hameln_seeker_global_next_check', Date.now() + settings.interval * 60000);
 
-            log(`🔄 準備重新整理網頁以刷新 Tampermonkey iframe 占用...`);
-            await new Promise(r => setTimeout(r, 2000));
-
-            location.reload();
+            isSystemRunning = false;
+            updateSystemStatus('idle', '系統就緒');
+            renderNovelsTable();
         }
 
         // ── 5. EPUB 生成與下載邏輯 ──────────────────────────────────────────
@@ -1151,9 +1182,9 @@
                 );
                 return this.concatU8(...localHeaders.map((h) => h.local), cdData, eocd);
             },
-            generateEpub(novel, chapters) {
+            generateEpub(novel, chapters, description) {
                 const title = novel.title || novel.id;
-                const novelUrl = novel.url;
+                const novelUrl = `https://syosetu.org/novel/${novel.id}/`;
                 const uuid = `urn:uuid:${novel.id}-${Date.now()}`;
                 const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -1161,20 +1192,20 @@
                     { name: "mimetype", data: this.toUTF8("application/epub+zip") },
                     { name: "META-INF/container.xml", data: this.toUTF8(`<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`) },
                     { name: "OEBPS/style.css", data: this.toUTF8(`body{font-family:'Hiragino Mincho Pro','MS Mincho',serif;line-height:1.9;margin:1.5em;}h1{font-size:1.5em;border-bottom:1px solid #888;padding-bottom:0.4em;margin-bottom:1em;}h2{font-size:1.1em;color:#555;margin-bottom:0.8em;}p{margin:0.3em 0;text-indent:1em;}.chapter-num{color:#888;font-size:0.85em;}`) },
-                    { name: "OEBPS/cover.xhtml", data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${this.escXml(title)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body style="text-align:center;padding-top:4em;"><h1>${this.escXml(title)}</h1><p style="color:#888;font-size:0.9em;"><a href="${this.escXml(novelUrl)}">${this.escXml(novelUrl)}</a></p><p style="color:#aaa;font-size:0.8em;margin-top:2em;">第 ${chapters[0].chapterNum} — ${chapters[chapters.length - 1].chapterNum} 話（共 ${chapters.length} 章）</p><p style="color:#ccc;font-size:0.75em;">${this.escXml(now.slice(0, 10))} 生成</p></body></html>`) }
+                    { name: "OEBPS/cover.xhtml", data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${this.escXml(title)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body style="text-align:center;padding-top:4em;"><h1>${this.escXml(title)}</h1><p style="color:#888;font-size:0.9em;"><a href="${this.escXml(novelUrl)}">${this.escXml(novelUrl)}</a></p><p style="color:#aaa;font-size:0.8em;margin-top:2em;">第 ${chapters[0].chapterNum} — ${chapters[chapters.length - 1].chapterNum} 話（共 ${chapters.length} 章）</p><p style="color:#ccc;font-size:0.75em;">${this.escXml(now.slice(0, 10))} 生成</p></body></html>`) }
                 ];
 
-                if (novel.description) {
+                if (description) {
                     entries.push({
                         name: "OEBPS/description.xhtml",
-                        data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>作品描述</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1>作品描述</h1>${this.textToXhtml(novel.description)}</body></html>`)
+                        data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>作品描述</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1>作品描述</h1>${this.textToXhtml(description)}</body></html>`)
                     });
                 }
 
                 const chapterFiles = [];
                 for (const ch of chapters) {
                     const chTitle = ch.title ? `第 ${ch.chapterNum} 話　${ch.title}` : `第 ${ch.chapterNum} 話`;
-                    const xhtml = `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${this.escXml(chTitle)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1><span class="chapter-num">第 ${ch.chapterNum} 話</span>${ch.title ? `<br/>${this.escXml(ch.title)}` : ""}</h1>${this.textToXhtml(ch.content || "（無內容）")}</body></html>`;
+                    const xhtml = `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${this.escXml(chTitle)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1><span class="chapter-num">第 ${ch.chapterNum} 話</span>${ch.title ? `<br/>${this.escXml(ch.title)}` : ""}</h1>${this.textToXhtml(ch.content || "（無內容）")}</body></html>`;
                     const fname = `ch${String(ch.chapterNum).padStart(5, "0")}.xhtml`;
                     entries.push({ name: `OEBPS/${fname}`, data: this.toUTF8(xhtml) });
                     chapterFiles.push({ fname, page: ch.chapterNum, title: chTitle });
@@ -1182,7 +1213,7 @@
 
                 const manifestItems = [
                     `<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`,
-                    novel.description ? `<item id="description" href="description.xhtml" media-type="application/xhtml+xml"/>` : "",
+                    description ? `<item id="description" href="description.xhtml" media-type="application/xhtml+xml"/>` : "",
                     `<item id="css" href="style.css" media-type="text/css"/>`,
                     `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>`,
                     ...chapterFiles.map((c) => `<item id="ch${c.page}" href="${c.fname}" media-type="application/xhtml+xml"/>`)
@@ -1190,7 +1221,7 @@
 
                 const spineItems = [
                     `<itemref idref="cover"/>`,
-                    novel.description ? `<itemref idref="description"/>` : "",
+                    description ? `<itemref idref="description"/>` : "",
                     ...chapterFiles.map((c) => `<itemref idref="ch${c.page}"/>`)
                 ].filter(Boolean).join("\n    ");
 
@@ -1199,11 +1230,11 @@
                 let playOrder = 1;
                 const navPoints = [
                     `<navPoint id="cover" playOrder="${playOrder++}"><navLabel><text>表紙</text></navLabel><content src="cover.xhtml"/></navPoint>`,
-                    novel.description ? `<navPoint id="description" playOrder="${playOrder++}"><navLabel><text>作品描述</text></navLabel><content src="description.xhtml"/></navPoint>` : "",
+                    description ? `<navPoint id="description" playOrder="${playOrder++}"><navLabel><text>作品描述</text></navLabel><content src="description.xhtml"/></navPoint>` : "",
                     ...chapterFiles.map((c) => `<navPoint id="ch${c.page}" playOrder="${playOrder++}"><navLabel><text>${this.escXml(c.title)}</text></navLabel><content src="${c.fname}"/></navPoint>`)
                 ].filter(Boolean).join("\n    ");
 
-                entries.push({ name: "OEBPS/toc.ncx", data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd"><ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/"><head><meta name="dtb:uid" content="${this.escXml(uuid)}"/><meta name="dtb:depth" content="1"/><meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head><docTitle><text>${this.escXml(title)}</text></docTitle><navMap>${navPoints}</navMap></ncx>`) });
+                entries.push({ name: "OEBPS/toc.ncx", data: this.toUTF8(`<?xml version="1.0" encoding="utf-8"?><ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/"><head><meta name="dtb:uid" content="${this.escXml(uuid)}"/><meta name="dtb:depth" content="1"/><meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head><docTitle><text>${this.escXml(title)}</text></docTitle><navMap>${navPoints}</navMap></ncx>`) });
 
                 return this.buildZip(entries);
             }
@@ -1225,7 +1256,9 @@
                     return;
                 }
 
-                const u8data = EpubExporter.generateEpub(n, chs);
+                // 自 IndexedDB 載入儲存的作品描述
+                const desc = await HamelnSeekerDB.getDescription(novelId);
+                const u8data = EpubExporter.generateEpub(n, chs, desc);
                 const blob = new Blob([u8data], { type: "application/epub+zip" });
                 const url = URL.createObjectURL(blob);
 
@@ -1323,7 +1356,7 @@
             const justCompleted = JSON.parse(localStorage.getItem('hameln_seeker_just_completed') || '[]');
             if (justCompleted.length > 0) {
                 log(`🎉 上次自動更新檢測成功完成！已更新小說：${justCompleted.join(', ')}。`, 'success');
-                // 3秒後清除
+                // 5秒後清除
                 setTimeout(() => localStorage.removeItem('hameln_seeker_just_completed'), 5000);
             }
 
@@ -1357,7 +1390,6 @@
                 const newNovel = {
                     id: id,
                     title: `syosetu_${id}`,
-                    url: `https://syosetu.org/novel/${id}/`,
                     startChapter: startCh,
                     localLatest: 0,
                     webLatest: 0,
