@@ -2,7 +2,7 @@
 // @name         哈梅林爬取器 v3.0
 // @namespace    https://syosetu.org/
 // @version      3.0.0
-// @description  爬取 syosetu.org 小說全文並合併為 TXT/EPUB 下載；支援章節範圍、快取（v2 緊湊格式）、匯入/匯出；一(兩)鍵加入 Novelia 本地書架；適配新版 episode-list 目錄結構
+// @description  爬取 syosetu.org 小說全文並合併為 TXT/EPUB 下載；支援章節範圍、快取、匯入/匯出；Novelia 書架快捷鍵；適配新版 episode-list 目錄結構(v3)
 // @author       Mr.Claude
 // @match        https://syosetu.org/novel/*
 // @match        https://syosetu.org/novel/*/

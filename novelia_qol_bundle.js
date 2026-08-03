@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.3.1
+// @version      1.3.2
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2032,7 +2032,7 @@
                         .tm-fixed-nav-active ${TABS_PAD_ELEMENT_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}
                         .tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}
                         .tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}
-                        .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important;}
+                        .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important; bottom: 0px;}
                         #tm-fixed-nav-buttons {position: fixed !important;right: ${MOBILE_SIDEBAR_VERT_GAP}px !important;bottom: calc(${MOBILE_SIDEBAR_HORIZ_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${COMMON_BUTTON_GAP}px !important;z-index: 10001 !important;}
                         #tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${MOBILE_BUTTON_BG};color: ${MOBILE_BUTTON_TEXT_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}
                         .tm-fixed-footer-collapsed {display: none !important;}
