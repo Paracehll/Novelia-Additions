@@ -500,6 +500,11 @@
     </div>
 
     <script>
+        // HTML 轉義工具，防範 DOM-based XSS
+        function escHtml(s) {
+            return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+        }
+
         // 初始化日誌
         function log(message, type = 'info') {
             const box = document.getElementById('console-log-box');
@@ -709,18 +714,12 @@
         });
 
         const Parser = {
-            fetchPage(url, timeoutMs = 30000) {
+            fetchPage(url, timeoutMs = 45000) {
                 return new Promise((resolve, reject) => {
                     let resolved = false;
-                    let iframe = null;
+                    let popup = null;
 
                     const cleanup = () => {
-                        if (iframe) {
-                            try {
-                                iframe.remove();
-                            } catch (e) {}
-                            iframe = null;
-                        }
                         postMessageCallbacks.delete(url);
                         postMessageCallbacks.delete(url.replace(/\/$/, ''));
                     };
@@ -732,7 +731,7 @@
                         }
                     }, timeoutMs);
 
-                    log(`[模式] Iframe 載入: ${url}`);
+                    log(`[模式] 彈窗載入: ${url}`);
 
                     const onHtmlReceived = (htmlText) => {
                         if (resolved) return;
@@ -753,15 +752,20 @@
                     postMessageCallbacks.set(url.replace(/\/$/, ''), onHtmlReceived);
 
                     try {
-                        iframe = document.createElement('iframe');
-                        iframe.style.position = 'absolute';
-                        iframe.style.width = '0';
-                        iframe.style.height = '0';
-                        iframe.style.border = 'none';
-                        iframe.style.opacity = '0';
-                        iframe.style.pointerEvents = 'none';
-                        iframe.src = url;
-                        document.body.appendChild(iframe);
+                        // 先開啟 about:blank 頁面
+                        popup = window.open('about:blank', "hameln_seeker_crawler");
+                        if (!popup) {
+                            throw new Error("POPUP_BLOCKED");
+                        }
+
+                        // 同步執行 blur 並且強制主視窗 focus，阻斷焦點轉移
+                        try {
+                            popup.blur();
+                        } catch (err) {}
+                        window.focus();
+
+                        // 接著將空白頁重定向至目標爬取網址
+                        popup.location.replace(url);
                     } catch (e) {
                         resolved = true;
                         clearTimeout(timer);
@@ -877,8 +881,10 @@
 
                 const downloadBtn = `<button class="btn btn-green btn-sm" onclick="downloadEpub('${n.id}')">📥 EPUB</button>`;
 
-                const displayTitle = n.title || `syosetu_${n.id}`;
-                const truncatedTitle = displayTitle.length > 25 ? displayTitle.slice(0, 25) + '...' : displayTitle;
+                const rawTitle = n.title || `syosetu_${n.id}`;
+                const displayTitle = escHtml(rawTitle);
+                const truncatedRaw = rawTitle.length > 25 ? rawTitle.slice(0, 25) + '...' : rawTitle;
+                const truncatedTitle = escHtml(truncatedRaw);
 
                 const fromValue = n.fromCh || n.startChapter || 1;
                 const toValue = n.toCh || '';
@@ -934,18 +940,19 @@
                 const novels = ConfigManager.getNovels();
                 const settings = ConfigManager.getGlobalSettings();
 
-                let needsCheck = false;
                 const now = Date.now();
+                let expiredIndividualNovelId = null;
 
-                // 更新個別小說倒數
-                novels.forEach(n => {
+                // 更新個別小說倒數，尋找第一個到期且需要單獨檢查的小說
+                for (const n of novels) {
                     if (n.nextCheckTime) {
                         const diff = Math.max(0, Math.round((n.nextCheckTime - now) / 1000));
                         if (diff <= 0 && settings.autoCheck && !isSystemRunning) {
-                            needsCheck = true;
+                            expiredIndividualNovelId = n.id;
+                            break;
                         }
                     }
-                });
+                }
 
                 // 更新全域倒數
                 let globalNext = localStorage.getItem('hameln_seeker_global_next_check');
@@ -959,13 +966,13 @@
                 document.getElementById('global-countdown').textContent = `${String(gMins).padStart(2, '0')}:${String(gSecs).padStart(2, '0')}`;
 
                 if (globalDiff <= 0 && settings.autoCheck && !isSystemRunning) {
-                    needsCheck = true;
+                    log('全域自動檢測時間已到，啟動全體更新檢測流程...');
                     localStorage.setItem('hameln_seeker_global_next_check', Date.now() + settings.interval * 60000);
-                }
-
-                if (needsCheck && !isSystemRunning) {
-                    log('自動檢測時間已到，啟動全體更新檢測流程...');
                     checkAndCrawlAll();
+                } else if (expiredIndividualNovelId && !isSystemRunning) {
+                    const matchedNovel = novels.find(n => n.id === expiredIndividualNovelId);
+                    log(`個別自動檢測時間已到，啟動小說 [${matchedNovel ? (matchedNovel.title || matchedNovel.id) : expiredIndividualNovelId}] 檢測流程...`);
+                    checkAndCrawlAll(expiredIndividualNovelId);
                 }
             }, 1000);
         }

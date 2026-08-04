@@ -31,4 +31,19 @@
     targetWindow.postMessage(messageData, '*');
 
     console.log('[Hameln Seeker Bridge] 內容已成功傳送！');
+
+    // 若為彈出視窗，在傳送完畢後，重新導向至 about:blank 釋放記憶體並避免重覆執行
+    if (isPopup) {
+        // 主動嘗試將 focus 回傳給主視窗
+        try {
+            window.opener.focus();
+        } catch (err) {}
+
+        setTimeout(() => {
+            try {
+                window.opener.focus();
+            } catch (err) {}
+            window.location.replace('about:blank');
+        }, 100);
+    }
 })();
