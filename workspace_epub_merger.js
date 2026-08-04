@@ -1,14 +1,16 @@
 // ==UserScript==
 // @name         Novelia EPUB 合併工具 側邊欄
 // @namespace    https://n.novelia.cc/
-// @version      1.0.0
+// @version      2.0.0
 // @match        https://n.novelia.cc/*
-// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.9.1/jszip.min.js
 // @run-at       document-idle
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    const debugLogging = false;
 
     const TARGET_PATH = '/workspace/sakura';
     const HOST_ID = 'epub-merger-shadow-host';
@@ -346,8 +348,8 @@
             <div class="epub-body">
                 <div id="drop-zone" class="drop-zone">
                     <div class="drop-icon">📥</div>
-                    <p style="color: #ffffff;">點擊或拖入 EPUB 檔案</p>
-                    <input type="file" id="file-input" accept=".epub" multiple>
+                    <p style="color: #ffffff;">點擊或拖入 EPUB/ZIP 檔案</p>
+                    <input type="file" id="file-input" accept=".epub,.zip" multiple>
                 </div>
 
                 <div id="file-list" class="file-list-container hidden"></div>
@@ -399,152 +401,285 @@
         return path.split('/').pop();
     }
 
-    class EPUBMergerStandard {
+    class EPUBMerger {
         constructor() {
             this.OPF_NS = "http://www.idpf.org/2007/opf";
             this.CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container";
         }
 
-        async getOpfPath(zip) {
-            const containerXml = await zip.file("META-INF/container.xml").async("string");
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(containerXml, "text/xml");
-            const rootfile = doc.getElementsByTagNameNS(this.CONTAINER_NS, "rootfile")[0] || doc.getElementsByTagName("rootfile")[0];
-            return rootfile.getAttribute("full-path");
+        log(...args) {
+            if (typeof debugLogging !== "undefined" && debugLogging) {
+                console.log(...args);
+            }
         }
 
-        async extractMetadata(zip) {
-            const opfPath = await this.getOpfPath(zip);
-            const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
-            const opfContent = await zip.file(opfPath).async("string");
-
-            let title = "";
-            const titleMatch = opfContent.match(/<dc:title[^>]*>(.*?)<\/dc:title>/s);
-            if (titleMatch) title = decodeHtml(titleMatch[1].trim());
-
-            let novelId = "";
-            const sourceMatch = opfContent.match(/<dc:source[^>]*>(.*?)<\/dc:source>/s);
-            if (sourceMatch) {
-                const idM = sourceMatch[1].match(/\/novel\/([^/]+)\//);
-                if (idM) novelId = idM[1];
-            }
-
-            if (!novelId) {
-                const idMatch = opfContent.match(/<dc:identifier[^>]*>(.*?)<\/dc:identifier>/s);
-                if (idMatch) {
-                    const idM = idMatch[1].match(/uuid:(\d+)-/);
-                    if (idM) novelId = idM[1];
-                }
-            }
-
+        async getOpfPath(zip) {
+            this.log("[EPUBMerger] Getting OPF path...");
             try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(opfContent, "text/xml");
-                const manifest = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
-                if (manifest) {
-                    const items = manifest.getElementsByTagNameNS(this.OPF_NS, "item");
-                    let coverHref = "";
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].getAttribute("id") === "cover") {
-                            coverHref = items[i].getAttribute("href");
-                            break;
-                        }
-                    }
-                    if (coverHref) {
-                        const fullCoverHref = opfDir ? `${opfDir}/${coverHref}` : coverHref;
-                        const coverFile = zip.file(fullCoverHref);
-                        if (coverFile) {
-                            const coverContent = await coverFile.async("string");
-                            const h1Match = coverContent.match(/<h1>(.*?)<\/h1>/s);
-                            if (h1Match) {
-                                const extractedTitle = h1Match[1].replace(/<[^>]+>/g, '').trim();
-                                if (extractedTitle) title = decodeHtml(extractedTitle);
-                            }
-                        }
+                const containerFile = zip.file("META-INF/container.xml");
+                if (!containerFile) {
+                    console.warn("[EPUBMerger] META-INF/container.xml not found, falling back to default path.");
+                    return "OEBPS/content.opf";
+                }
+                const containerXml = await containerFile.async("string");
+                
+                // Deterministic regex first
+                const match = containerXml.match(/<rootfile[^>]+full-path=["']([^"']+)["']/);
+                if (match) {
+                    this.log("[EPUBMerger] OPF path found via regex: " + match[1]);
+                    return match[1];
+                }
+
+                // Fallback to DOMParser
+                if (typeof DOMParser !== "undefined") {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(containerXml, "text/xml");
+                    const rootfile = doc.getElementsByTagNameNS(this.CONTAINER_NS, "rootfile")[0] || doc.getElementsByTagName("rootfile")[0];
+                    if (rootfile && rootfile.getAttribute("full-path")) {
+                        const path = rootfile.getAttribute("full-path");
+                        this.log("[EPUBMerger] OPF path found via DOMParser: " + path);
+                        return path;
                     }
                 }
             } catch (e) {
-                console.error("Metadata extraction error:", e);
+                console.error("[EPUBMerger] Error in getOpfPath:", e);
+            }
+            console.warn("[EPUBMerger] OPF path detection failed, using fallback 'OEBPS/content.opf'");
+            return "OEBPS/content.opf";
+        }
+
+        async extractMetadata(zip) {
+            this.log("[EPUBMerger] Extracting metadata from EPUB...");
+            let title = "";
+            let novelId = "";
+            try {
+                const opfPath = await this.getOpfPath(zip);
+                const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
+                const opfContent = await zip.file(opfPath).async("string");
+
+                const titleMatch = opfContent.match(/<dc:title[^>]*>([^<]*?)<\/dc:title>/);
+                if (titleMatch) title = this.decodeHtml(titleMatch[1].trim());
+
+                const sourceMatch = opfContent.match(/<dc:source[^>]*>([^<]*?)<\/dc:source>/);
+                if (sourceMatch) {
+                    const url = sourceMatch[1];
+                    const idM = url.match(/\/novel\/([^/]+)\//);
+                    if (idM) novelId = idM[1];
+                }
+
+                if (!novelId) {
+                    const idMatch = opfContent.match(/<dc:identifier[^>]*>([^<]*?)<\/dc:identifier>/);
+                    if (idMatch) {
+                        const val = idMatch[1];
+                        const idM = val.match(/uuid:(\d+)-/);
+                        if (idM) novelId = idM[1];
+                    }
+                }
+
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(opfContent, "text/xml");
+                    const manifest = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
+                    if (manifest) {
+                        const items = manifest.getElementsByTagNameNS(this.OPF_NS, "item") || manifest.getElementsByTagName("item");
+                        let coverHref = "";
+                        for (let i = 0; i < items.length; i++) {
+                            if (items[i].getAttribute("id") === "cover") {
+                                coverHref = items[i].getAttribute("href");
+                                break;
+                            }
+                        }
+                        if (coverHref) {
+                            const fullCoverHref = opfDir ? `${opfDir}/${coverHref}` : coverHref;
+                            const coverFile = zip.file(fullCoverHref);
+                            if (coverFile) {
+                                const coverContent = await coverFile.async("string");
+                                const h1Match = coverContent.match(/<h1>([^<]*?)<\/h1>/);
+                                if (h1Match) {
+                                    const extractedTitle = h1Match[1].replace(/<[^>]+>/g, '').trim();
+                                    if (extractedTitle) title = this.decodeHtml(extractedTitle);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("[EPUBMerger] Metadata extraction internal error:", e);
+                }
+            } catch (e) {
+                console.error("[EPUBMerger] Metadata extraction outer error:", e);
             }
 
+            this.log("[EPUBMerger] Extracted metadata - Title:", title, "| Novel ID:", novelId);
             return { novelId, title };
         }
 
         async extractChapters(zip) {
+            this.log("[EPUBMerger] Extracting chapters from EPUB...");
             const chapters = {};
-            const opfPath = await this.getOpfPath(zip);
-            const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
-            const opfContent = await zip.file(opfPath).async("string");
+            try {
+                const opfPath = await this.getOpfPath(zip);
+                const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
+                const opfContent = await zip.file(opfPath).async("string");
 
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(opfContent, "text/xml");
+                const manifest = {};
+                const spine = [];
 
-            const manifestEl = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
-            const manifest = {};
-            const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item");
-            for (let i = 0; i < items.length; i++) {
-                manifest[items[i].getAttribute("id")] = items[i].getAttribute("href");
-            }
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(opfContent, "text/xml");
 
-            const spineEl = doc.getElementsByTagNameNS(this.OPF_NS, "spine")[0] || doc.getElementsByTagName("spine")[0];
-            const itemrefs = spineEl.getElementsByTagNameNS(this.OPF_NS, "itemref");
-            const spine = [];
-            for (let i = 0; i < itemrefs.length; i++) {
-                spine.push(itemrefs[i].getAttribute("idref"));
-            }
+                    const manifestEl = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
+                    if (manifestEl) {
+                        const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item") || manifestEl.getElementsByTagName("item");
+                        if (items) {
+                            for (let i = 0; i < items.length; i++) {
+                                const id = items[i].getAttribute("id");
+                                const href = items[i].getAttribute("href");
+                                if (id && href) manifest[id] = href;
+                            }
+                        }
+                    }
 
-            for (let itemId of spine) {
+                    const spineEl = doc.getElementsByTagNameNS(this.OPF_NS, "spine")[0] || doc.getElementsByTagName("spine")[0];
+                    if (spineEl) {
+                        const itemrefs = spineEl.getElementsByTagNameNS(this.OPF_NS, "itemref") || spineEl.getElementsByTagName("itemref");
+                        if (itemrefs) {
+                            for (let i = 0; i < itemrefs.length; i++) {
+                                const idref = itemrefs[i].getAttribute("idref");
+                                if (idref) spine.push(idref);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("[EPUBMerger] DOMParser error on content.opf, falling back to regex parsing:", e);
+                }
+
+                // Regex backup parser for manifest items if DOMParser failed or returned empty manifest
+                if (Object.keys(manifest).length === 0) {
+                    this.log("[EPUBMerger] manifest is empty, running backup regex manifest parser...");
+                    const itemMatches = opfContent.matchAll(/<item\s+([^>]+)>/g);
+                    for (const match of itemMatches) {
+                        const attrs = match[1];
+                        const idM = attrs.match(/id=["']([^"']+)["']/);
+                        const hrefM = attrs.match(/href=["']([^"']+)["']/);
+                        if (idM && hrefM) {
+                            manifest[idM[1]] = hrefM[1];
+                        }
+                    }
+                }
+
+                // Regex backup parser for spine itemrefs
+                if (spine.length === 0) {
+                    this.log("[EPUBMerger] spine is empty, running backup regex spine parser...");
+                    const itemrefMatches = opfContent.matchAll(/<itemref\s+([^>]+)>/g);
+                    for (const match of itemrefMatches) {
+                        const attrs = match[1];
+                        const idrefM = attrs.match(/idref=["']([^"']+)["']/);
+                        if (idrefM) {
+                            spine.push(idrefM[1]);
+                        }
+                    }
+                }
+
+                for (let itemId of spine) {
                 const href = manifest[itemId];
                 if (!href) continue;
 
                 if (href.endsWith('.xhtml') && href.includes('ch')) {
                     const fullHref = opfDir ? `${opfDir}/${href}` : href;
+                    this.log("[EPUBMerger] Processing chapter file: " + fullHref);
                     try {
                         const chapterFile = zip.file(fullHref);
-                        if (!chapterFile) continue;
+                        if (!chapterFile) {
+                            console.warn("[EPUBMerger] Chapter file not found in ZIP: " + fullHref);
+                            continue;
+                        }
+                        this.log("[EPUBMerger] Reading content of chapter: " + fullHref);
                         const content = await chapterFile.async("string");
+                        this.log("[EPUBMerger] Finished reading content (length: " + content.length + ") for: " + fullHref);
                         const numMatch = content.match(/第\s*(\d+)\s*[話话]/);
                         if (numMatch) {
                             const chNum = parseInt(numMatch[1]);
                             let title = "";
-                            const titleMatch = content.match(/<h1>.*?<br\s*\/?>\s*(.*?)<\/h1>/s);
+                            const titleMatch = content.match(/<h1>(?:<[^>]+>|[^<])*<br\s*\/?>\s*([^<]+)<\/h1>/);
                             if (titleMatch) {
                                 title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
                             } else {
-                                const titleTagMatch = content.match(/<title>(.*?)<\/title>/);
+                                const titleTagMatch = content.match(/<title>([^<]*?)<\/title>/);
                                 if (titleTagMatch) {
                                     title = titleTagMatch[1].replace(/第\s*\d+\s*[話话]\s*/, '').trim();
                                 }
                             }
-                            chapters[chNum] = { title: decodeHtml(title), content, href };
+                            this.log("[EPUBMerger] Matched chapter " + chNum + " | Title: " + title);
+                            chapters[chNum] = { title: this.decodeHtml(title), content, href };
+                        } else {
+                            this.log("[EPUBMerger] No chapter number found in: " + fullHref);
                         }
                     } catch (e) {
-                        console.error("Error reading chapter:", fullHref, e);
+                        console.error("[EPUBMerger] Error reading chapter file:", fullHref, e);
                     }
                 }
+                }
+            } catch (e) {
+                console.error("[EPUBMerger] Outer error in extractChapters:", e);
             }
+            this.log("[EPUBMerger] Chapters extracted. Found " + Object.keys(chapters).length + " standard chapters.");
             return chapters;
         }
 
+        decodeHtml(html) {
+            const txt = document.createElement("textarea");
+            txt.innerHTML = html;
+            return txt.value;
+        }
+
+        escapeXml(unsafe) {
+            return unsafe.replace(/[<>&"']/g, function (m) {
+                switch (m) {
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '&': return '&amp;';
+                    case '"': return '&quot;';
+                    case "'": return '&apos;';
+                    default: return m;
+                }
+            });
+        }
+
         async mergeAll(fileObjects, isTranslated) {
+            this.log("[EPUBMerger] Starting EPUB merge operation for " + fileObjects.length + " files...");
+            if (fileObjects.length === 0) {
+                console.warn("[EPUBMerger] No files to merge.");
+                return null;
+            }
+
             const allEpubData = [];
             for (let f of fileObjects) {
                 try {
+                    this.log("[EPUBMerger] Reading and loading EPUB file: " + f.name);
                     const zip = await JSZip.loadAsync(f);
                     const chaps = await this.extractChapters(zip);
                     const meta = await this.extractMetadata(zip);
                     allEpubData.push({
-                        zip, chapters: chaps, meta: meta, count: Object.keys(chaps).length
+                        zip,
+                        chapters: chaps,
+                        meta: meta,
+                        count: Object.keys(chaps).length
                     });
                 } catch (e) {
-                    console.error("Error loading EPUB:", f.name, e);
+                    console.error("[EPUBMerger] Error loading EPUB: " + f.name, e);
                 }
             }
-            if (allEpubData.length === 0) return null;
+
+            if (allEpubData.length === 0) {
+                console.error("[EPUBMerger] Failed to parse any valid EPUB files.");
+                return null;
+            }
 
             allEpubData.sort((a, b) => b.count - a.count);
             const baseData = allEpubData[0];
             const { novelId, title } = baseData.meta;
+            this.log("[EPUBMerger] Selected Base EPUB: " + title + " (Novel ID: " + novelId + ")");
 
             const allChapters = {};
             for (let data of allEpubData) {
@@ -552,18 +687,24 @@
             }
 
             const sortedChNums = Object.keys(allChapters).map(Number).sort((a, b) => a - b);
-            if (sortedChNums.length === 0) return null;
+            if (sortedChNums.length === 0) {
+                console.error("[EPUBMerger] No chapters found across any input EPUB files.");
+                return null;
+            }
 
             const n = sortedChNums[0];
             const m = sortedChNums[sortedChNums.length - 1];
             const count = sortedChNums.length;
+            this.log("[EPUBMerger] Merging a total of " + count + " chapters, ranging from Chapter " + n + " to " + m);
 
             const rangeStr = n === 1 ? `ch-${m}` : `ch${n}-${m}`;
             const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
             const prefix = isTranslated ? "zh-jp.Ysgyb." : "";
             const outputFilename = `${prefix}${novelId}_${rangeStr}_${safeTitle}.epub`;
+            this.log("[EPUBMerger] Target output filename: " + outputFilename);
 
             const outZip = new JSZip();
+            // mimetype MUST be first and uncompressed
             outZip.file("mimetype", "application/epub+zip", { compression: "STORE" });
             outZip.file("META-INF/container.xml", '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
 
@@ -578,19 +719,21 @@
 
             let coverHref = "";
             const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item");
-            for (let i = 0; i < items.length; i++) {
+            for(let i=0; i<items.length; i++) {
                 if (items[i].getAttribute("id") === "cover") {
                     coverHref = items[i].getAttribute("href");
                     break;
                 }
             }
             const fullCoverHref = opfDir ? `${opfDir}/${coverHref}` : coverHref;
+
             const hasDescription = opfContent.includes('id="description"');
 
+            // Copy other files from baseZip
             const baseFiles = Object.keys(baseZip.files);
             for (let fname of baseFiles) {
                 const file = baseZip.file(fname);
-                if (!file) continue;
+                if (!file) continue; // Skip directories
                 if (fname === 'mimetype' || fname === 'META-INF/container.xml' ||
                     fname.startsWith('OEBPS/ch') ||
                     fname === 'OEBPS/content.opf' || fname === 'OEBPS/toc.ncx') {
@@ -613,44 +756,71 @@
                 const fname = `ch${chNum.toString().padStart(5, '0')}.xhtml`;
                 outZip.file(`OEBPS/${fname}`, ch.content);
                 chapterFiles.push({
-                    id: `ch${chNum}`, href: fname,
-                    title: `第 ${chNum} 話${ch.title ? ' ' + ch.title : ''}`, num: chNum
+                    id: `ch${chNum}`,
+                    href: fname,
+                    title: `第 ${chNum} 話${ch.title ? '　' + ch.title : ''}`,
+                    num: chNum
                 });
             }
 
-            outZip.file("OEBPS/content.opf", this.generateOpf(novelId, title, chapterFiles, hasDescription));
-            outZip.file("OEBPS/toc.ncx", this.generateNcx(novelId, title, chapterFiles, hasDescription));
+            const newOpf = this.generateOpf(novelId, title, chapterFiles, hasDescription);
+            outZip.file("OEBPS/content.opf", newOpf);
 
+            const newNcx = this.generateNcx(novelId, title, chapterFiles, hasDescription);
+            outZip.file("OEBPS/toc.ncx", newNcx);
+
+            this.log("[EPUBMerger] Generating EPUB ZIP blob...");
             const blob = await outZip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
-            return {
-                blob, filename: outputFilename,
-                stats: { id: novelId, title, range: `${n} - ${m}`, count }
+
+            const result = {
+                blob,
+                filename: outputFilename,
+                stats: {
+                    id: novelId,
+                    title: title,
+                    range: `${n} - ${m}`,
+                    count: count
+                }
             };
+            this.log("[EPUBMerger] Merge completed successfully! Output filename: " + result.filename);
+            return result;
         }
 
         generateOpf(novelId, title, chapters, hasDescription) {
             const now = new Date().toISOString().split('.')[0] + 'Z';
             const uuid = `urn:uuid:${novelId}-${Date.now()}`;
+
             const manifestItems = [
                 '    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>',
                 '    <item id="css" href="style.css" media-type="text/css"/>',
                 '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
             ];
-            if (hasDescription) manifestItems.splice(1, 0, '    <item id="description" href="description.xhtml" media-type="application/xhtml+xml"/>');
-            for (let ch of chapters) manifestItems.push(`    <item id="${escapeXml(ch.id)}" href="${escapeXml(ch.href)}" media-type="application/xhtml+xml"/>`);
+            if (hasDescription) {
+                manifestItems.splice(1, 0, '    <item id="description" href="description.xhtml" media-type="application/xhtml+xml"/>');
+            }
 
-            const spineItems = ['    <itemref idref="cover"/>'];
-            if (hasDescription) spineItems.push('    <itemref idref="description"/>');
-            for (let ch of chapters) spineItems.push(`    <itemref idref="${escapeXml(ch.id)}"/>`);
+            for (let ch of chapters) {
+                manifestItems.push(`    <item id="${this.escapeXml(ch.id)}" href="${this.escapeXml(ch.href)}" media-type="application/xhtml+xml"/>`);
+            }
+
+            const spineItems = [
+                '    <itemref idref="cover"/>'
+            ];
+            if (hasDescription) {
+                spineItems.push('    <itemref idref="description"/>');
+            }
+            for (let ch of chapters) {
+                spineItems.push(`    <itemref idref="${this.escapeXml(ch.id)}"/>`);
+            }
 
             return `<?xml version="1.0" encoding="utf-8"?>
 <package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-    <dc:title>${escapeXml(title)}</dc:title>
+    <dc:title>${this.escapeXml(title)}</dc:title>
     <dc:language>ja</dc:language>
-    <dc:identifier id="BookId">${escapeXml(uuid)}</dc:identifier>
-    <dc:source>https://syosetu.org/novel/${escapeXml(novelId)}/</dc:source>
-    <dc:date opf:event="modification">${escapeXml(now)}</dc:date>
+    <dc:identifier id="BookId">${this.escapeXml(uuid)}</dc:identifier>
+    <dc:source>https://syosetu.org/novel/${this.escapeXml(novelId)}/</dc:source>
+    <dc:date opf:event="modification">${this.escapeXml(now)}</dc:date>
   </metadata>
   <manifest>
 ${manifestItems.join('\n')}
@@ -663,302 +833,36 @@ ${spineItems.join('\n')}
 
         generateNcx(novelId, title, chapters, hasDescription) {
             const uuid = `urn:uuid:${novelId}`;
-            const navPoints = ['    <navPoint id="cover" playOrder="1"><navLabel><text>表紙</text></navLabel><content src="cover.xhtml"/></navPoint>'];
+
+            const navPoints = [
+                '    <navPoint id="cover" playOrder="1"><navLabel><text>表紙</text></navLabel><content src="cover.xhtml"/></navPoint>'
+            ];
             let playOrder = 2;
             if (hasDescription) {
                 navPoints.push(`    <navPoint id="description" playOrder="${playOrder}"><navLabel><text>作品描述</text></navLabel><content src="description.xhtml"/></navPoint>`);
                 playOrder++;
             }
+
             for (let ch of chapters) {
-                navPoints.push(`    <navPoint id="${escapeXml(ch.id)}" playOrder="${playOrder}"><navLabel><text>${escapeXml(ch.title)}</text></navLabel><content src="${escapeXml(ch.href)}"/></navPoint>`);
+                navPoints.push(`    <navPoint id="${this.escapeXml(ch.id)}" playOrder="${playOrder}"><navLabel><text>${this.escapeXml(ch.title)}</text></navLabel><content src="${this.escapeXml(ch.href)}"/></navPoint>`);
                 playOrder++;
             }
+
             return `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">
 <ncx version="2005-1" xmlns="http://www.daisy.org/z3986/2005/ncx/">
   <head>
-    <meta name="dtb:uid" content="${escapeXml(uuid)}"/>
+    <meta name="dtb:uid" content="${this.escapeXml(uuid)}"/>
     <meta name="dtb:depth" content="1"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
-  <docTitle><text>${escapeXml(title)}</text></docTitle>
+  <docTitle><text>${this.escapeXml(title)}</text></docTitle>
   <navMap>
 ${navPoints.join('\n')}
   </navMap>
 </ncx>`;
         }
-    }
-
-    class EPUBMergerNovelia {
-        constructor() {
-            this.OPF_NS = "http://www.idpf.org/2007/opf";
-            this.CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container";
-        }
-
-        async getOpfPath(zip) {
-            const containerXml = await zip.file("META-INF/container.xml").async("string");
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(containerXml, "text/xml");
-            const rootfile = doc.getElementsByTagNameNS(this.CONTAINER_NS, "rootfile")[0] || doc.getElementsByTagName("rootfile")[0];
-            return rootfile.getAttribute("full-path");
-        }
-
-        parseOpfDoc(opfContent) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(opfContent, "text/xml");
-            const manifestEl = doc.getElementsByTagNameNS(this.OPF_NS, "manifest")[0] || doc.getElementsByTagName("manifest")[0];
-            const spineEl = doc.getElementsByTagNameNS(this.OPF_NS, "spine")[0] || doc.getElementsByTagName("spine")[0];
-
-            const manifest = {};
-            const items = manifestEl.getElementsByTagNameNS(this.OPF_NS, "item");
-            for (let i = 0; i < items.length; i++) {
-                manifest[items[i].getAttribute("id")] = {
-                    href: items[i].getAttribute("href"),
-                    properties: items[i].getAttribute("properties") || ""
-                };
-            }
-
-            const itemrefs = spineEl.getElementsByTagNameNS(this.OPF_NS, "itemref");
-            const spine = [];
-            for (let i = 0; i < itemrefs.length; i++) {
-                spine.push(itemrefs[i].getAttribute("idref"));
-            }
-            return { doc, manifest, spine, tocAttr: spineEl.getAttribute("toc") };
-        }
-
-        async extractMetadata(zip) {
-            const opfPath = await this.getOpfPath(zip);
-            const opfContent = await zip.file(opfPath).async("string");
-
-            let title = "", novelId = "", language = "zh-CN", description = "", creator = "";
-            const tM = opfContent.match(/<dc:title[^>]*>(.*?)<\/dc:title>/s); if (tM) title = decodeHtml(tM[1].trim());
-            const idM = opfContent.match(/<dc:identifier[^>]*>(.*?)<\/dc:identifier>/s); if (idM) novelId = decodeHtml(idM[1].trim());
-            const lM = opfContent.match(/<dc:language[^>]*>(.*?)<\/dc:language>/s); if (lM) language = lM[1].trim();
-            const dM = opfContent.match(/<dc:description[^>]*>(.*?)<\/dc:description>/s); if (dM) description = decodeHtml(dM[1].trim());
-            const cM = opfContent.match(/<dc:creator[^>]*>(.*?)<\/dc:creator>/s); if (cM) creator = decodeHtml(cM[1].trim());
-
-            return { novelId, title, language, description, creator };
-        }
-
-        async extractNavLabels(zip, opfDir, manifest, tocAttr) {
-            const labels = {};
-            let ncxHref = (tocAttr && manifest[tocAttr]) ? manifest[tocAttr].href : "toc.ncx";
-            const fullNcxHref = opfDir ? `${opfDir}/${ncxHref}` : ncxHref;
-            const ncxFile = zip.file(fullNcxHref);
-            if (!ncxFile) return labels;
-
-            try {
-                const ncxContent = await ncxFile.async("string");
-                const navPointRe = /<navPoint[^>]*>([\s\S]*?)<\/navPoint>/g;
-                let m;
-                while ((m = navPointRe.exec(ncxContent)) !== null) {
-                    const block = m[1];
-                    const textMatch = block.match(/<text>([\s\S]*?)<\/text>/);
-                    const srcMatch = block.match(/<content[^>]*src="([^"]+)"/);
-                    if (textMatch && srcMatch) {
-                        labels[basename(srcMatch[1])] = decodeHtml(textMatch[1].trim());
-                    }
-                }
-            } catch (e) { console.error("Error reading ncx:", e); }
-            return labels;
-        }
-
-        async extractChapters(zip) {
-            const chapters = {};
-            const opfPath = await this.getOpfPath(zip);
-            const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/')) : "";
-            const opfContent = await zip.file(opfPath).async("string");
-
-            const { manifest, spine, tocAttr } = this.parseOpfDoc(opfContent);
-            const navLabels = await this.extractNavLabels(zip, opfDir, manifest, tocAttr);
-
-            for (let itemId of spine) {
-                const item = manifest[itemId];
-                if (!item || !item.href) continue;
-                if (item.properties.includes('nav') || /(^|\/)nav\.xhtml$/i.test(item.href)) continue;
-
-                const numMatch = item.href.match(/(\d+)(?=\.xhtml$)/);
-                if (!numMatch) continue;
-                const epNum = parseInt(numMatch[1]);
-
-                const fullHref = opfDir ? `${opfDir}/${item.href}` : item.href;
-                try {
-                    const chapterFile = zip.file(fullHref);
-                    if (!chapterFile) continue;
-                    const content = await chapterFile.async("string");
-
-                    let title = navLabels[basename(item.href)] || "";
-                    if (!title) {
-                        const titleTagMatch = content.match(/<title>(.*?)<\/title>/s);
-                        if (titleTagMatch) title = decodeHtml(titleTagMatch[1].trim());
-                    }
-                    chapters[epNum] = { title, content, href: item.href };
-                } catch (e) { console.error("Error reading chapter:", fullHref, e); }
-            }
-            return chapters;
-        }
-
-        async mergeAll(fileObjects, isTranslated) {
-            const allEpubData = [];
-            for (let f of fileObjects) {
-                try {
-                    const zip = await JSZip.loadAsync(f);
-                    const chaps = await this.extractChapters(zip);
-                    const meta = await this.extractMetadata(zip);
-                    allEpubData.push({ zip, chapters: chaps, meta, count: Object.keys(chaps).length });
-                } catch (e) { console.error("Error loading EPUB:", f.name, e); }
-            }
-            if (allEpubData.length === 0) return null;
-
-            allEpubData.sort((a, b) => b.count - a.count);
-            const baseData = allEpubData[0];
-            const { novelId, title, language, description, creator } = baseData.meta;
-
-            const allChapters = {};
-            for (let data of allEpubData) Object.assign(allChapters, data.chapters);
-
-            const sortedEpNums = Object.keys(allChapters).map(Number).sort((a, b) => a - b);
-            if (sortedEpNums.length === 0) return null;
-
-            const n = sortedEpNums[0];
-            const m = sortedEpNums[sortedEpNums.length - 1];
-            const count = sortedEpNums.length;
-
-            const rangeStr = n === 1 ? `ep-${m}` : `ep${n}-${m}`;
-            const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
-            const prefix = isTranslated ? "zh-jp.Ysgyb." : "";
-            const outputFilename = `${prefix}${novelId}_${rangeStr}_${safeTitle}.epub`;
-
-            const outZip = new JSZip();
-            outZip.file("mimetype", "application/epub+zip", { compression: "STORE" });
-            outZip.file("META-INF/container.xml", '<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-
-            const baseZip = baseData.zip;
-            for (let fname of Object.keys(baseZip.files)) {
-                if (fname === 'mimetype' || fname === 'META-INF/container.xml' ||
-                    /OEBPS\/Text\/episode\d+\.xhtml$/.test(fname) || /OEBPS\/Text\/nav\.xhtml$/.test(fname) ||
-                    fname === 'OEBPS/content.opf' || fname === 'OEBPS/toc.ncx') continue;
-                outZip.file(fname, await baseZip.file(fname).async("uint8array"));
-            }
-
-            const chapterFiles = [];
-            for (let epNum of sortedEpNums) {
-                const ch = allChapters[epNum];
-                const fname = `episode${epNum}.xhtml`;
-                outZip.file(`OEBPS/Text/${fname}`, ch.content);
-                chapterFiles.push({
-                    id: `episode${epNum}.xhtml`, href: fname,
-                    title: ch.title || `第 ${epNum} 話`, num: epNum
-                });
-            }
-
-            outZip.file("OEBPS/content.opf", this.generateOpf(novelId, title, language, description, creator, chapterFiles));
-            outZip.file("OEBPS/toc.ncx", this.generateNcx(novelId, title, chapterFiles));
-            outZip.file("OEBPS/Text/nav.xhtml", this.generateNav(title, chapterFiles));
-
-            const blob = await outZip.generateAsync({ type: "blob", mimeType: "application/epub+zip" });
-            return {
-                blob, filename: outputFilename,
-                stats: { id: novelId, title, range: `${n} - ${m}`, count }
-            };
-        }
-
-        generateOpf(novelId, title, language, description, creator, chapters) {
-            const manifestItems = [
-                '    <item href="Text/nav.xhtml" id="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
-                '    <item href="toc.ncx" id="toc.ncx" media-type="application/x-dtbncx+xml"/>'
-            ];
-            for (let ch of chapters) manifestItems.push(`    <item href="Text/${escapeXml(ch.href)}" id="${escapeXml(ch.id)}" media-type="application/xhtml+xml"/>`);
-
-            const spineItems = ['    <itemref idref="nav.xhtml"/>'];
-            for (let ch of chapters) spineItems.push(`    <itemref idref="${escapeXml(ch.id)}"/>`);
-
-            const metaLines = [
-                `    <dc:identifier id="pub-id">${escapeXml(novelId)}</dc:identifier>`,
-                `    <dc:title>${escapeXml(title)}</dc:title>`,
-                `    <dc:language>${escapeXml(language)}</dc:language>`
-            ];
-            if (description) metaLines.push(`    <dc:description>${escapeXml(description)}</dc:description>`);
-            if (creator) metaLines.push(`    <dc:creator>${escapeXml(creator)}</dc:creator>`);
-
-            return `<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
-  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-${metaLines.join('\n')}
-  </metadata>
-  <manifest>
-${manifestItems.join('\n')}
-  </manifest>
-  <spine toc="toc.ncx">
-${spineItems.join('\n')}
-  </spine>
-</package>`;
-        }
-
-        generateNcx(novelId, title, chapters) {
-            const navPoints = chapters.map((ch, idx) => `  <navPoint id="nav-${idx}">
-   <navLabel><text>${escapeXml(ch.title)}</text></navLabel>
-   <content src="Text/${escapeXml(ch.href)}"></content>
-  </navPoint>`).join('\n');
-
-            return `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
- <head>
-  <meta content="1" name="dtb:depth" />
-  <meta content="0" name="dtb:totalPageCount" />
-  <meta content="0" name="dtb:maxPageNumber" />
-  <meta name="dtb:uid" content="${escapeXml(novelId)}" />
- </head>
- <docTitle><text>${escapeXml(title)}</text></docTitle>
- <navMap>
-${navPoints}
- </navMap>
-</ncx>`;
-        }
-
-        generateNav(title, chapters) {
-            const items = chapters.map(ch => `    <li><a href="${escapeXml(ch.href)}">${escapeXml(ch.title)}</a></li>`).join('\n');
-            return `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
- <head><title>${escapeXml(title)}</title><meta charset="utf-8" /></head>
- <body>
-  <nav epub:type="toc">
-   <h2>${escapeXml(title)}</h2>
-   <ol>
-${items}
-   </ol>
-  </nav>
- </body>
-</html>`;
-        }
-    }
-
-    async function autoDetectAndMerge(files, isTranslated) {
-        if (files.length === 0) return null;
-
-        const sampleFile = files[0];
-        let mode = 'standard';
-        try {
-            const zip = await JSZip.loadAsync(sampleFile);
-            const containerXml = await zip.file("META-INF/container.xml").async("string");
-            const parser = new DOMParser();
-            const containerDoc = parser.parseFromString(containerXml, "text/xml");
-            const CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container";
-            const rootfile = containerDoc.getElementsByTagNameNS(CONTAINER_NS, "rootfile")[0] || containerDoc.getElementsByTagName("rootfile")[0];
-            const opfPath = rootfile.getAttribute("full-path");
-            const opfContent = await zip.file(opfPath).async("string");
-
-            if (/href="[^"]*episode\d+\.xhtml"/i.test(opfContent) || Object.keys(zip.files).some(f => /episode\d+\.xhtml/i.test(f))) {
-                mode = 'novelia';
-            }
-        } catch (e) {
-            console.error("Format auto-detection error, fallback to standard:", e);
-        }
-
-        const merger = mode === 'novelia' ? new EPUBMergerNovelia() : new EPUBMergerStandard();
-        return await merger.mergeAll(files, isTranslated);
     }
 
     function wireUpEvents(root) {
@@ -1023,17 +927,40 @@ ${items}
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', e => handleFiles(e.target.files));
 
-        function handleFiles(newFiles) {
+        async function handleFiles(newFiles) {
             for (let f of newFiles) {
                 if (f.name.toLowerCase().endsWith('.epub')) {
                     if (!files.some(existing => existing.name === f.name && existing.size === f.size)) {
                         files.push(f);
                     }
+                } else if (f.name.toLowerCase().endsWith('.zip')) {
+                    try {
+                        status.textContent = '⏳ 正在解壓 ZIP 檔案...';
+                        status.style.color = '#a0a0a8';
+                        const zip = await JSZip.loadAsync(f);
+                        const entries = Object.keys(zip.files);
+                        for (let entryName of entries) {
+                            if (entryName.toLowerCase().endsWith('.epub')) {
+                                const entryFile = zip.file(entryName);
+                                if (!entryFile) continue; // skip directories
+                                const epubBlob = await entryFile.async("blob");
+                                epubBlob.name = entryName.split('/').pop();
+                                if (!files.some(existing => existing.name === epubBlob.name)) {
+                                    files.push(epubBlob);
+                                }
+                            }
+                        }
+                        status.textContent = '✅ ZIP 檔案解壓完成！';
+                        status.style.color = '#63e2b7';
+                    } catch (err) {
+                        console.error("Error reading ZIP file:", err);
+                        status.textContent = '❌ 解壓 ZIP 發生錯誤: ' + err.message;
+                        status.style.color = '#e88080';
+                    }
                 }
             }
             updateUI();
             resultPanel.classList.add('hidden');
-            status.textContent = '';
         }
 
         mergeBtn.addEventListener('click', async () => {
@@ -1045,7 +972,8 @@ ${items}
             resultPanel.classList.add('hidden');
 
             try {
-                const result = await autoDetectAndMerge(files, transToggle.checked);
+                const merger = new EPUBMerger();
+                const result = await merger.mergeAll(files, transToggle.checked);
 
                 if (result) {
                     const { blob, filename, stats } = result;
