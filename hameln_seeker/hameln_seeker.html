@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哈梅林更新檢測爬取器 (Hameln Seeker)</title>
+    <!-- 引入在地化儲存的 JSZip 與爬取邏輯以遵循 Manifest V3 安全規定 -->
+    <script src="jszip.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #0b0f19;
+            --bg-card: #151d30;
+            --bg-input: #0d1321;
+            --border-color: #24324f;
+            --text-primary: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-green: #10b981;
+            --accent-red: #f43f5e;
+            --accent-orange: #f59e0b;
+            --accent-purple: #8b5cf6;
+            --radius-lg: 12px;
+            --radius-md: 8px;
+            --radius-sm: 4px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            padding: 20px;
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1250px;
+            margin: 0 auto;
+        }
+
+        /* Header Style */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .system-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background-color: var(--bg-card);
+            padding: 6px 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .status-dot.idle {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .status-dot.busy {
+            background-color: var(--accent-orange);
+            box-shadow: 0 0 8px var(--accent-orange);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+
+        /* Alert/Help Panel */
+        .alert-panel {
+            background-color: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            border-radius: var(--radius-lg);
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #f1f5f9;
+        }
+
+        .alert-panel h3 {
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--accent-blue);
+        }
+
+        .alert-panel p {
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+
+        .alert-panel code {
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+            font-family: monospace;
+            color: var(--accent-orange);
+        }
+
+        /* Top Grid: Add Novel & Settings */
+        .top-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .top-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h2 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: var(--accent-blue);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Form Controls */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .btn {
+            background-color: var(--accent-blue);
+            color: #000;
+            font-weight: bold;
+            border: none;
+            border-radius: var(--radius-md);
+            padding: 10px 18px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            background-color: #3f3f46;
+            color: #71717a;
+            cursor: not-allowed;
+        }
+
+        .btn-green {
+            background-color: var(--accent-green);
+            color: #000;
+        }
+
+        .btn-red {
+            background-color: var(--accent-red);
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: var(--text-muted);
+        }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 0.8rem;
+        }
+
+        /* Config Actions */
+        .config-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        /* Surveillance Table Card */
+        .novels-card {
+            margin-bottom: 20px;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 600;
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+
+        tr:hover td {
+            background-color: rgba(255, 255, 255, 0.01);
+        }
+
+        .novel-title-cell {
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-badge.idle { background-color: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+        .status-badge.checking { background-color: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .status-badge.scraping { background-color: rgba(139, 92, 246, 0.15); color: var(--accent-purple); }
+        .status-badge.updated { background-color: rgba(56, 189, 248, 0.15); color: var(--accent-blue); }
+        .status-badge.error { background-color: rgba(244, 63, 94, 0.15); color: var(--accent-red); }
+
+        /* Action Buttons on Rows */
+        .row-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        /* Console Log Area */
+        .console-card {
+            margin-bottom: 20px;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .console-log {
+            background-color: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.85rem;
+            height: 180px;
+            overflow-y: auto;
+            color: #a7f3d0;
+            line-height: 1.45;
+        }
+
+        .console-line {
+            margin-bottom: 4px;
+            word-break: break-all;
+        }
+
+        .console-time {
+            color: #6ee7b7;
+            margin-right: 8px;
+        }
+
+        .console-error {
+            color: var(--accent-red);
+        }
+
+        .console-success {
+            color: var(--accent-green);
+        }
+
+        .console-warning {
+            color: var(--accent-orange);
+        }
+
+        /* Input error border */
+        .input-error {
+            border-color: var(--accent-red) !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 哈梅林更新檢測爬取器 <span style="font-size: 1rem; font-weight: normal; color: var(--text-muted);">v2.0.0</span></h1>
+            <div class="system-status">
+                <span class="status-dot idle" id="global-status-dot"></span>
+                <span id="global-status-text">系統就緒</span>
+            </div>
+        </header>
+
+        <!-- Chrome Extension Mode Guide -->
+        <div class="alert-panel">
+            <h3>📖 瀏覽器擴充功能(Chrome Extension) 模式說明</h3>
+            <p>本工具已重製為<b>瀏覽器擴充功能</b>！憑藉 Chrome 擴充功能的高級主機權限，現在可以<b>直接異步請求 (fetch) 抓取網頁內容</b>，完全不需要再開啟彈出式分頁、完全繞過 XSS 與同源政策限制，提供 100% 無干擾、不搶焦點、全背景靜默執行的極致爬取體驗！</p>
+        </div>
+
+        <div class="top-grid">
+            <!-- Add Novel Form -->
+            <div class="card">
+                <h2>➕ 新增監測小說</h2>
+                <form id="add-novel-form" onsubmit="event.preventDefault();">
+                    <div class="form-group">
+                        <label for="novel-url">哈梅林小說網址 (syosetu.org)</label>
+                        <input type="text" id="novel-url" placeholder="例如：https://syosetu.org/novel/421268/ 或 https://syosetu.org/novel/421268/2.html" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="novel-start-chapter">開始爬取章節 (從第 N 章開始檢測)</label>
+                            <input type="number" id="novel-start-chapter" min="1" value="1" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="novel-interval">更新檢測間隔 (分鐘)</label>
+                            <select id="novel-interval">
+                                <option value="global">使用全域設定</option>
+                                <option value="5">5 分鐘</option>
+                                <option value="10">10 分鐘</option>
+                                <option value="30">30 分鐘</option>
+                                <option value="60">1 小時 (60分)</option>
+                                <option value="120">2 小時 (120分)</option>
+                                <option value="360">6 小時 (360分)</option>
+                                <option value="1440">24 小時 (1440分)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn" id="btn-add-novel" type="button">📌 加入監測清單</button>
+                </form>
+            </div>
+
+            <!-- Global & System Settings -->
+            <div class="card">
+                <h2>⚙️ 全域設定</h2>
+                <div class="form-group">
+                    <label for="global-interval">預設全域檢測間隔 (分鐘)</label>
+                    <input type="number" id="global-interval" min="1" value="10" required>
+                </div>
+                <div class="form-group">
+                    <label>工作與爬取模式</label>
+                    <div style="background-color: var(--bg-input); border: 1px solid var(--border-color); padding: 10px 14px; border-radius: var(--radius-md); font-size: 0.95rem; color: var(--accent-green); font-weight: bold;">
+                        擴充功能直接抓取模式 (已啟用)
+                    </div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                    <input type="checkbox" id="auto-check-toggle" checked style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="auto-check-toggle" style="margin-bottom: 0; cursor: pointer; user-select: none;">啟用每隔 n 分鐘自動檢測</label>
+                </div>
+                <div style="margin-top: 15px; font-size: 0.9rem; font-weight: bold; color: var(--accent-orange);">
+                    下次全域自動檢測: <span id="global-countdown">--:--</span>
+                </div>
+                <div class="config-actions">
+                    <button class="btn btn-green btn-sm" id="btn-force-check-all">🚀 立即檢測全部</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Novels List Card -->
+        <div class="card novels-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                <h2 style="border-bottom: none; margin-bottom: 0;">📋 小說監測清單</h2>
+                <div class="config-actions" style="margin-top: 0;">
+                    <button class="btn btn-secondary btn-sm" id="btn-export-config">📤 匯出設定 (JSON)</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-import-config">📥 匯入設定</button>
+                    <input type="file" id="file-import-input" accept=".json" style="display: none;">
+                    <button class="btn btn-red btn-sm" id="btn-clear-all">🗑 清空清單</button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>小說 ID</th>
+                            <th>標題</th>
+                            <th>範圍 (From ~ To)</th>
+                            <th>檢測間隔</th>
+                            <th>目前狀態</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="novels-table-body">
+                        <!-- 動態填充 -->
+                        <tr>
+                            <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 30px 0;">目前無監測中的小說，請在上方輸入網址新增。</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Real-time Logs Console -->
+        <div class="card console-card">
+            <div class="console-header">
+                <h2 style="border-bottom: none; margin-bottom: 0;">💻 系統監測日誌</h2>
+                <button class="btn btn-secondary btn-sm" id="btn-clear-log">清除日誌</button>
+            </div>
+            <div class="console-log" id="console-log-box">
+                <div class="console-line"><span class="console-time">[00:00:00]</span> 系統初始化完成。</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 載入外置應用邏輯指令碼 -->
+    <script src="hameln_seeker.js"></script>
+</body>
+</html>

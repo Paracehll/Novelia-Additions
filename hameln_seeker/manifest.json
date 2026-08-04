@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "哈梅林更新檢測爬取器",
+  "version": "2.0.0",
+  "description": "繞過 SOP / CORS / X-Frame-Options 限制，直接檢測並爬取 Hameln 小說更新並生成 EPUB",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://syosetu.org/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "開啟更新檢測爬取器"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
