@@ -712,22 +712,17 @@
             fetchPage(url, timeoutMs = 30000) {
                 return new Promise((resolve, reject) => {
                     let resolved = false;
-                    let worker = null;
-                    let workerUrl = null;
+                    let iframe = null;
 
                     const cleanup = () => {
-                        if (worker) {
+                        if (iframe) {
                             try {
-                                worker.terminate();
+                                iframe.remove();
                             } catch (e) {}
-                            worker = null;
+                            iframe = null;
                         }
-                        if (workerUrl) {
-                            try {
-                                URL.revokeObjectURL(workerUrl);
-                            } catch (e) {}
-                            workerUrl = null;
-                        }
+                        postMessageCallbacks.delete(url);
+                        postMessageCallbacks.delete(url.replace(/\/$/, ''));
                     };
 
                     const timer = setTimeout(() => {
@@ -737,75 +732,36 @@
                         }
                     }, timeoutMs);
 
-                    log(`[模式] Web Worker 載入: ${url}`);
+                    log(`[模式] Iframe 載入: ${url}`);
+
+                    const onHtmlReceived = (htmlText) => {
+                        if (resolved) return;
+                        resolved = true;
+                        clearTimeout(timer);
+                        cleanup();
+                        try {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(htmlText, 'text/html');
+                            resolve(doc);
+                        } catch (err) {
+                            reject(err);
+                        }
+                    };
+
+                    // 註冊原始網址與去尾斜線網址
+                    postMessageCallbacks.set(url, onHtmlReceived);
+                    postMessageCallbacks.set(url.replace(/\/$/, ''), onHtmlReceived);
+
                     try {
-                        const workerCode = `
-                            self.onmessage = async (e) => {
-                                const { url } = e.data;
-                                if (!url) {
-                                    self.postMessage({ error: "No URL provided", success: false });
-                                    return;
-                                }
-
-                                try {
-                                    const response = await fetch(url, {
-                                        method: 'GET',
-                                        headers: {
-                                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-                                        }
-                                    });
-
-                                    if (!response.ok) {
-                                        throw new Error("HTTP error! Status: " + response.status);
-                                    }
-
-                                    const htmlText = await response.text();
-                                    self.postMessage({
-                                        url: url,
-                                        html: htmlText,
-                                        success: true
-                                    });
-                                } catch (err) {
-                                    self.postMessage({
-                                        url: url,
-                                        error: err.message,
-                                        success: false
-                                    });
-                                }
-                            };
-                        `;
-                        const blob = new Blob([workerCode], { type: 'application/javascript' });
-                        workerUrl = URL.createObjectURL(blob);
-                        worker = new Worker(workerUrl);
-                        worker.onmessage = (e) => {
-                            if (resolved) return;
-                            const data = e.data;
-                            if (data && data.success) {
-                                resolved = true;
-                                clearTimeout(timer);
-                                cleanup();
-                                try {
-                                    const parser = new DOMParser();
-                                    const doc = parser.parseFromString(data.html, 'text/html');
-                                    resolve(doc);
-                                } catch (err) {
-                                    reject(err);
-                                }
-                            } else {
-                                resolved = true;
-                                clearTimeout(timer);
-                                cleanup();
-                                reject(new Error((data && data.error) || "Worker 讀取失敗"));
-                            }
-                        };
-                        worker.onerror = (err) => {
-                            if (resolved) return;
-                            resolved = true;
-                            clearTimeout(timer);
-                            cleanup();
-                            reject(new Error("Worker 發生異常: " + err.message));
-                        };
-                        worker.postMessage({ url });
+                        iframe = document.createElement('iframe');
+                        iframe.style.position = 'absolute';
+                        iframe.style.width = '0';
+                        iframe.style.height = '0';
+                        iframe.style.border = 'none';
+                        iframe.style.opacity = '0';
+                        iframe.style.pointerEvents = 'none';
+                        iframe.src = url;
+                        document.body.appendChild(iframe);
                     } catch (e) {
                         resolved = true;
                         clearTimeout(timer);
