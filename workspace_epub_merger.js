@@ -494,7 +494,7 @@
                             const coverFile = zip.file(fullCoverHref);
                             if (coverFile) {
                                 const coverContent = await coverFile.async("string");
-                                const h1Match = coverContent.match(/<h1>([^<]*?)<\/h1>/);
+                            const h1Match = coverContent.match(/<(?:h1|p class="h1")>([^<]*?)<\/(?:h1|p)>/);
                                 if (h1Match) {
                                     const extractedTitle = h1Match[1].replace(/<[^>]+>/g, '').trim();
                                     if (extractedTitle) title = this.decodeHtml(extractedTitle);
@@ -601,7 +601,7 @@
                         if (numMatch) {
                             const chNum = parseInt(numMatch[1]);
                             let title = "";
-                            const titleMatch = content.match(/<h1>(?:<[^>]+>|[^<])*<br\s*\/?>\s*([^<]+)<\/h1>/);
+                            const titleMatch = content.match(/<(?:h1|p class="h1")>(?:<[^>]+>|[^<])*<br\s*\/?>\s*([^<]+)<\/(?:h1|p)>/);
                             if (titleMatch) {
                                 title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
                             } else {
@@ -741,10 +741,19 @@
                 }
 
                 let content = await file.async("uint8array");
-                if (fname === fullCoverHref) {
+                if (fname.endsWith('.css')) {
                     let text = new TextDecoder().decode(content);
-                    const newRangeText = `第 ${n} — ${m} 話（共 ${count} 章）`;
-                    text = text.replace(/第\s*\d+\s*[—\-\s]+\s*\d+\s*[話话]（共\s*\d+\s*章）/, newRangeText);
+                    if (!text.includes('p.h1')) {
+                        text += "\np.h1{font-size:1.5em;border-bottom:1px solid #888;padding-bottom:0.4em;margin-bottom:1em;font-weight:bold;text-indent:0;margin-top:0.67em;}";
+                    }
+                    content = new TextEncoder().encode(text);
+                } else if (fname.endsWith('.xhtml') || fname.endsWith('.html')) {
+                    let text = new TextDecoder().decode(content);
+                    if (fname === fullCoverHref) {
+                        const newRangeText = `第 ${n} — ${m} 話（共 ${count} 章）`;
+                        text = text.replace(/第\s*\d+\s*[—\-\s]+\s*\d+\s*[話话]（共\s*\d+\s*章）/, newRangeText);
+                    }
+                    text = text.replace(/<h1>/g, '<p class="h1">').replace(/<\/h1>/g, '</p>');
                     content = new TextEncoder().encode(text);
                 }
                 outZip.file(fname, content);
@@ -754,7 +763,11 @@
             for (let chNum of sortedChNums) {
                 const ch = allChapters[chNum];
                 const fname = `ch${chNum.toString().padStart(5, '0')}.xhtml`;
-                outZip.file(`OEBPS/${fname}`, ch.content);
+                let chContent = ch.content;
+                if (chContent) {
+                    chContent = chContent.replace(/<h1>/g, '<p class="h1">').replace(/<\/h1>/g, '</p>');
+                }
+                outZip.file(`OEBPS/${fname}`, chContent);
                 chapterFiles.push({
                     id: `ch${chNum}`,
                     href: fname,

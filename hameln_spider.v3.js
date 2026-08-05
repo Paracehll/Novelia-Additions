@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         哈梅林爬取器 v3.0
+// @name         哈梅林爬取器 v3.1
 // @namespace    https://syosetu.org/
-// @version      3.0.0
+// @version      3.1.0
 // @description  爬取 syosetu.org 小說全文並合併為 TXT/EPUB 下載；支援章節範圍、快取、匯入/匯出；Novelia 書架快捷鍵；適配新版 episode-list 目錄結構(v3)
 // @author       Mr.Claude
 // @match        https://syosetu.org/novel/*
@@ -442,15 +442,15 @@
       const entries = [
         { name: "mimetype", data: Utils.toUTF8("application/epub+zip") },
         { name: "META-INF/container.xml", data: Utils.toUTF8(`<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`) },
-        { name: "OEBPS/style.css", data: Utils.toUTF8(`body{font-family:'Hiragino Mincho Pro','MS Mincho',serif;line-height:1.9;margin:1.5em;}h1{font-size:1.5em;border-bottom:1px solid #888;padding-bottom:0.4em;margin-bottom:1em;}h2{font-size:1.1em;color:#555;margin-bottom:0.8em;}p{margin:0.3em 0;text-indent:1em;}.chapter-num{color:#888;font-size:0.85em;}`) },
-        { name: "OEBPS/cover.xhtml", data: Utils.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${Utils.escXml(title)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body style="text-align:center;padding-top:4em;"><h1>${Utils.escXml(title)}</h1><p style="color:#888;font-size:0.9em;"><a href="${Utils.escXml(novelUrl)}">${Utils.escXml(novelUrl)}</a></p><p style="color:#aaa;font-size:0.8em;margin-top:2em;">第 ${pages[0]} — ${pages[pages.length - 1]} 話（共 ${pages.length} 章）</p><p style="color:#ccc;font-size:0.75em;">${Utils.escXml(now.slice(0, 10))} 匯出</p></body></html>`) }
+        { name: "OEBPS/style.css", data: Utils.toUTF8(`body{font-family:'Hiragino Mincho Pro','MS Mincho',serif;line-height:1.9;margin:1.5em;}h1,p.h1{font-size:1.5em;border-bottom:1px solid #888;padding-bottom:0.4em;margin-bottom:1em;font-weight:bold;text-indent:0;margin-top:0.67em;}h2{font-size:1.1em;color:#555;margin-bottom:0.8em;}p{margin:0.3em 0;text-indent:1em;}.chapter-num{color:#888;font-size:0.85em;}`) },
+        { name: "OEBPS/cover.xhtml", data: Utils.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${Utils.escXml(title)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body style="text-align:center;padding-top:4em;"><p class="h1">${Utils.escXml(title)}</p><p style="color:#888;font-size:0.9em;"><a href="${Utils.escXml(novelUrl)}">${Utils.escXml(novelUrl)}</a></p><p style="color:#aaa;font-size:0.8em;margin-top:2em;">第 ${pages[0]} — ${pages[pages.length - 1]} 話（共 ${pages.length} 章）</p><p style="color:#ccc;font-size:0.75em;">${Utils.escXml(now.slice(0, 10))} 匯出</p></body></html>`) }
       ];
 
       const desc = Parser.extractNovelDescription();
       if (desc) {
         entries.push({
           name: "OEBPS/description.xhtml",
-          data: Utils.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>作品描述</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1>作品描述</h1>${Utils.textToXhtml(desc)}</body></html>`)
+          data: Utils.toUTF8(`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>作品描述</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><p class="h1">作品描述</p>${Utils.textToXhtml(desc)}</body></html>`)
         });
       }
 
@@ -459,7 +459,7 @@
         const ch = cache.chapters[String(page)];
         if (!ch) continue;
         const chTitle = ch.title ? `第 ${page} 話　${ch.title}` : `第 ${page} 話`;
-        const xhtml = `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${Utils.escXml(chTitle)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><h1><span class="chapter-num">第 ${page} 話</span>${ch.title ? `<br/>${Utils.escXml(ch.title)}` : ""}</h1>${Utils.textToXhtml(ch.content || "（無內容）")}</body></html>`;
+        const xhtml = `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja"><head><meta charset="utf-8"/><title>${Utils.escXml(chTitle)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head><body><p class="h1"><span class="chapter-num">第 ${page} 話</span>${ch.title ? `<br/>${Utils.escXml(ch.title)}` : ""}</p>${Utils.textToXhtml(ch.content || "（無內容）")}</body></html>`;
         const fname = `ch${String(page).padStart(5, "0")}.xhtml`;
         entries.push({ name: `OEBPS/${fname}`, data: Utils.toUTF8(xhtml) });
         chapterFiles.push({ fname, page, title: chTitle });
@@ -775,11 +775,12 @@
         for (const id of spine) {
           const item = manifest[id]; if (!item || !item.type.includes("html")) continue;
           const xhtml = dec.decode(await decompress(entries[opfDir + item.href] || entries[item.href]));
-          const doc = new DOMParser().parseFromString(xhtml, "application/xhtml+xml"), h1 = doc.querySelector("h1");
+          const doc = new DOMParser().parseFromString(xhtml, "application/xhtml+xml"), h1 = doc.querySelector("h1, p.h1");
           if (!h1) continue;
           const numMatch = h1.textContent.match(/第\s*(\d+)\s*話/);
           if (numMatch) {
-            cache.chapters[numMatch[1]] = { title: h1.textContent.replace(/第\s*\d+\s*話\s*/, "").trim(), content: Array.from(doc.querySelectorAll("p")).map(p => p.textContent).join("\n").trim() };
+            const paragraphs = Array.from(doc.querySelectorAll("p")).filter(p => !p.classList.contains("h1"));
+            cache.chapters[numMatch[1]] = { title: h1.textContent.replace(/第\s*\d+\s*話\s*/, "").trim(), content: paragraphs.map(p => p.textContent).join("\n").trim() };
             imported++;
           }
         }
