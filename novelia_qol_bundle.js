@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.3.2
-// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、編輯器增強、評論回覆摺疊及預設摺疊圖片。
+// @version      1.4.0
+// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、論壇搜尋、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @match        *://n.novelia.cc/*
@@ -26,7 +26,7 @@
         { id: 'forum_search', name: '論壇搜尋增強', default: true },
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
-        { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
+        // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
         { id: 'collapse_images', name: '預設摺疊圖片', default: true }
     ];
@@ -1985,238 +1985,238 @@
     // ==========================================
     // 5. 編輯頁面固定頁尾 (Modules.thread_footer)
     // ==========================================
-    Modules.thread_footer = {
-        init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
+    // Modules.thread_footer = {
+    //     init: function() {
+    //         if (location.hostname !== 'n.novelia.cc') return;
 
-            const isMobileEnvironment = !!navigator.userAgent.match(/Android|iPhone|iPad/i);
+    //         const isMobileEnvironment = !!navigator.userAgent.match(/Android|iPhone|iPad/i);
 
-            // Selectors
-            const TABS_NAV_ELEMENT_SELECTOR = ".n-tabs-nav--card-type.n-tabs-nav--top.n-tabs-nav";
-            const TABS_NAV_LABEL_SELECTOR = ".n-tabs-nav-scroll-wrapper";
-            const SUBMIT_BUTTON_SELECTOR = "button.n-button--primary-type.n-button--large-type.float";
-            const TOOLBAR_CONTAINER_SELECTOR = ".markdown-input .n-tab-pane > .n-flex";
-            const TABS_PAD_ELEMENT_SELECTOR = ".n-tabs-pad";
+    //         // Selectors
+    //         const TABS_NAV_ELEMENT_SELECTOR = ".n-tabs-nav--card-type.n-tabs-nav--top.n-tabs-nav";
+    //         const TABS_NAV_LABEL_SELECTOR = ".n-tabs-nav-scroll-wrapper";
+    //         const SUBMIT_BUTTON_SELECTOR = "button.n-button--primary-type.n-button--large-type.float";
+    //         const TOOLBAR_CONTAINER_SELECTOR = ".markdown-input .n-tab-pane > .n-flex";
+    //         const TABS_PAD_ELEMENT_SELECTOR = ".n-tabs-pad";
 
-            // Common constants
-            const MUTATION_THROTTLE_MS = 50;
-            const STATE_POLLING_INTERVAL_MS = 1000;
-            const COMMON_BUTTON_GAP = 8;
+    //         // Common constants
+    //         const MUTATION_THROTTLE_MS = 50;
+    //         const STATE_POLLING_INTERVAL_MS = 1000;
+    //         const COMMON_BUTTON_GAP = 8;
 
-            // Desktop specific constants
-            const SUBMIT_BUTTON_RIGHT_OFFSET = "16px";
-            const SUBMIT_BUTTON_BOTTOM_OFFSET = "8px";
-            const NAV_BUTTON_BG_COLOR = "#4a4a4a";
-            const NAV_BUTTON_BG_HOVER_COLOR = "#5c5c5c";
-            const NAV_BUTTON_BG_ACTIVE_COLOR = "#333333";
-            const NAV_BUTTON_TEXT_COLOR = "#ffffff";
+    //         // Desktop specific constants
+    //         const SUBMIT_BUTTON_RIGHT_OFFSET = "16px";
+    //         const SUBMIT_BUTTON_BOTTOM_OFFSET = "8px";
+    //         const NAV_BUTTON_BG_COLOR = "#4a4a4a";
+    //         const NAV_BUTTON_BG_HOVER_COLOR = "#5c5c5c";
+    //         const NAV_BUTTON_BG_ACTIVE_COLOR = "#333333";
+    //         const NAV_BUTTON_TEXT_COLOR = "#ffffff";
 
-            // Mobile specific constants
-            const MOBILE_SIDEBAR_HORIZ_GAP = 80;
-            const MOBILE_SIDEBAR_VERT_GAP = 8;
-            const MOBILE_BUTTON_BG = "rgba(74, 74, 74, 0.8)";
-            const MOBILE_BUTTON_TEXT_COLOR = "#ffffff";
+    //         // Mobile specific constants
+    //         const MOBILE_SIDEBAR_HORIZ_GAP = 80;
+    //         const MOBILE_SIDEBAR_VERT_GAP = 8;
+    //         const MOBILE_BUTTON_BG = "rgba(74, 74, 74, 0.8)";
+    //         const MOBILE_BUTTON_TEXT_COLOR = "#ffffff";
 
-            let mutationObserverInstance = null,
-                mutationDebounceTimer = null,
-                currentWindowLocation = location.href,
-                isFooterCollapsed = false;
+    //         let mutationObserverInstance = null,
+    //             mutationDebounceTimer = null,
+    //             currentWindowLocation = location.href,
+    //             isFooterCollapsed = false;
 
-            function injectStyles() {
-                if (isMobileEnvironment) {
-                    if (document.getElementById("tm-mobile-fixed-style")) return;
-                    const styleElement = document.createElement("style");
-                    styleElement.id = "tm-mobile-fixed-style";
-                    styleElement.textContent = `
-                        .tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}
-                        .tm-fixed-nav-active ${TABS_PAD_ELEMENT_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}
-                        .tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}
-                        .tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}
-                        .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important; bottom: 0px;}
-                        #tm-fixed-nav-buttons {position: fixed !important;right: ${MOBILE_SIDEBAR_VERT_GAP}px !important;bottom: calc(${MOBILE_SIDEBAR_HORIZ_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${COMMON_BUTTON_GAP}px !important;z-index: 10001 !important;}
-                        #tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${MOBILE_BUTTON_BG};color: ${MOBILE_BUTTON_TEXT_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}
-                        .tm-fixed-footer-collapsed {display: none !important;}
-                    `;
-                    document.head.appendChild(styleElement);
-                } else {
-                    if (document.getElementById("tm-fixed-nav-style")) return;
-                    const styleElement = document.createElement("style");
-                    styleElement.id = "tm-fixed-nav-style";
-                    styleElement.textContent = `
-                        .tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}
-                        .tm-fixed-nav-active ${TABS_NAV_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}
-                        .tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}
-                        .tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_BUTTON_RIGHT_OFFSET}!important;bottom:${SUBMIT_BUTTON_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}
-                        #tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${COMMON_BUTTON_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}
-                        #tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${NAV_BUTTON_BG_COLOR};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${NAV_BUTTON_TEXT_COLOR};padding:0;transition:background .15s,transform .15s}
-                        #tm-fixed-nav-buttons button:hover{background:${NAV_BUTTON_BG_HOVER_COLOR}}
-                        #tm-fixed-nav-buttons button:active{background:${NAV_BUTTON_BG_ACTIVE_COLOR};transform:scale(.92)}
-                        .tm-fixed-footer-collapsed{display:none!important}
-                    `;
-                    document.head.appendChild(styleElement);
-                }
-            }
+    //         function injectStyles() {
+    //             if (isMobileEnvironment) {
+    //                 if (document.getElementById("tm-mobile-fixed-style")) return;
+    //                 const styleElement = document.createElement("style");
+    //                 styleElement.id = "tm-mobile-fixed-style";
+    //                 styleElement.textContent = `
+    //                     .tm-fixed-nav-active {position: fixed !important;bottom: 0 !important;left: 0 !important;right: 0 !important;width: 100% !important;z-index: 9999 !important;background: var(--n-color, #fff) !important;box-shadow: 0 -2px 8px rgba(0,0,0,.12);display: block !important;min-height: 40px;padding-bottom: env(safe-area-inset-bottom);}
+    //                     .tm-fixed-nav-active ${TABS_PAD_ELEMENT_SELECTOR} {display: flex !important;align-items: center !important;justify-content: flex-end !important;padding-right: 8px !important;flex: 1 !important;}
+    //                     .tm-fixed-toolbar-active {position: fixed !important;bottom: calc(40px + env(safe-area-inset-bottom)) !important;left: 0 !important;right: 0 !important;z-index: 9998 !important;background: var(--n-color, #fff) !important;border-top: 1px solid var(--n-border-color, #eee);padding: 4px 8px !important;margin-bottom: 0 !important;display: flex !important;overflow-x: auto !important;flex-wrap: nowrap !important;-webkit-overflow-scrolling: touch;gap: 4px !important;}
+    //                     .tm-fixed-toolbar-active > button {flex: 0 0 auto !important;}
+    //                     .tm-fixed-submit-in-pad {height: 28px !important;padding: 0 12px !important;font-size: 12px !important;margin-left: auto !important; bottom: 0px;}
+    //                     #tm-fixed-nav-buttons {position: fixed !important;right: ${MOBILE_SIDEBAR_VERT_GAP}px !important;bottom: calc(${MOBILE_SIDEBAR_HORIZ_GAP}px + env(safe-area-inset-bottom)) !important;display: flex !important;flex-direction: column !important;gap: ${COMMON_BUTTON_GAP}px !important;z-index: 10001 !important;}
+    //                     #tm-fixed-nav-buttons button {width: 36px;height: 36px;border-radius: 50%;border: none;background: ${MOBILE_BUTTON_BG};color: ${MOBILE_BUTTON_TEXT_COLOR};display: flex;align-items: center;justify-content: center;font-size: 18px;box-shadow: 0 2px 4px rgba(0,0,0,0.2);padding: 0;cursor: pointer;}
+    //                     .tm-fixed-footer-collapsed {display: none !important;}
+    //                 `;
+    //                 document.head.appendChild(styleElement);
+    //             } else {
+    //                 if (document.getElementById("tm-fixed-nav-style")) return;
+    //                 const styleElement = document.createElement("style");
+    //                 styleElement.id = "tm-fixed-nav-style";
+    //                 styleElement.textContent = `
+    //                     .tm-fixed-nav-active{position:fixed!important;bottom:0!important;left:0!important;right:0!important;width:100%!important;z-index:9999!important;background:#fff;box-shadow:0 -2px 8px rgba(0,0,0,.08);display:block!important;min-height:48px;pointer-events:none!important}
+    //                     .tm-fixed-nav-active ${TABS_NAV_LABEL_SELECTOR}{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-100%,-50%)!important;flex:none!important;pointer-events:auto!important}
+    //                     .tm-fixed-nav-active .n-tabs-nav__suffix{position:absolute!important;left:50%!important;top:50%!important;transform:translateY(-50%)!important;margin-left:0!important;pointer-events:auto!important}
+    //                     .tm-fixed-submit-active{position:fixed!important;right:${SUBMIT_BUTTON_RIGHT_OFFSET}!important;bottom:${SUBMIT_BUTTON_BOTTOM_OFFSET}!important;left:auto!important;top:auto!important;z-index:10000!important;pointer-events:auto!important}
+    //                     #tm-fixed-nav-buttons{position:fixed!important;display:flex!important;align-items:center!important;gap:${COMMON_BUTTON_GAP}px!important;z-index:10001!important;pointer-events:auto!important;transform:translateY(-50%)!important}
+    //                     #tm-fixed-nav-buttons button{width:32px;height:32px;border-radius:50%;border:none;background:${NAV_BUTTON_BG_COLOR};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;line-height:1;color:${NAV_BUTTON_TEXT_COLOR};padding:0;transition:background .15s,transform .15s}
+    //                     #tm-fixed-nav-buttons button:hover{background:${NAV_BUTTON_BG_HOVER_COLOR}}
+    //                     #tm-fixed-nav-buttons button:active{background:${NAV_BUTTON_BG_ACTIVE_COLOR};transform:scale(.92)}
+    //                     .tm-fixed-footer-collapsed{display:none!important}
+    //                 `;
+    //                 document.head.appendChild(styleElement);
+    //             }
+    //         }
 
-            function removeStyles() {
-                const mobileStyle = document.getElementById("tm-mobile-fixed-style");
-                if (mobileStyle) mobileStyle.remove();
-                const desktopStyle = document.getElementById("tm-fixed-nav-style");
-                if (desktopStyle) desktopStyle.remove();
-            }
+    //         function removeStyles() {
+    //             const mobileStyle = document.getElementById("tm-mobile-fixed-style");
+    //             if (mobileStyle) mobileStyle.remove();
+    //             const desktopStyle = document.getElementById("tm-fixed-nav-style");
+    //             if (desktopStyle) desktopStyle.remove();
+    //         }
 
-            function isForumEditPage() { return location.pathname.includes("/forum-edit"); }
+    //         function isForumEditPage() { return location.pathname.includes("/forum-edit"); }
 
-            function createOrGetNavButtons() {
-                let buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
-                if (buttonsContainer) return buttonsContainer;
-                buttonsContainer = document.createElement("div");
-                buttonsContainer.id = "tm-fixed-nav-buttons";
+    //         function createOrGetNavButtons() {
+    //             let buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
+    //             if (buttonsContainer) return buttonsContainer;
+    //             buttonsContainer = document.createElement("div");
+    //             buttonsContainer.id = "tm-fixed-nav-buttons";
 
-                if (isMobileEnvironment) {
-                    const toggleCollapseBtn = document.createElement("button");
-                    toggleCollapseBtn.type = "button";
-                    toggleCollapseBtn.textContent = "👁";
-                    toggleCollapseBtn.setAttribute("aria-label", "顯示/隱藏頁尾工具欄");
-                    toggleCollapseBtn.onclick = () => { isFooterCollapsed = !isFooterCollapsed; updateUI(); };
-                    buttonsContainer.appendChild(toggleCollapseBtn);
-                }
+    //             if (isMobileEnvironment) {
+    //                 const toggleCollapseBtn = document.createElement("button");
+    //                 toggleCollapseBtn.type = "button";
+    //                 toggleCollapseBtn.textContent = "👁";
+    //                 toggleCollapseBtn.setAttribute("aria-label", "顯示/隱藏頁尾工具欄");
+    //                 toggleCollapseBtn.onclick = () => { isFooterCollapsed = !isFooterCollapsed; updateUI(); };
+    //                 buttonsContainer.appendChild(toggleCollapseBtn);
+    //             }
 
-                const scrollUpBtn = document.createElement("button");
-                scrollUpBtn.type = "button";
-                scrollUpBtn.setAttribute("aria-label", "回到頁面最上方");
-                scrollUpBtn.textContent = "↑";
-                scrollUpBtn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+    //             const scrollUpBtn = document.createElement("button");
+    //             scrollUpBtn.type = "button";
+    //             scrollUpBtn.setAttribute("aria-label", "回到頁面最上方");
+    //             scrollUpBtn.textContent = "↑";
+    //             scrollUpBtn.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
-                const scrollDownBtn = document.createElement("button");
-                scrollDownBtn.type = "button";
-                scrollDownBtn.setAttribute("aria-label", "前往頁面最下方");
-                scrollDownBtn.textContent = "↓";
-                scrollDownBtn.onclick = () => {
-                    const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-                    window.scrollTo({ top: scrollHeight, behavior: "smooth" });
-                };
+    //             const scrollDownBtn = document.createElement("button");
+    //             scrollDownBtn.type = "button";
+    //             scrollDownBtn.setAttribute("aria-label", "前往頁面最下方");
+    //             scrollDownBtn.textContent = "↓";
+    //             scrollDownBtn.onclick = () => {
+    //                 const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    //                 window.scrollTo({ top: scrollHeight, behavior: "smooth" });
+    //             };
 
-                buttonsContainer.appendChild(scrollUpBtn);
-                buttonsContainer.appendChild(scrollDownBtn);
-                document.body.appendChild(buttonsContainer);
-                return buttonsContainer;
-            }
+    //             buttonsContainer.appendChild(scrollUpBtn);
+    //             buttonsContainer.appendChild(scrollDownBtn);
+    //             document.body.appendChild(buttonsContainer);
+    //             return buttonsContainer;
+    //         }
 
-            function removeNavButtons() {
-                const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
-                if (buttonsContainer) buttonsContainer.remove();
-            }
+    //         function removeNavButtons() {
+    //             const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
+    //             if (buttonsContainer) buttonsContainer.remove();
+    //         }
 
-            function positionDesktopNavButtons() {
-                if (isMobileEnvironment) return;
-                const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
-                const navWrapper = document.querySelector(TABS_NAV_LABEL_SELECTOR);
-                if (!buttonsContainer || !navWrapper) return;
-                const wrapperRect = navWrapper.getBoundingClientRect();
-                if (wrapperRect.width === 0 && wrapperRect.height === 0) return;
-                buttonsContainer.style.left = wrapperRect.left - buttonsContainer.offsetWidth - COMMON_BUTTON_GAP + "px";
-                buttonsContainer.style.top = wrapperRect.top + wrapperRect.height / 2 + "px";
-            }
+    //         function positionDesktopNavButtons() {
+    //             if (isMobileEnvironment) return;
+    //             const buttonsContainer = document.getElementById("tm-fixed-nav-buttons");
+    //             const navWrapper = document.querySelector(TABS_NAV_LABEL_SELECTOR);
+    //             if (!buttonsContainer || !navWrapper) return;
+    //             const wrapperRect = navWrapper.getBoundingClientRect();
+    //             if (wrapperRect.width === 0 && wrapperRect.height === 0) return;
+    //             buttonsContainer.style.left = wrapperRect.left - buttonsContainer.offsetWidth - COMMON_BUTTON_GAP + "px";
+    //             buttonsContainer.style.top = wrapperRect.top + wrapperRect.height / 2 + "px";
+    //         }
 
-            function updateUI() {
-                if (!isForumEditPage()) {
-                    document.querySelectorAll(".tm-fixed-nav-active, .tm-fixed-toolbar-active, .tm-fixed-submit-in-pad, .tm-fixed-submit-active").forEach((element) => {
-                        element.classList.remove("tm-fixed-nav-active", "tm-fixed-toolbar-active", "tm-fixed-submit-in-pad", "tm-fixed-submit-active");
-                    });
-                    removeNavButtons();
-                    removeStyles();
-                    return;
-                }
-                injectStyles();
+    //         function updateUI() {
+    //             if (!isForumEditPage()) {
+    //                 document.querySelectorAll(".tm-fixed-nav-active, .tm-fixed-toolbar-active, .tm-fixed-submit-in-pad, .tm-fixed-submit-active").forEach((element) => {
+    //                     element.classList.remove("tm-fixed-nav-active", "tm-fixed-toolbar-active", "tm-fixed-submit-in-pad", "tm-fixed-submit-active");
+    //                 });
+    //                 removeNavButtons();
+    //                 removeStyles();
+    //                 return;
+    //             }
+    //             injectStyles();
 
-                const navElement = document.querySelector(TABS_NAV_ELEMENT_SELECTOR);
-                const submitBtn = document.querySelector(SUBMIT_BUTTON_SELECTOR);
+    //             const navElement = document.querySelector(TABS_NAV_ELEMENT_SELECTOR);
+    //             const submitBtn = document.querySelector(SUBMIT_BUTTON_SELECTOR);
 
-                if (isMobileEnvironment) {
-                    if (navElement) navElement.classList.add("tm-fixed-nav-active");
+    //             if (isMobileEnvironment) {
+    //                 if (navElement) navElement.classList.add("tm-fixed-nav-active");
 
-                    const toolbarElement = document.querySelector(TOOLBAR_CONTAINER_SELECTOR);
-                    if (toolbarElement) toolbarElement.classList.add("tm-fixed-toolbar-active");
+    //                 const toolbarElement = document.querySelector(TOOLBAR_CONTAINER_SELECTOR);
+    //                 if (toolbarElement) toolbarElement.classList.add("tm-fixed-toolbar-active");
 
-                    const tabsPad = document.querySelector(TABS_PAD_ELEMENT_SELECTOR);
-                    if (submitBtn && tabsPad) {
-                        if (submitBtn.parentElement !== tabsPad) tabsPad.appendChild(submitBtn);
-                        submitBtn.classList.add("tm-fixed-submit-in-pad");
-                    }
+    //                 const tabsPad = document.querySelector(TABS_PAD_ELEMENT_SELECTOR);
+    //                 if (submitBtn && tabsPad) {
+    //                     if (submitBtn.parentElement !== tabsPad) tabsPad.appendChild(submitBtn);
+    //                     submitBtn.classList.add("tm-fixed-submit-in-pad");
+    //                 }
 
-                    createOrGetNavButtons();
-                    [navElement, toolbarElement, submitBtn].forEach((element) => {
-                        if (element) element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed);
-                    });
-                } else {
-                    if (navElement) {
-                        navElement.classList.add("tm-fixed-nav-active");
-                        createOrGetNavButtons();
-                        positionDesktopNavButtons();
-                    }
-                    if (submitBtn) {
-                        submitBtn.classList.add("tm-fixed-submit-active");
-                    }
-                    [navElement, submitBtn, document.getElementById("tm-fixed-nav-buttons")].forEach(
-                        (element) => element && element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed)
-                    );
-                }
-            }
+    //                 createOrGetNavButtons();
+    //                 [navElement, toolbarElement, submitBtn].forEach((element) => {
+    //                     if (element) element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed);
+    //                 });
+    //             } else {
+    //                 if (navElement) {
+    //                     navElement.classList.add("tm-fixed-nav-active");
+    //                     createOrGetNavButtons();
+    //                     positionDesktopNavButtons();
+    //                 }
+    //                 if (submitBtn) {
+    //                     submitBtn.classList.add("tm-fixed-submit-active");
+    //                 }
+    //                 [navElement, submitBtn, document.getElementById("tm-fixed-nav-buttons")].forEach(
+    //                     (element) => element && element.classList.toggle("tm-fixed-footer-collapsed", isFooterCollapsed)
+    //                 );
+    //             }
+    //         }
 
-            function setupMutationObservation() {
-                if (mutationObserverInstance) mutationObserverInstance.disconnect();
-                mutationObserverInstance = new MutationObserver(() => {
-                    if (mutationDebounceTimer) clearTimeout(mutationDebounceTimer);
-                    mutationDebounceTimer = setTimeout(updateUI, MUTATION_THROTTLE_MS);
-                });
-                mutationObserverInstance.observe(document.documentElement, { childList: true, subtree: true });
-            }
+    //         function setupMutationObservation() {
+    //             if (mutationObserverInstance) mutationObserverInstance.disconnect();
+    //             mutationObserverInstance = new MutationObserver(() => {
+    //                 if (mutationDebounceTimer) clearTimeout(mutationDebounceTimer);
+    //                 mutationDebounceTimer = setTimeout(updateUI, MUTATION_THROTTLE_MS);
+    //             });
+    //             mutationObserverInstance.observe(document.documentElement, { childList: true, subtree: true });
+    //         }
 
-            function handleShortcuts(event) {
-                if (isMobileEnvironment) return;
-                if (!event.altKey || event.ctrlKey || event.metaKey) return;
-                const keyStroke = event.key;
-                if (keyStroke === "1") { event.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }
-                else if (keyStroke === "2") { event.preventDefault(); const fullHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight); window.scrollTo({ top: fullHeight, behavior: "smooth" }); }
-                else if (keyStroke === "3" || keyStroke === "4") {
-                    event.preventDefault();
-                    const tabs = document.querySelectorAll(".n-tabs-tab");
-                    const targetTabLabel = keyStroke === "3" ? "编辑" : "预览";
-                    for (const tab of tabs) { if (tab.textContent.includes(targetTabLabel)) { tab.click(); break; } }
-                }
-                else if (/[567890]/.test(keyStroke)) {
-                    event.preventDefault();
-                    const navSuffix = document.querySelector(".n-tabs-nav__suffix");
-                    if (navSuffix) {
-                        const buttons = navSuffix.querySelectorAll("button");
-                        const buttonIndex = keyStroke === "0" ? 5 : parseInt(keyStroke) - 5;
-                        if (buttons[buttonIndex]) buttons[buttonIndex].click();
-                    }
-                }
-                else if (keyStroke === "`") {
-                    event.preventDefault();
-                    isFooterCollapsed = !isFooterCollapsed;
-                    updateUI();
-                }
-            }
+    //         function handleShortcuts(event) {
+    //             if (isMobileEnvironment) return;
+    //             if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    //             const keyStroke = event.key;
+    //             if (keyStroke === "1") { event.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+    //             else if (keyStroke === "2") { event.preventDefault(); const fullHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight); window.scrollTo({ top: fullHeight, behavior: "smooth" }); }
+    //             else if (keyStroke === "3" || keyStroke === "4") {
+    //                 event.preventDefault();
+    //                 const tabs = document.querySelectorAll(".n-tabs-tab");
+    //                 const targetTabLabel = keyStroke === "3" ? "编辑" : "预览";
+    //                 for (const tab of tabs) { if (tab.textContent.includes(targetTabLabel)) { tab.click(); break; } }
+    //             }
+    //             else if (/[567890]/.test(keyStroke)) {
+    //                 event.preventDefault();
+    //                 const navSuffix = document.querySelector(".n-tabs-nav__suffix");
+    //                 if (navSuffix) {
+    //                     const buttons = navSuffix.querySelectorAll("button");
+    //                     const buttonIndex = keyStroke === "0" ? 5 : parseInt(keyStroke) - 5;
+    //                     if (buttons[buttonIndex]) buttons[buttonIndex].click();
+    //                 }
+    //             }
+    //             else if (keyStroke === "`") {
+    //                 event.preventDefault();
+    //                 isFooterCollapsed = !isFooterCollapsed;
+    //                 updateUI();
+    //             }
+    //         }
 
-            function main() {
-                window.addEventListener("tm-locationchange", () => {
-                    if (location.href === currentWindowLocation) return;
-                    currentWindowLocation = location.href;
-                    updateUI();
-                });
-                window.addEventListener("resize", () => { if (isForumEditPage()) positionDesktopNavButtons(); });
-                window.addEventListener("keydown", handleShortcuts);
-                setInterval(() => { if (location.href !== currentWindowLocation) updateUI(); }, STATE_POLLING_INTERVAL_MS);
+    //         function main() {
+    //             window.addEventListener("tm-locationchange", () => {
+    //                 if (location.href === currentWindowLocation) return;
+    //                 currentWindowLocation = location.href;
+    //                 updateUI();
+    //             });
+    //             window.addEventListener("resize", () => { if (isForumEditPage()) positionDesktopNavButtons(); });
+    //             window.addEventListener("keydown", handleShortcuts);
+    //             setInterval(() => { if (location.href !== currentWindowLocation) updateUI(); }, STATE_POLLING_INTERVAL_MS);
 
-                updateUI();
-                setupMutationObservation();
-            }
+    //             updateUI();
+    //             setupMutationObservation();
+    //         }
 
-            main();
-        }
-    };
+    //         main();
+    //     }
+    // };
 
     // ==========================================
     // 6. 摺疊評論區回覆 (Modules.collapse_replies)
