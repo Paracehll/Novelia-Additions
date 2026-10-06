@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.5.1
+// @version      1.5.2
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @match        *://n.novelia.cc/*
+// @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
 // @match        *://syosetu.com/*
 // @match        *://yomou.syosetu.com/*
@@ -1132,7 +1133,7 @@
     // ==========================================
     Modules.collapse_replies = {
         init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
+            if (location.hostname !== 'n.novelia.cc' && location.hostname !== 'forum.novelia.cc') return;
 
             GM_addStyle(`
                 .novelia-collapse-btn-wrapper {
@@ -1190,7 +1191,13 @@
             `);
 
             const LS_KEY = 'novelia_collapsed_comments';
-            let collapsedStore = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+            let collapsedStore = {};
+            try {
+                collapsedStore = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+                if (typeof collapsedStore !== 'object' || collapsedStore === null) collapsedStore = {};
+            } catch (e) {
+                collapsedStore = {};
+            }
 
             function saveStore() {
                 localStorage.setItem(LS_KEY, JSON.stringify(collapsedStore));
@@ -1202,191 +1209,391 @@
                 </svg>
             `;
 
-            function getReplyCount(repliesArea) {
-                if (!repliesArea) return 0;
-                const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
-                if (subReplies.length > 0) {
-                    return subReplies.length;
-                }
-                if (repliesArea.matches('div[style*="margin-left: 32px"]')) {
-                    return 1;
-                }
-                return repliesArea.querySelectorAll('.n-flex').length;
-            }
+            // Sub-module 1: Novel Comment Collapse
+            const NovelCommentCollapse = {
+                getContext: function() {
+                    const path = window.__noveliaMockPath || location.pathname;
+                    const matchNovel = path.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
+                    if (matchNovel) return { provider: matchNovel[1], id: matchNovel[2] };
 
-            function processCommentThread(commentHeader) {
-                try {
-                    // A comment header is the <b> tag containing the username.
-                    // It's inside an .n-flex container.
-                    const headerFlex = commentHeader.closest('.n-flex');
-                    if (!headerFlex) return;
+                    const matchWenku = path.match(/^\/wenku\/([^\/?#]+)/i);
+                    if (matchWenku) return { provider: 'wenku', id: matchWenku[1] };
 
-                    // Ensure this is a root comment (not indented by 32px)
-                    const isRoot = !headerFlex.parentElement.closest('div[style*="margin-left: 32px"]');
-                    if (!isRoot) return;
+                    return null;
+                },
 
-                    const card = headerFlex.nextElementSibling;
-                    if (!card || !card.classList.contains('n-card')) return;
+                isCollapsed: function(ctx, hash) {
+                    if (!hash || !ctx) return false;
+                    const list = collapsedStore[ctx.provider]?.[ctx.id];
+                    return Array.isArray(list) && list.includes(hash);
+                },
 
-                    // Persistence key (Unicode safe)
-                    const author = commentHeader.innerText.trim();
-                    const time = headerFlex.querySelector('time')?.innerText || "";
-                    const rawId = author + time;
-                    // Simple hash function for Unicode strings
-                    let hash = 0;
-                    for (let i = 0; i < rawId.length; i++) {
-                        const char = rawId.charCodeAt(i);
-                        hash = ((hash << 5) - hash) + char;
-                        hash = hash & hash; // Convert to 32bit integer
+                setCollapsed: function(ctx, hash, collapsedState) {
+                    if (!hash || !ctx) return;
+                    if (collapsedState) {
+                        if (!collapsedStore[ctx.provider]) collapsedStore[ctx.provider] = {};
+                        if (!Array.isArray(collapsedStore[ctx.provider][ctx.id])) {
+                            collapsedStore[ctx.provider][ctx.id] = [];
+                        }
+                        const list = collapsedStore[ctx.provider][ctx.id];
+                        if (!list.includes(hash)) list.push(hash);
+                    } else {
+                        if (collapsedStore[ctx.provider] && Array.isArray(collapsedStore[ctx.provider][ctx.id])) {
+                            const list = collapsedStore[ctx.provider][ctx.id];
+                            const idx = list.indexOf(hash);
+                            if (idx !== -1) list.splice(idx, 1);
+                            if (list.length === 0) delete collapsedStore[ctx.provider][ctx.id];
+                            if (Object.keys(collapsedStore[ctx.provider]).length === 0) delete collapsedStore[ctx.provider];
+                        }
                     }
-                    const commentId = 'c' + Math.abs(hash).toString(36);
+                    saveStore();
+                },
 
-                    if (headerFlex.dataset.noveliaCollapseProcessed) {
-                        const btnWrapper = card.nextElementSibling;
-                        if (!btnWrapper || !btnWrapper.classList.contains('novelia-collapse-btn-wrapper')) return;
+                getReplyCount: function(repliesArea) {
+                    if (!repliesArea) return 0;
+                    const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
+                    if (subReplies.length > 0) return subReplies.length;
+                    if (repliesArea.matches('div[style*="margin-left: 32px"]')) return 1;
+                    return repliesArea.querySelectorAll('.n-flex').length;
+                },
 
-                        const wrapper = btnWrapper.nextElementSibling;
-                        if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
+                processThread: function(commentHeader) {
+                    try {
+                        const headerFlex = commentHeader.closest('.n-flex');
+                        if (!headerFlex) return;
 
-                        const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
-                        const repliesArea = inner ? inner.firstElementChild : null;
+                        const isRoot = !headerFlex.parentElement.closest('div[style*="margin-left: 32px"]');
+                        if (!isRoot) return;
+
+                        const card = headerFlex.nextElementSibling;
+                        if (!card || !card.classList.contains('n-card')) return;
+
+                        if (headerFlex.dataset.noveliaCollapseProcessed) {
+                            const btnWrapper = card.nextElementSibling;
+                            if (!btnWrapper || !btnWrapper.classList.contains('novelia-collapse-btn-wrapper')) return;
+
+                            const wrapper = btnWrapper.nextElementSibling;
+                            if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
+
+                            const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
+                            const repliesArea = inner ? inner.firstElementChild : null;
+                            if (!repliesArea) return;
+
+                            const replyCount = NovelCommentCollapse.getReplyCount(repliesArea);
+                            if (replyCount === 0) {
+                                wrapper.parentNode.insertBefore(repliesArea, wrapper);
+                                btnWrapper.remove();
+                                wrapper.remove();
+                                delete headerFlex.dataset.noveliaCollapseProcessed;
+                            } else {
+                                const btnText = btnWrapper.querySelector('.novelia-collapse-btn-text');
+                                if (btnText) {
+                                    const isCollapsed = wrapper.classList.contains('collapsed');
+                                    const newText = `${isCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
+                                    if (btnText.innerText !== newText) btnText.innerText = newText;
+                                }
+                            }
+                            return;
+                        }
+
+                        let repliesArea = null;
+                        let curr = card.nextElementSibling;
+                        while (curr) {
+                            if (curr.classList.contains('n-divider')) break;
+                            if (curr.classList.contains('n-flex') && curr.querySelector('b')) break;
+
+                            if (curr.matches('div[style*="margin-left: 32px"]')) {
+                                const replySiblings = [curr];
+                                let next = curr.nextElementSibling;
+                                while (next && next.matches('div[style*="margin-left: 32px"]')) {
+                                    replySiblings.push(next);
+                                    next = next.nextElementSibling;
+                                }
+                                if (replySiblings.length > 1) {
+                                    const container = document.createElement('div');
+                                    curr.parentNode.insertBefore(container, curr);
+                                    replySiblings.forEach(s => container.appendChild(s));
+                                    repliesArea = container;
+                                } else {
+                                    repliesArea = curr;
+                                }
+                                break;
+                            } else if (curr.querySelector && curr.querySelector('div[style*="margin-left: 32px"]')) {
+                                repliesArea = curr;
+                                break;
+                            }
+                            curr = curr.nextElementSibling;
+                        }
+
                         if (!repliesArea) return;
 
-                        const replyCount = getReplyCount(repliesArea);
+                        const replyCount = NovelCommentCollapse.getReplyCount(repliesArea);
+                        if (replyCount === 0) return;
 
-                        if (replyCount === 0) {
-                            // Restore repliesArea to its original place and remove the UI
-                            wrapper.parentNode.insertBefore(repliesArea, wrapper);
-                            btnWrapper.remove();
-                            wrapper.remove();
-                            delete headerFlex.dataset.noveliaCollapseProcessed;
-                        } else {
-                            // Update button text
-                            const btnText = btnWrapper.querySelector('.novelia-collapse-btn-text');
-                            if (btnText) {
-                                const isCollapsed = wrapper.classList.contains('collapsed');
-                                btnText.innerText = `${isCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
-                            }
+                        headerFlex.dataset.noveliaCollapseProcessed = "true";
+
+                        const author = commentHeader.innerText.trim();
+                        const time = headerFlex.querySelector('time')?.innerText || "";
+                        const rawId = author + time;
+                        let hash = 0;
+                        for (let i = 0; i < rawId.length; i++) {
+                            const char = rawId.charCodeAt(i);
+                            hash = ((hash << 5) - hash) + char;
+                            hash = hash & hash;
                         }
-                        return;
-                    }
+                        const commentId = Math.abs(hash).toString(36);
 
-                    // Find the replies area - it can be a wrapper div containing replies or a direct reply div
-                    let repliesArea = null;
-                    let curr = card.nextElementSibling;
-                    while (curr) {
-                        if (curr.classList.contains('n-divider')) break;
-                        if (curr.classList.contains('n-flex') && curr.querySelector('b')) break;
+                        const ctx = NovelCommentCollapse.getContext();
+                        const isCollapsedState = NovelCommentCollapse.isCollapsed(ctx, commentId);
 
-                        if (curr.matches('div[style*="margin-left: 32px"]')) {
-                            const replySiblings = [curr];
-                            let next = curr.nextElementSibling;
-                            while (next && next.matches('div[style*="margin-left: 32px"]')) {
-                                replySiblings.push(next);
-                                next = next.nextElementSibling;
-                            }
-                            if (replySiblings.length > 1) {
-                                const container = document.createElement('div');
-                                curr.parentNode.insertBefore(container, curr);
-                                replySiblings.forEach(s => container.appendChild(s));
-                                repliesArea = container;
+                        const btnWrapper = document.createElement('div');
+                        btnWrapper.className = 'novelia-collapse-btn-wrapper';
+
+                        const btn = document.createElement('button');
+                        btn.className = 'novelia-collapse-btn';
+                        btn.innerHTML = `
+                            <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
+                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>
+                        `;
+
+                        btnWrapper.appendChild(btn);
+                        card.after(btnWrapper);
+
+                        const wrapper = document.createElement('div');
+                        wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
+                        const inner = document.createElement('div');
+                        inner.className = 'novelia-collapse-replies-inner';
+
+                        repliesArea.parentNode.insertBefore(wrapper, repliesArea);
+                        inner.appendChild(repliesArea);
+                        wrapper.appendChild(inner);
+
+                        btn.addEventListener('click', () => {
+                            const currentlyCollapsed = wrapper.classList.contains('collapsed');
+                            const currentReplyCount = NovelCommentCollapse.getReplyCount(repliesArea);
+
+                            if (currentlyCollapsed) {
+                                wrapper.classList.remove('collapsed');
+                                wrapper.classList.add('expanded');
+                                btn.querySelector('.novelia-collapse-icon').classList.replace('collapsed', 'expanded');
+                                btn.querySelector('.novelia-collapse-btn-text').innerText = `收起回覆 (${currentReplyCount})`;
+                                NovelCommentCollapse.setCollapsed(ctx, commentId, false);
                             } else {
-                                repliesArea = curr;
-                            }
-                            break;
-                        } else if (curr.querySelector && curr.querySelector('div[style*="margin-left: 32px"]')) {
-                            repliesArea = curr;
-                            break;
-                        }
-                        curr = curr.nextElementSibling;
-                    }
-
-                    if (!repliesArea) return;
-
-                    // Get reply count from the UI
-                    const replyCount = getReplyCount(repliesArea);
-                    if (replyCount === 0) return;
-
-                    headerFlex.dataset.noveliaCollapseProcessed = "true";
-                    const isCollapsed = !!collapsedStore[commentId];
-
-                    // Create toggle button
-                    const btnWrapper = document.createElement('div');
-                    btnWrapper.className = 'novelia-collapse-btn-wrapper';
-
-                    const btn = document.createElement('button');
-                    btn.className = 'novelia-collapse-btn';
-                    btn.innerHTML = `
-                        <span class="novelia-collapse-icon ${isCollapsed ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
-                        <span class="novelia-collapse-btn-text">${isCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})</span>
-                    `;
-
-                    btnWrapper.appendChild(btn);
-                    card.after(btnWrapper);
-
-                    // Create animation wrapper
-                    const wrapper = document.createElement('div');
-                    wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsed ? 'collapsed' : 'expanded'}`;
-                    const inner = document.createElement('div');
-                    inner.className = 'novelia-collapse-replies-inner';
-
-                    // Move repliesArea into wrapper
-                    repliesArea.parentNode.insertBefore(wrapper, repliesArea);
-                    inner.appendChild(repliesArea);
-                    wrapper.appendChild(inner);
-
-                    btn.addEventListener('click', () => {
-                        const currentlyCollapsed = wrapper.classList.contains('collapsed');
-                        // Recount replies on click in case they changed
-                        const currentReplyCount = repliesArea.querySelectorAll('.n-flex').length;
-
-                        if (currentlyCollapsed) {
-                            wrapper.classList.remove('collapsed');
-                            wrapper.classList.add('expanded');
-                            btn.querySelector('.novelia-collapse-icon').classList.replace('collapsed', 'expanded');
-                            btn.querySelector('.novelia-collapse-btn-text').innerText = `收起回覆 (${currentReplyCount})`;
-                            delete collapsedStore[commentId];
-                        } else {
-                            wrapper.classList.remove('expanded');
-                            wrapper.classList.add('collapsed');
-                            btn.querySelector('.novelia-collapse-icon').classList.replace('expanded', 'collapsed');
-                            btn.querySelector('.novelia-collapse-btn-text').innerText = `展開回覆 (${currentReplyCount})`;
-                            collapsedStore[commentId] = true;
-                        }
-                        saveStore();
-                    });
-
-                    // Mobile hover fix
-                    btn.addEventListener('mouseup', () => btn.blur());
-
-                    // Handle native Reply button
-                    const nativeReplyBtn = Array.from(headerFlex.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
-                    if (nativeReplyBtn) {
-                        nativeReplyBtn.addEventListener('click', () => {
-                            if (wrapper.classList.contains('collapsed')) {
-                                btn.click();
+                                wrapper.classList.remove('expanded');
+                                wrapper.classList.add('collapsed');
+                                btn.querySelector('.novelia-collapse-icon').classList.replace('expanded', 'collapsed');
+                                btn.querySelector('.novelia-collapse-btn-text').innerText = `展開回覆 (${currentReplyCount})`;
+                                NovelCommentCollapse.setCollapsed(ctx, commentId, true);
                             }
                         });
+
+                        btn.addEventListener('mouseup', () => btn.blur());
+
+                        const nativeReplyBtn = Array.from(headerFlex.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
+                        if (nativeReplyBtn) {
+                            nativeReplyBtn.addEventListener('click', () => {
+                                if (wrapper.classList.contains('collapsed')) btn.click();
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Novelia Bundle] Error processing novel comment thread:', e);
                     }
-                } catch (e) {
-                    console.error('[Novelia Bundle] Error processing comment thread:', e);
+                },
+
+                scan: function() {
+                    document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread);
+                },
+
+                init: function() {
+                    let timer = null;
+                    const observer = new MutationObserver(() => {
+                        clearTimeout(timer);
+                        timer = setTimeout(NovelCommentCollapse.scan, 100);
+                    });
+
+                    observer.observe(document.body, { childList: true, subtree: true });
+                    NovelCommentCollapse.scan();
+                    setTimeout(NovelCommentCollapse.scan, 500);
                 }
+            };
+
+            // Sub-module 2: Forum Comment Collapse
+            const ForumCommentCollapse = {
+                getContext: function() {
+                    const path = window.__noveliaMockPath || location.pathname;
+                    const match = path.match(/^\/p\/([^\/?#]+)/i);
+                    if (match) return { id: match[1] };
+                    return null;
+                },
+
+                isCollapsed: function(ctx, hash) {
+                    if (!hash || !ctx) return false;
+                    const list = collapsedStore[ctx.id];
+                    return Array.isArray(list) && list.includes(hash);
+                },
+
+                setCollapsed: function(ctx, hash, collapsedState) {
+                    if (!hash || !ctx) return;
+                    if (collapsedState) {
+                        if (!Array.isArray(collapsedStore[ctx.id])) {
+                            collapsedStore[ctx.id] = [];
+                        }
+                        const list = collapsedStore[ctx.id];
+                        if (!list.includes(hash)) list.push(hash);
+                    } else {
+                        if (Array.isArray(collapsedStore[ctx.id])) {
+                            const list = collapsedStore[ctx.id];
+                            const idx = list.indexOf(hash);
+                            if (idx !== -1) list.splice(idx, 1);
+                            if (list.length === 0) delete collapsedStore[ctx.id];
+                        }
+                    }
+                    saveStore();
+                },
+
+                processSection: function(section) {
+                    try {
+                        const rootArticle = section.querySelector('article');
+                        if (!rootArticle) return;
+
+                        if (rootArticle.classList.contains('ml-6') || rootArticle.className.includes('ml-')) return;
+
+                        if (rootArticle.dataset.noveliaCollapseProcessed) {
+                            const btnWrapper = rootArticle.nextElementSibling;
+                            if (!btnWrapper || !btnWrapper.classList.contains('novelia-collapse-btn-wrapper')) return;
+
+                            const wrapper = btnWrapper.nextElementSibling;
+                            if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
+
+                            const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
+                            const repliesArea = inner ? inner.firstElementChild : null;
+                            if (!repliesArea) return;
+
+                            const replyCount = repliesArea.querySelectorAll('article').length;
+                            if (replyCount === 0) {
+                                wrapper.parentNode.insertBefore(repliesArea, wrapper);
+                                btnWrapper.remove();
+                                wrapper.remove();
+                                delete rootArticle.dataset.noveliaCollapseProcessed;
+                            } else {
+                                const btnText = btnWrapper.querySelector('.novelia-collapse-btn-text');
+                                if (btnText) {
+                                    const isCollapsed = wrapper.classList.contains('collapsed');
+                                    const newText = `${isCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
+                                    if (btnText.innerText !== newText) btnText.innerText = newText;
+                                }
+                            }
+                            return;
+                        }
+
+                        let repliesArea = rootArticle.nextElementSibling;
+                        while (repliesArea && !repliesArea.querySelector('article')) {
+                            repliesArea = repliesArea.nextElementSibling;
+                        }
+
+                        if (!repliesArea) return;
+
+                        const replyCount = repliesArea.querySelectorAll('article').length;
+                        if (replyCount === 0) return;
+
+                        rootArticle.dataset.noveliaCollapseProcessed = "true";
+
+                        let commentId = rootArticle.id ? rootArticle.id.replace(/^comment-/, '') : '';
+                        if (!commentId) {
+                            const author = rootArticle.querySelector('header span')?.innerText.trim() || "";
+                            const time = rootArticle.querySelector('time')?.innerText.trim() || "";
+                            const rawId = author + time;
+                            let hash = 0;
+                            for (let i = 0; i < rawId.length; i++) {
+                                const char = rawId.charCodeAt(i);
+                                hash = ((hash << 5) - hash) + char;
+                                hash = hash & hash;
+                            }
+                            commentId = Math.abs(hash).toString(36);
+                        }
+
+                        const ctx = ForumCommentCollapse.getContext();
+                        const isCollapsedState = ForumCommentCollapse.isCollapsed(ctx, commentId);
+
+                        const btnWrapper = document.createElement('div');
+                        btnWrapper.className = 'novelia-collapse-btn-wrapper';
+                        btnWrapper.style.margin = '4px 0 8px 0';
+
+                        const btn = document.createElement('button');
+                        btn.className = 'novelia-collapse-btn';
+                        btn.type = 'button';
+                        btn.innerHTML = `
+                            <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
+                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>
+                        `;
+
+                        btnWrapper.appendChild(btn);
+                        rootArticle.after(btnWrapper);
+
+                        const wrapper = document.createElement('div');
+                        wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
+                        const inner = document.createElement('div');
+                        inner.className = 'novelia-collapse-replies-inner';
+
+                        repliesArea.parentNode.insertBefore(wrapper, repliesArea);
+                        inner.appendChild(repliesArea);
+                        wrapper.appendChild(inner);
+
+                        btn.addEventListener('click', () => {
+                            const currentlyCollapsed = wrapper.classList.contains('collapsed');
+                            const currentReplyCount = repliesArea.querySelectorAll('article').length;
+
+                            if (currentlyCollapsed) {
+                                wrapper.classList.remove('collapsed');
+                                wrapper.classList.add('expanded');
+                                btn.querySelector('.novelia-collapse-icon').classList.replace('collapsed', 'expanded');
+                                btn.querySelector('.novelia-collapse-btn-text').innerText = `收起回覆 (${currentReplyCount})`;
+                                ForumCommentCollapse.setCollapsed(ctx, commentId, false);
+                            } else {
+                                wrapper.classList.remove('expanded');
+                                wrapper.classList.add('collapsed');
+                                btn.querySelector('.novelia-collapse-icon').classList.replace('expanded', 'collapsed');
+                                btn.querySelector('.novelia-collapse-btn-text').innerText = `展開回覆 (${currentReplyCount})`;
+                                ForumCommentCollapse.setCollapsed(ctx, commentId, true);
+                            }
+                        });
+
+                        btn.addEventListener('mouseup', () => btn.blur());
+
+                        const nativeReplyBtn = Array.from(rootArticle.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
+                        if (nativeReplyBtn) {
+                            nativeReplyBtn.addEventListener('click', () => {
+                                if (wrapper.classList.contains('collapsed')) btn.click();
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Novelia Bundle] Error processing forum section:', e);
+                    }
+                },
+
+                scan: function() {
+                    document.querySelectorAll('section').forEach(ForumCommentCollapse.processSection);
+                },
+
+                init: function() {
+                    let timer = null;
+                    const observer = new MutationObserver(() => {
+                        clearTimeout(timer);
+                        timer = setTimeout(ForumCommentCollapse.scan, 100);
+                    });
+
+                    observer.observe(document.body, { childList: true, subtree: true });
+                    ForumCommentCollapse.scan();
+                    setTimeout(ForumCommentCollapse.scan, 500);
+                }
+            };
+
+            // Route initialization based on domain
+            if (location.hostname.includes('forum.novelia.cc')) {
+                ForumCommentCollapse.init();
+            } else {
+                NovelCommentCollapse.init();
             }
-
-            // Use a MutationObserver with debouncing to handle dynamically loaded comments
-            let observerTimer = null;
-            const observer = new MutationObserver(() => {
-                clearTimeout(observerTimer);
-                observerTimer = setTimeout(() => {
-                    document.querySelectorAll('.n-flex b').forEach(processCommentThread);
-                }, 100);
-            });
-
-            observer.observe(document.body, { childList: true, subtree: true });
-            // Initial scan
-            setTimeout(() => {
-                document.querySelectorAll('.n-flex b').forEach(processCommentThread);
-            }, 500);
         }
     };
 
