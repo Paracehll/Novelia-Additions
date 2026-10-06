@@ -2,7 +2,7 @@
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
 // @version      1.6.0
-// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
+// @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、評論回覆摺疊、預設摺疊圖片、內嵌論壇視窗。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @match        *://n.novelia.cc/*
