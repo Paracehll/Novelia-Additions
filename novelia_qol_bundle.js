@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.5.0
+// @version      1.5.1
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1202,6 +1202,18 @@
                 </svg>
             `;
 
+            function getReplyCount(repliesArea) {
+                if (!repliesArea) return 0;
+                const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
+                if (subReplies.length > 0) {
+                    return subReplies.length;
+                }
+                if (repliesArea.matches('div[style*="margin-left: 32px"]')) {
+                    return 1;
+                }
+                return repliesArea.querySelectorAll('.n-flex').length;
+            }
+
             function processCommentThread(commentHeader) {
                 try {
                     // A comment header is the <b> tag containing the username.
@@ -1240,7 +1252,7 @@
                         const repliesArea = inner ? inner.firstElementChild : null;
                         if (!repliesArea) return;
 
-                        const replyCount = repliesArea.querySelectorAll('.n-flex').length;
+                        const replyCount = getReplyCount(repliesArea);
 
                         if (replyCount === 0) {
                             // Restore repliesArea to its original place and remove the UI
@@ -1259,17 +1271,40 @@
                         return;
                     }
 
-                    // Find the replies area - it's a div with margin-left: 32px that follows
-                    let repliesArea = card.nextElementSibling;
-                    while (repliesArea && !repliesArea.matches('div[style*="margin-left: 32px"]')) {
-                        // If we encounter another comment flex, we've gone too far
-                        if (repliesArea.classList.contains('n-flex') && repliesArea.querySelector('b')) break;
-                        repliesArea = repliesArea.nextElementSibling;
+                    // Find the replies area - it can be a wrapper div containing replies or a direct reply div
+                    let repliesArea = null;
+                    let curr = card.nextElementSibling;
+                    while (curr) {
+                        if (curr.classList.contains('n-divider')) break;
+                        if (curr.classList.contains('n-flex') && curr.querySelector('b')) break;
+
+                        if (curr.matches('div[style*="margin-left: 32px"]')) {
+                            const replySiblings = [curr];
+                            let next = curr.nextElementSibling;
+                            while (next && next.matches('div[style*="margin-left: 32px"]')) {
+                                replySiblings.push(next);
+                                next = next.nextElementSibling;
+                            }
+                            if (replySiblings.length > 1) {
+                                const container = document.createElement('div');
+                                curr.parentNode.insertBefore(container, curr);
+                                replySiblings.forEach(s => container.appendChild(s));
+                                repliesArea = container;
+                            } else {
+                                repliesArea = curr;
+                            }
+                            break;
+                        } else if (curr.querySelector && curr.querySelector('div[style*="margin-left: 32px"]')) {
+                            repliesArea = curr;
+                            break;
+                        }
+                        curr = curr.nextElementSibling;
                     }
-                    if (!repliesArea || !repliesArea.matches('div[style*="margin-left: 32px"]')) return;
+
+                    if (!repliesArea) return;
 
                     // Get reply count from the UI
-                    const replyCount = repliesArea.querySelectorAll('.n-flex').length;
+                    const replyCount = getReplyCount(repliesArea);
                     if (replyCount === 0) return;
 
                     headerFlex.dataset.noveliaCollapseProcessed = "true";
