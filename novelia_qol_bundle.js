@@ -30,7 +30,7 @@
         // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
         { id: 'collapse_images', name: '預設摺疊圖片', default: true },
-        { id: 'forum_iframe', name: '內嵌論壇視窗', default: true }
+        { id: 'forum_iframe', name: '內嵌論壇視窗', default: false }, // 這個功能可能會有安全性或信仰上的問題，預設關閉
     ];
 
     const config = {};
