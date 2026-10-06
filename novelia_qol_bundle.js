@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.5.0
+// @version      1.6.0
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -731,15 +731,19 @@
                         overflow: hidden !important;
                     }
 
-                    html.novelia-forum-active .layout-content,
                     html.novelia-forum-active .n-layout-content,
-                    html.novelia-forum-active .n-layout-scroll-container {
+                    html.novelia-forum-active .n-layout-content .n-layout-scroll-container,
+                    html.novelia-forum-active .n-layout-content .layout-content {
                         max-width: 100% !important;
                         width: 100% !important;
                         padding-left: 0 !important;
                         padding-right: 0 !important;
                         margin-left: 0 !important;
                         margin-right: 0 !important;
+                    }
+
+                    .novelia-forum-hide {
+                        display: none !important;
                     }
 
                     #novelia-forum-inline-container {
@@ -783,6 +787,11 @@
                 if (!isForumPage()) {
                     document.documentElement.classList.remove('novelia-forum-active');
                     document.body.classList.remove('novelia-forum-active');
+
+                    document.querySelectorAll('.novelia-forum-hide').forEach(el => {
+                        el.classList.remove('novelia-forum-hide');
+                    });
+
                     const existing = document.getElementById('novelia-forum-inline-container');
                     if (existing) existing.remove();
                     return;
@@ -795,31 +804,35 @@
                 const headerHeight = getHeaderHeight();
                 let wrapper = document.getElementById('novelia-forum-inline-container');
 
-                if (wrapper) {
-                    wrapper.style.height = `calc(100vh - ${headerHeight}px)`;
-                    return;
+                const contentLayout = document.querySelector('.n-layout-content');
+                const scrollContainer = contentLayout
+                    ? (contentLayout.querySelector('.n-layout-scroll-container') || contentLayout)
+                    : (document.querySelector('.layout-content') || document.querySelector('.n-layout-scroll-container'));
+
+                if (!scrollContainer) return;
+
+                if (!wrapper) {
+                    wrapper = document.createElement('div');
+                    wrapper.id = 'novelia-forum-inline-container';
+
+                    const iframe = document.createElement('iframe');
+                    iframe.className = 'novelia-forum-iframe';
+                    iframe.src = getIframeTargetUrl();
+                    iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
+
+                    wrapper.appendChild(iframe);
                 }
 
-                const resultElement = document.querySelector('.n-result');
-                const targetContainer = resultElement ? resultElement.parentElement : (document.querySelector('.layout-content') || document.querySelector('.n-layout-scroll-container'));
-
-                if (!targetContainer) return;
-
-                wrapper = document.createElement('div');
-                wrapper.id = 'novelia-forum-inline-container';
                 wrapper.style.height = `calc(100vh - ${headerHeight}px)`;
 
-                const iframe = document.createElement('iframe');
-                iframe.className = 'novelia-forum-iframe';
-                iframe.src = getIframeTargetUrl();
-                iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
+                Array.from(scrollContainer.children).forEach(child => {
+                    if (child !== wrapper) {
+                        child.classList.add('novelia-forum-hide');
+                    }
+                });
 
-                wrapper.appendChild(iframe);
-
-                if (resultElement) {
-                    resultElement.replaceWith(wrapper);
-                } else {
-                    targetContainer.appendChild(wrapper);
+                if (wrapper.parentElement !== scrollContainer) {
+                    scrollContainer.appendChild(wrapper);
                 }
             }
 
@@ -831,6 +844,7 @@
                     if (isForumUrl(href)) {
                         e.preventDefault();
                         e.stopPropagation();
+
                         if (location.pathname !== '/forum') {
                             history.pushState({}, '', '/forum');
                             window.dispatchEvent(new Event("tm-locationchange"));

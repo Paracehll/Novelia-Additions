@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novelia Forum Iframe
 // @namespace    https://n.novelia.cc/
-// @version      1.2.0
-// @description  在 https://n.novelia.cc/ 點擊論壇按鈕時，導向到 https://n.novelia.cc/forum 並將 404 容器替換為滿版內嵌 https://forum.novelia.cc/ 的 iframe，移除母頁 scrollbar
+// @version      1.5.0
+// @description  在 https://n.novelia.cc/ 點擊論壇按鈕時，導向到 https://n.novelia.cc/forum 並隱藏內容容器 (保留 sidebar)，將內容替換為滿版內嵌 https://forum.novelia.cc/ 的 iframe，離開時恢復顯示原頁面
 // @match        https://n.novelia.cc/*
 // @grant        GM_addStyle
 // @run-at       document-idle
@@ -64,6 +64,10 @@
                 margin-right: 0 !important;
             }
 
+            .novelia-forum-hide {
+                display: none !important;
+            }
+
             #novelia-forum-inline-container {
                 width: 100% !important;
                 max-width: 100% !important;
@@ -105,6 +109,11 @@
         if (!isForumPage()) {
             document.documentElement.classList.remove('novelia-forum-active');
             document.body.classList.remove('novelia-forum-active');
+
+            document.querySelectorAll('.novelia-forum-hide').forEach(el => {
+                el.classList.remove('novelia-forum-hide');
+            });
+
             const existing = document.getElementById('novelia-forum-inline-container');
             if (existing) existing.remove();
             return;
@@ -117,31 +126,32 @@
         const headerHeight = getHeaderHeight();
         let wrapper = document.getElementById('novelia-forum-inline-container');
 
-        if (wrapper) {
-            wrapper.style.height = `calc(100vh - ${headerHeight}px)`;
-            return;
+        const scrollContainer = document.querySelector('.n-layout-scroll-container') || document.querySelector('.n-layout-content') || document.querySelector('.layout-content');
+
+        if (!scrollContainer) return;
+
+        if (!wrapper) {
+            wrapper = document.createElement('div');
+            wrapper.id = 'novelia-forum-inline-container';
+
+            const iframe = document.createElement('iframe');
+            iframe.className = 'novelia-forum-iframe';
+            iframe.src = getIframeTargetUrl();
+            iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
+
+            wrapper.appendChild(iframe);
         }
 
-        const resultElement = document.querySelector('.n-result');
-        const targetContainer = resultElement ? resultElement.parentElement : (document.querySelector('.layout-content') || document.querySelector('.n-layout-scroll-container'));
-
-        if (!targetContainer) return;
-
-        wrapper = document.createElement('div');
-        wrapper.id = 'novelia-forum-inline-container';
         wrapper.style.height = `calc(100vh - ${headerHeight}px)`;
 
-        const iframe = document.createElement('iframe');
-        iframe.className = 'novelia-forum-iframe';
-        iframe.src = getIframeTargetUrl();
-        iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
+        Array.from(scrollContainer.children).forEach(child => {
+            if (child !== wrapper) {
+                child.classList.add('novelia-forum-hide');
+            }
+        });
 
-        wrapper.appendChild(iframe);
-
-        if (resultElement) {
-            resultElement.replaceWith(wrapper);
-        } else {
-            targetContainer.appendChild(wrapper);
+        if (wrapper.parentElement !== scrollContainer) {
+            scrollContainer.appendChild(wrapper);
         }
     }
 
@@ -153,6 +163,7 @@
             if (isForumUrl(href)) {
                 e.preventDefault();
                 e.stopPropagation();
+
                 if (location.pathname !== '/forum') {
                     history.pushState({}, '', '/forum');
                     window.dispatchEvent(new Event("tm-locationchange"));
