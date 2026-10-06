@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.5.2
+// @version      1.6.0
 // @description  整合 Novelia 多種功能，支援自訂開關。包含評論數追蹤、分享按鈕、源站跳轉、評論回覆摺疊及預設摺疊圖片。
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -29,7 +29,8 @@
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
         // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
-        { id: 'collapse_images', name: '預設摺疊圖片', default: true }
+        { id: 'collapse_images', name: '預設摺疊圖片', default: true },
+        { id: 'forum_iframe', name: '內嵌論壇視窗', default: true }
     ];
 
     const config = {};
@@ -680,6 +681,209 @@
             }
 
             main();
+        }
+    };
+
+    // ==========================================
+    // 2.5 內嵌論壇視窗 (Modules.forum_iframe)
+    // ==========================================
+    Modules.forum_iframe = {
+        init: function() {
+            if (location.hostname !== 'n.novelia.cc') return;
+            if (window.top !== window.self) return;
+
+            const originalOpen = window.open;
+
+            function isForumPage() {
+                const path = window.__noveliaMockPath || location.pathname;
+                return path === '/forum' || path.startsWith('/forum/');
+            }
+
+            function getIframeTargetUrl() {
+                const path = window.__noveliaMockPath || location.pathname;
+                if (path.startsWith('/forum/')) {
+                    const sub = path.substring('/forum'.length);
+                    return 'https://forum.novelia.cc' + sub;
+                }
+                return 'https://forum.novelia.cc/';
+            }
+
+            function isForumUrl(href) {
+                if (!href) return false;
+                try {
+                    const parsed = new URL(href, location.origin);
+                    if (parsed.hostname === 'forum.novelia.cc') return true;
+                    if (parsed.hostname === location.hostname && (parsed.pathname === '/forum' || parsed.pathname.startsWith('/forum/'))) return true;
+                } catch (e) {
+                    if (/^https?:\/\/forum\.novelia\.cc/i.test(href)) return true;
+                    if (href === '/forum' || href.startsWith('/forum/')) return true;
+                }
+                return false;
+            }
+
+            function injectInlineStyles() {
+                if (document.getElementById('novelia-forum-inline-styles')) return;
+
+                const css = `
+                    html.novelia-forum-active,
+                    html.novelia-forum-active body,
+                    html.novelia-forum-active .n-layout-scroll-container,
+                    html.novelia-forum-active .n-layout {
+                        overflow: hidden !important;
+                    }
+
+                    html.novelia-forum-active .n-layout-content,
+                    html.novelia-forum-active .n-layout-content .n-layout-scroll-container,
+                    html.novelia-forum-active .n-layout-content .layout-content {
+                        max-width: 100% !important;
+                        width: 100% !important;
+                        padding-left: 0 !important;
+                        padding-right: 0 !important;
+                        margin-left: 0 !important;
+                        margin-right: 0 !important;
+                    }
+
+                    .novelia-forum-hide {
+                        display: none !important;
+                    }
+
+                    #novelia-forum-inline-container {
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        display: flex !important;
+                        flex-direction: column !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        box-sizing: border-box !important;
+                        overflow: hidden !important;
+                    }
+
+                    #novelia-forum-inline-container iframe {
+                        width: 100% !important;
+                        height: 100% !important;
+                        border: none !important;
+                        display: block !important;
+                    }
+                `;
+
+                if (typeof GM_addStyle === 'function') {
+                    GM_addStyle(css);
+                } else {
+                    const style = document.createElement('style');
+                    style.id = 'novelia-forum-inline-styles';
+                    style.textContent = css;
+                    document.head.appendChild(style);
+                }
+            }
+
+            function getHeaderHeight() {
+                const header = document.querySelector('header, .n-layout-header, nav');
+                if (header && header.offsetHeight > 0 && header.offsetHeight < 120) {
+                    return header.offsetHeight;
+                }
+                return 56;
+            }
+
+            function handleForumPage() {
+                if (!isForumPage()) {
+                    document.documentElement.classList.remove('novelia-forum-active');
+                    document.body.classList.remove('novelia-forum-active');
+
+                    document.querySelectorAll('.novelia-forum-hide').forEach(el => {
+                        el.classList.remove('novelia-forum-hide');
+                    });
+
+                    const existing = document.getElementById('novelia-forum-inline-container');
+                    if (existing) existing.remove();
+                    return;
+                }
+
+                injectInlineStyles();
+                document.documentElement.classList.add('novelia-forum-active');
+                document.body.classList.add('novelia-forum-active');
+
+                const headerHeight = getHeaderHeight();
+                let wrapper = document.getElementById('novelia-forum-inline-container');
+
+                const contentLayout = document.querySelector('.n-layout-content');
+                const scrollContainer = contentLayout
+                    ? (contentLayout.querySelector('.n-layout-scroll-container') || contentLayout)
+                    : (document.querySelector('.layout-content') || document.querySelector('.n-layout-scroll-container'));
+
+                if (!scrollContainer) return;
+
+                if (!wrapper) {
+                    wrapper = document.createElement('div');
+                    wrapper.id = 'novelia-forum-inline-container';
+
+                    const iframe = document.createElement('iframe');
+                    iframe.className = 'novelia-forum-iframe';
+                    iframe.src = getIframeTargetUrl();
+                    iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
+
+                    wrapper.appendChild(iframe);
+                }
+
+                wrapper.style.height = `calc(100vh - ${headerHeight}px)`;
+
+                Array.from(scrollContainer.children).forEach(child => {
+                    if (child !== wrapper) {
+                        child.classList.add('novelia-forum-hide');
+                    }
+                });
+
+                if (wrapper.parentElement !== scrollContainer) {
+                    scrollContainer.appendChild(wrapper);
+                }
+            }
+
+            // Intercept click on links targeting forum
+            window.addEventListener('click', function(e) {
+                const anchor = e.target.closest('a');
+                if (anchor) {
+                    const href = anchor.getAttribute('href') || anchor.href;
+                    if (isForumUrl(href)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        if (location.pathname !== '/forum') {
+                            history.pushState({}, '', '/forum');
+                            window.dispatchEvent(new Event("tm-locationchange"));
+                        }
+                        handleForumPage();
+                        return;
+                    }
+                }
+            }, true);
+
+            // Override window.open for forum links
+            window.open = function(url, target, features) {
+                if (typeof url === 'string' && isForumUrl(url)) {
+                    if (location.pathname !== '/forum') {
+                        history.pushState({}, '', '/forum');
+                        window.dispatchEvent(new Event("tm-locationchange"));
+                    }
+                    handleForumPage();
+                    return null;
+                }
+                return originalOpen.apply(this, arguments);
+            };
+
+            window.addEventListener("tm-locationchange", () => {
+                handleForumPage();
+                setTimeout(handleForumPage, 100);
+                setTimeout(handleForumPage, 300);
+            });
+
+            const observer = new MutationObserver(() => {
+                if (isForumPage()) {
+                    handleForumPage();
+                }
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            handleForumPage();
         }
     };
 
