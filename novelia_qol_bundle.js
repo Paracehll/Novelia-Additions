@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.4
+// @version      1.7.5
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -24,13 +24,16 @@
 
     const FEATURES = [
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
-        // { id: 'forum_search', name: '論壇搜尋增強', default: true },
+        
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
-        // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
+
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
         { id: 'collapse_images', name: '預設摺疊圖片', default: true },
-        { id: 'forum_iframe', name: '內嵌論壇視窗', default: false }, // 這個功能可能會有安全性或信仰上的問題，預設關閉
+
+        { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
+        // { id: 'forum_search', name: '論壇搜尋增強', default: true },
+        // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
     ];
 
     const config = {};
