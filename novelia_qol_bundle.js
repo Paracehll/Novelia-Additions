@@ -2959,6 +2959,11 @@
                         #comments .border-b,
                         #comments [class*="border-t"],
                         #comments [class*="border-b"],
+
+                        .divide-y.divide-divider section {
+                            padding-bottom: 32px !important;
+                        }
+
                         section .border-t,
                         section .border-b,
                         section [class*="border-t"],
@@ -2966,10 +2971,6 @@
                             border-top: none !important;
                             border-bottom: none !important;
                             border-color: transparent !important;
-                        }
-                        .border-divider,
-                        [class*="border-divider"] {
-                            margin-bottom: 32px !important;
                         }
                         article[data-novelia-retro-comment-card] {
                             padding-bottom: 0 !important;
