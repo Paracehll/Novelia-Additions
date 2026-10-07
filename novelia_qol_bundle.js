@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.5
+// @version      1.8.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -24,7 +24,7 @@
 
     const FEATURES = [
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
-        
+
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
 
@@ -32,6 +32,7 @@
         { id: 'collapse_images', name: '預設摺疊圖片', default: true },
 
         { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
+        { id: 'forum_retro', name: '復古論壇版面', default: true },
         // { id: 'forum_search', name: '論壇搜尋增強', default: true },
         // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
     ];
@@ -1684,18 +1685,18 @@
     };
 
     // ==========================================
-// 2. 論壇搜尋增強 (Modules.forum_search)
-// ==========================================
-    Modules.forum_search = {
-        init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
-            if (window.top !== window.self) return;
+    // 2. 論壇搜尋增強 (Modules.forum_search)
+    // ==========================================
+    // Modules.forum_search = {
+    //     init: function() {
+    //         if (location.hostname !== 'n.novelia.cc') return;
+    //         if (window.top !== window.self) return;
 
-            function main() {}
+    //         function main() {}
 
-            main();
-        }
-    };
+    //         main();
+    //     }
+    // };
 
     // ==========================================
     // 3. 小說分享按鈕 (Modules.share_btn)
@@ -2806,6 +2807,772 @@
             }
         }
     };
+
+    // ==========================================
+    // 8. 復古論壇版面 (Modules.forum_retro)
+    // ==========================================
+    Modules.forum_retro = {
+        init: function() {
+            if (!getMockPath() && location.hostname !== 'forum.novelia.cc') return;
+
+
+                function setupRouterObserver() {
+                    if (window.__noveliaRouterObserverInjected) return;
+                    window.__noveliaRouterObserverInjected = true;
+
+                    const originalPushState = history.pushState;
+                    const originalReplaceState = history.replaceState;
+
+                    history.pushState = function(...args) {
+                        const result = originalPushState.apply(this, args);
+                        window.dispatchEvent(new Event("tm-locationchange"));
+                        return result;
+                    };
+
+                    history.replaceState = function(...args) {
+                        const result = originalReplaceState.apply(this, args);
+                        window.dispatchEvent(new Event("tm-locationchange"));
+                        return result;
+                    };
+
+                    window.addEventListener('popstate', () => {
+                        window.dispatchEvent(new Event("tm-locationchange"));
+                    });
+                }
+
+                setupRouterObserver();
+
+                function injectStyles() {
+                    if (document.getElementById('novelia-forum-retro-styles')) return;
+
+                    const css = `
+                        /* Retro Theme Overrides for Novelia Forum */
+                        .n-retro-categories-wrapper {
+                            display: flex !important;
+                            align-items: center !important;
+                            gap: 12px !important;
+                            margin-top: 12px !important;
+                            margin-bottom: 20px !important;
+                            font-size: 13px !important;
+                        }
+                        .n-retro-categories-label {
+                            color: var(--n-text-color-3, #888) !important;
+                            font-size: 12px !important;
+                            white-space: nowrap !important;
+                        }
+                        .n-retro-categories-group {
+                            display: inline-flex !important;
+                            border: none !important;
+                            overflow: visible !important;
+                        }
+                        .n-retro-category-btn {
+                            padding: 4px 12px !important;
+                            font-size: 13px !important;
+                            background: transparent !important;
+                            border: none !important;
+                            color: var(--n-text-color, #333) !important;
+                            cursor: pointer !important;
+                            text-decoration: none !important;
+                            transition: color 0.2s, background-color 0.2s !important;
+                            display: inline-flex !important;
+                            align-items: center !important;
+                            border-radius: 3px !important;
+                        }
+                        .n-retro-category-btn:hover {
+                            color: #63e2b7 !important;
+                        }
+                        .n-retro-category-btn.active {
+                            background-color: rgba(99, 226, 183, 0.15) !important;
+                            color: #63e2b7 !important;
+                            font-weight: bold !important;
+                        }
+
+                        /* Retro Table Styling */
+                        table.n-retro-table {
+                            width: 100% !important;
+                            border-collapse: collapse !important;
+                            margin-top: 16px !important;
+                            margin-bottom: 0px !important;
+                            padding-bottom: 64px !important;
+                            font-size: 14px !important;
+                        }
+                        table.n-retro-table th {
+                            text-align: left !important;
+                            padding: 10px 12px !important;
+                            border-bottom: 1px solid var(--n-border-color, rgba(239, 239, 245, 1)) !important;
+                            font-weight: bold !important;
+                            color: var(--n-text-color, #333) !important;
+                        }
+                        table.n-retro-table td {
+                            padding: 12px 12px !important;
+                            border-bottom: 1px solid var(--n-border-color, rgba(239, 239, 245, 1)) !important;
+                            vertical-align: middle !important;
+                        }
+                        table.n-retro-table td.article-number {
+                            width: 80px !important;
+                            text-align: center !important;
+                            white-space: nowrap !important;
+                            color: var(--n-text-color-3, #888) !important;
+                            font-size: 13px !important;
+                        }
+                        .n-retro-title-row {
+                            display: flex !important;
+                            align-items: center !important;
+                            gap: 6px !important;
+                        }
+                        .n-retro-title-row a {
+                            color: var(--n-text-color, #333) !important;
+                            text-decoration: none !important;
+                            font-size: 14px !important;
+                        }
+                        .n-retro-title-row a:hover {
+                            color: #63e2b7 !important;
+                        }
+                        .n-retro-meta-row {
+                            font-size: 12px !important;
+                            color: var(--n-text-color-3, #888) !important;
+                            margin-top: 4px !important;
+                        }
+                        .n-retro-icon {
+                            font-size: 14px !important;
+                            display: inline-flex !important;
+                            align-items: center !important;
+                        }
+
+                        /* Post Detail Retro Styling */
+                        .n-retro-detail-h1 {
+                            border-left: 4px solid #63e2b7 !important;
+                            padding-left: 12px !important;
+                            font-size: 20px !important;
+                            font-weight: bold !important;
+                            margin-bottom: 8px !important;
+                        }
+
+                        /* Forum Retro Comments Layout */
+                        #comments.n-retro-comments,
+                        .n-retro-comments {
+                            margin-top: 32px !important;
+                            margin-bottom: 0px !important;
+                            padding-bottom: 64px !important;
+                        }
+                        #comments .border-t,
+                        #comments .border-b,
+                        #comments [class*="border-t"],
+                        #comments [class*="border-b"],
+                        section .border-t,
+                        section .border-b,
+                        section [class*="border-t"],
+                        section [class*="border-b"] {
+                            border-top: none !important;
+                            border-bottom: none !important;
+                            border-color: transparent !important;
+                        }
+                        .border-divider,
+                        [class*="border-divider"] {
+                            margin-bottom: 32px !important;
+                        }
+                        article[data-novelia-retro-comment-card] {
+                            padding-bottom: 0 !important;
+                            margin-bottom: 0px !important;
+                            border: none !important;
+                            border-bottom: none !important;
+                            border-top: none !important;
+                        }
+                        article.n-retro-root-comment {
+                            border: none !important;
+                            border-bottom: none !important;
+                            padding-bottom: 8px !important;
+                            margin-bottom: 0px !important;
+                        }
+                        article[data-novelia-retro-comment-card][class*="ml-"],
+                        article.n-retro-reply-comment {
+                            margin-left: 32px !important;
+                            margin-top: 0px !important;
+                            border: none !important;
+                            border-bottom: none !important;
+                        }
+                        .n-retro-comment-header {
+                            display: flex !important;
+                            flex-flow: wrap !important;
+                            justify-content: flex-start !important;
+                            align-items: center !important;
+                            gap: 0px !important;
+                            font-size: 14px !important;
+                            margin-bottom: 8px !important;
+                        }
+                        .n-retro-comment-author {
+                            font-weight: bold !important;
+                            color: var(--n-text-color, #333);
+                        }
+                        .dark .n-retro-comment-author,
+                        body.dark .n-retro-comment-author {
+                            color: #ffffff !important;
+                        }
+                        .n-retro-comment-time {
+                            font-size: 12px !important;
+                            margin-left: 12px !important;
+                            color: var(--n-text-color-3, #888) !important;
+                        }
+                        .dark .n-retro-comment-time,
+                        body.dark .n-retro-comment-time {
+                            color: rgba(255, 255, 255, 0.52) !important;
+                        }
+                        .n-retro-comment-spacer {
+                            flex: 1 1 0% !important;
+                        }
+                        .comment-card {
+                            border-radius: 4px !important;
+                            padding: 12px 16px !important;
+                            margin-top: 6px !important;
+                            margin-bottom: 8px !important;
+                            border-style: solid !important;
+                            border-width: 1px !important;
+                        }
+                        .dark .comment-card,
+                        body.dark .comment-card {
+                            color: rgba(255, 255, 255, 0.82) !important;
+                        }
+                        .comment-card .markdown-content,
+                        .comment-card .prose,
+                        .comment-card.markdown-content,
+                        .comment-card.prose {
+                            margin-top: -0.5em !important;
+                            margin-bottom: -0.5em !important;
+                        }
+                        .dark .comment-card .markdown-content,
+                        .dark .comment-card .prose,
+                        .dark .comment-card.markdown-content,
+                        .dark .comment-card.prose,
+                        body.dark .comment-card .markdown-content,
+                        body.dark .comment-card .prose,
+                        body.dark .comment-card.markdown-content,
+                        body.dark .comment-card.prose {
+                            color: rgba(255, 255, 255, 0.82) !important;
+                        }
+                        .dark .comment-card p,
+                        body.dark .comment-card p {
+                            color: rgba(255, 255, 255, 0.82) !important;
+                        }
+
+                        .dark .n-retro-categories-label,
+                        body.dark .n-retro-categories-label,
+                        html.dark .n-retro-categories-label {
+                            color: rgba(255, 255, 255, 0.7) !important;
+                        }
+                        .dark .n-retro-category-btn,
+                        body.dark .n-retro-category-btn,
+                        html.dark .n-retro-category-btn {
+                            color: #ffffff !important;
+                            border: none !important;
+                        }
+                        .dark .n-retro-category-btn.active,
+                        body.dark .n-retro-category-btn.active,
+                        html.dark .n-retro-category-btn.active {
+                            color: #63e2b7 !important;
+                        }
+                        .dark table.n-retro-table th,
+                        body.dark table.n-retro-table th,
+                        html.dark table.n-retro-table th {
+
+                            color: #ffffff !important;
+                        }
+                        .dark table.n-retro-table td,
+                        body.dark table.n-retro-table td,
+                        html.dark table.n-retro-table td {
+
+                            color: rgba(255, 255, 255, 0.9) !important;
+                        }
+                        .dark table.n-retro-table td.article-number,
+                        body.dark table.n-retro-table td.article-number,
+                        html.dark table.n-retro-table td.article-number {
+                            color: #ffffff !important;
+                        }
+                        .dark .n-retro-title-row a,
+                        body.dark .n-retro-title-row a,
+                        html.dark .n-retro-title-row a {
+                            color: #ffffff !important;
+                        }
+                        .dark .n-retro-meta-row,
+                        body.dark .n-retro-meta-row,
+                        html.dark .n-retro-meta-row {
+                            color: rgba(255, 255, 255, 0.7) !important;
+                        }
+                    `;
+
+                    if (typeof GM_addStyle === 'function') {
+                        GM_addStyle(css);
+                    } else {
+                        const style = document.createElement('style');
+                        style.id = 'novelia-forum-retro-styles';
+                        style.textContent = css;
+                        document.head.appendChild(style);
+                    }
+                }
+
+                const CATEGORIES = [
+                    { slug: 'novel', label: '小说交流', path: '/c/novel' },
+                    { slug: 'announcements', label: '使用指南', path: '/c/announcements' },
+                    { slug: 'feedback', label: '反馈与建议', path: '/c/feedback' },
+                ];
+
+                function getMockPath() {
+                    if (window.__noveliaMockPath) return window.__noveliaMockPath;
+                    try {
+                        if (window.top && window.top.__noveliaMockPath) {
+                            return window.top.__noveliaMockPath;
+                        }
+                    } catch (e) {}
+                    return null;
+                }
+
+                function getPath() {
+                    if (location.hostname === 'forum.novelia.cc') {
+                        return location.pathname;
+                    }
+                    return getMockPath() || location.pathname;
+                }
+
+                function getCurrentSlug() {
+                    const path = getPath();
+                    const match = path.match(/^\/c\/([^\/?#]+)/i);
+                    if (match) return match[1];
+                    if (path === '/' || path === '') return 'announcements';
+                    return '';
+                }
+
+                function transformCategoryHeader() {
+                    const path = getPath();
+                    if (!path.startsWith('/c/') && path !== '/') return;
+
+                    // Change Main Heading to "论坛"
+                    const mainHeader = document.querySelector('h1');
+                    if (mainHeader && !mainHeader.dataset.noveliaRetroHeader) {
+                        mainHeader.dataset.noveliaRetroHeader = 'true';
+                        mainHeader.textContent = '论坛';
+                    }
+
+                    // Inject / Update "版塊" Category Selector
+                    const currentSlug = getCurrentSlug();
+                    let catWrapper = document.getElementById('novelia-retro-categories');
+                    if (!catWrapper) {
+                        catWrapper = document.createElement('div');
+                        catWrapper.id = 'novelia-retro-categories';
+                        catWrapper.className = 'n-retro-categories-wrapper';
+
+                        const label = document.createElement('span');
+                        label.className = 'n-retro-categories-label';
+                        label.textContent = '版块';
+
+                        const group = document.createElement('div');
+                        group.className = 'n-retro-categories-group';
+
+                        CATEGORIES.forEach(cat => {
+                            const btn = document.createElement('a');
+                            btn.className = `n-retro-category-btn ${cat.slug === currentSlug ? 'active' : ''}`;
+                            btn.href = cat.path;
+                            btn.textContent = cat.label;
+                            btn.dataset.slug = cat.slug;
+
+                            btn.addEventListener('click', (e) => {
+                                // Prevent page reload and trigger SPA locationchange
+                                e.preventDefault();
+                                group.querySelectorAll('.n-retro-category-btn').forEach(b => b.classList.remove('active'));
+                                btn.classList.add('active');
+
+                                // If running inside iframe or standalone, navigate SPA
+                                history.pushState({}, '', cat.path);
+                                window.dispatchEvent(new Event("tm-locationchange"));
+
+                                // Also attempt to click matching sidebar link if present
+                                const sidebarLink = document.querySelector(`aside a[href="${cat.path}"], nav a[href="${cat.path}"], .web-kit-sidebar a[href="${cat.path}"]`);
+                                if (sidebarLink) {
+                                    sidebarLink.click();
+                                }
+                            });
+
+                            group.appendChild(btn);
+                        });
+
+                        catWrapper.appendChild(label);
+                        catWrapper.appendChild(group);
+
+                        if (mainHeader) {
+                            mainHeader.after(catWrapper);
+                        } else {
+                            const container = document.querySelector('.page-container, main, body');
+                            if (container) container.prepend(catWrapper);
+                        }
+                    } else {
+                        // Update active category button
+                        catWrapper.querySelectorAll('.n-retro-category-btn').forEach(btn => {
+                            if (btn.dataset.slug === currentSlug) {
+                                btn.classList.add('active');
+                            } else {
+                                btn.classList.remove('active');
+                            }
+                        });
+                    }
+                }
+
+                function parsePostListItem(articleEl) {
+                    // Title & Link
+                    const titleAnchor = articleEl.querySelector('a[href^="/p/"]');
+                    if (!titleAnchor) return null;
+
+                    const titleText = titleAnchor.textContent.trim();
+                    const href = titleAnchor.getAttribute('href');
+
+                    // Pin & Lock flags
+                    const isPinned = !!articleEl.querySelector('[title="已置顶"], [aria-label="已置顶"]');
+                    const isLocked = !!articleEl.querySelector('[title="评论区已锁定"], [aria-label="评论区已锁定"]');
+
+                    // Meta info (Author & Time)
+                    let author = '';
+                    let timeText = '';
+                    let isUpdated = false;
+
+                    const flexWrapper = articleEl.querySelector('.flex.flex-wrap.items-center, div.flex-wrap');
+                    if (flexWrapper) {
+                        const authorSpan = flexWrapper.querySelector('span.font-medium, span.text-ink\\/80, span:first-child');
+                        if (authorSpan) author = authorSpan.textContent.trim();
+
+                        const timeEl = flexWrapper.querySelector('time');
+                        if (timeEl) timeText = timeEl.textContent.trim();
+
+                        if (flexWrapper.textContent.includes('更新于')) {
+                            isUpdated = true;
+                        }
+                    } else {
+                        const authorEl = articleEl.querySelector('.text-ink\\/80, .font-medium');
+                        author = authorEl ? authorEl.textContent.trim() : '';
+
+                        const timeEl = articleEl.querySelector('time');
+                        timeText = timeEl ? timeEl.textContent.trim() : '';
+
+                        if (articleEl.textContent.includes('更新于')) {
+                            isUpdated = true;
+                        }
+                    }
+
+                    // Stats (Views & Comments)
+                    let views = '0';
+                    let comments = '0';
+
+                    const dls = articleEl.querySelectorAll('dl');
+                    if (dls.length >= 2) {
+                        views = dls[0].querySelector('dd')?.textContent.trim() || '0';
+                        comments = dls[1].querySelector('dd')?.textContent.trim() || '0';
+                    } else {
+                        // Mobile counters fallback
+                        const statSpans = articleEl.querySelectorAll('.flex.items-center.gap-4 span.inline-flex');
+                        if (statSpans.length >= 2) {
+                            views = statSpans[0].textContent.trim();
+                            comments = statSpans[1].textContent.trim();
+                        }
+                    }
+
+                    return {
+                        titleText,
+                        href,
+                        isPinned,
+                        isLocked,
+                        author,
+                        timeText,
+                        isUpdated,
+                        views,
+                        comments
+                    };
+                }
+
+                function transformPostList() {
+                    const path = getPath();
+                    if (!path.startsWith('/c/') && path !== '/') return;
+
+                    // Locate list container
+                    const articles = document.querySelectorAll('article.group, article');
+                    if (articles.length === 0) return;
+
+                    const listContainer = articles[0].parentElement;
+                    if (!listContainer) return;
+
+                    if (listContainer.dataset.noveliaRetroProcessed && !listContainer.querySelector('.n-retro-table')) {
+                        delete listContainer.dataset.noveliaRetroProcessed;
+                    }
+
+                    if (listContainer.dataset.noveliaRetroProcessed) return;
+                    listContainer.dataset.noveliaRetroProcessed = 'true';
+
+                    // Build Retro Table
+                    const table = document.createElement('table');
+                    table.className = 'n-retro-table';
+
+                    const thead = document.createElement('thead');
+                    thead.innerHTML = `
+                        <tr>
+                            <th><b>标题</b></th>
+                            <th class="article-number"><b>查看/回复</b></th>
+                        </tr>
+                    `;
+                    table.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+
+                    articles.forEach(articleEl => {
+                        const data = parsePostListItem(articleEl);
+                        if (!data) return;
+
+                        const tr = document.createElement('tr');
+
+                        const tdTitle = document.createElement('td');
+
+                        const titleRow = document.createElement('div');
+                        titleRow.className = 'n-retro-title-row';
+
+                        if (data.isPinned) {
+                            const pinSpan = document.createElement('span');
+                            pinSpan.className = 'n-retro-icon';
+                            pinSpan.title = '置顶';
+                            pinSpan.textContent = '📌';
+                            titleRow.appendChild(pinSpan);
+                        }
+
+                        if (data.isLocked) {
+                            const lockSpan = document.createElement('span');
+                            lockSpan.className = 'n-retro-icon';
+                            lockSpan.title = '锁定';
+                            lockSpan.textContent = '🔒';
+                            titleRow.appendChild(lockSpan);
+                        }
+
+                        const link = document.createElement('a');
+                        link.href = data.href;
+                        const b = document.createElement('b');
+                        b.textContent = data.titleText;
+                        link.appendChild(b);
+                        titleRow.appendChild(link);
+
+                        const metaRow = document.createElement('div');
+                        metaRow.className = 'n-retro-meta-row';
+                        metaRow.textContent = `${data.isUpdated ? '更新' : '发布'}于 ${data.timeText} by ${data.author}`;
+
+                        tdTitle.appendChild(titleRow);
+                        tdTitle.appendChild(metaRow);
+
+                        const tdStat = document.createElement('td');
+                        tdStat.className = 'article-number';
+                        tdStat.textContent = `${data.views}/${data.comments}`;
+
+                        tr.appendChild(tdTitle);
+                        tr.appendChild(tdStat);
+
+                        tbody.appendChild(tr);
+
+                        // Hide original article element
+                        articleEl.style.display = 'none';
+                    });
+
+                    table.appendChild(tbody);
+                    listContainer.prepend(table);
+                }
+
+                function checkIsDark() {
+                    if (document.documentElement.classList.contains('dark') || document.body?.classList.contains('dark')) {
+                        return true;
+                    }
+                    if (document.querySelector('.dark')) {
+                        return true;
+                    }
+                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                        return true;
+                    }
+                    try {
+                        const bg = getComputedStyle(document.body || document.documentElement).backgroundColor;
+                        const match = bg.match(/\d+/g);
+                        if (match && match.length >= 3) {
+                            const r = parseInt(match[0], 10);
+                            const g = parseInt(match[1], 10);
+                            const b = parseInt(match[2], 10);
+                            const luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+                            if (luminance < 128) return true;
+                        }
+                    } catch (e) {}
+                    return false;
+                }
+
+                function applyCommentThemeInlineStyles() {
+                    const isDark = checkIsDark();
+                    if (isDark) {
+                        if (!document.documentElement.classList.contains('dark')) {
+                            document.documentElement.classList.add('dark');
+                        }
+                        if (document.body && !document.body.classList.contains('dark')) {
+                            document.body.classList.add('dark');
+                        }
+                    }
+                    const bgColor = isDark ? 'rgb(24, 24, 28)' : 'rgb(250, 250, 252)';
+
+                    document.querySelectorAll('.comment-card').forEach(card => {
+                        card.style.backgroundColor = bgColor;
+                        card.style.borderColor = bgColor;
+                    });
+
+                    document.querySelectorAll('.n-retro-comment-author').forEach(authorEl => {
+                        authorEl.style.color = isDark ? '#ffffff' : '';
+                    });
+
+                    // Direct inline style injection for dark mode text elements
+                    document.querySelectorAll('.n-retro-category-btn:not(.active)').forEach(el => {
+                        el.style.color = isDark ? '#ffffff' : '';
+                    });
+                    document.querySelectorAll('table.n-retro-table th').forEach(el => {
+                        el.style.color = isDark ? '#ffffff' : '';
+                    });
+                    document.querySelectorAll('.n-retro-title-row a').forEach(el => {
+                        el.style.color = isDark ? '#ffffff' : '';
+                    });
+                    document.querySelectorAll('table.n-retro-table td.article-number').forEach(el => {
+                        el.style.color = isDark ? '#ffffff' : '';
+                    });
+                }
+
+                function transformPostDetail() {
+                    const path = getPath();
+                    if (!path.startsWith('/p/')) return;
+
+                    const h1 = document.querySelector('main h1, .page-container h1');
+                    if (h1 && !h1.classList.contains('n-retro-detail-h1')) {
+                        h1.classList.add('n-retro-detail-h1');
+                    }
+
+                    const commentsSection = document.getElementById('comments');
+                    if (commentsSection && !commentsSection.classList.contains('n-retro-comments')) {
+                        commentsSection.classList.add('n-retro-comments');
+                    }
+
+                    // Apply retro header structure and embedded card styling to comments
+                    document.querySelectorAll('article[id^="comment-"], #comments article, section article').forEach(article => {
+                        const isReply = article.classList.contains('ml-4') ||
+                                        article.classList.contains('ml-8') ||
+                                        article.classList.contains('ml-12') ||
+                                        article.className.includes('ml-') ||
+                                        (article.parentElement && article.parentElement.closest('article'));
+
+                        if (isReply) {
+                            article.classList.add('n-retro-reply-comment');
+                            article.classList.remove('n-retro-root-comment');
+                        } else {
+                            article.classList.add('n-retro-root-comment');
+                            article.classList.remove('n-retro-reply-comment');
+                        }
+
+                        if (article.dataset.noveliaRetroCommentCard && !article.querySelector('.comment-card')) {
+                            delete article.dataset.noveliaRetroCommentCard;
+                        }
+                        if (article.dataset.noveliaRetroCommentCard) return;
+                        article.dataset.noveliaRetroCommentCard = 'true';
+
+                        // Retro header layout
+                        const header = article.querySelector('header');
+                        if (header && !header.classList.contains('n-retro-comment-header')) {
+                            header.classList.add('n-retro-comment-header');
+
+                            const authorSpan = header.querySelector('span.font-medium, span:first-child');
+                            if (authorSpan && !authorSpan.classList.contains('n-retro-comment-author')) {
+                                authorSpan.classList.add('n-retro-comment-author');
+                            }
+
+                            const timeEl = header.querySelector('time');
+                            if (timeEl && !timeEl.classList.contains('n-retro-comment-time')) {
+                                timeEl.classList.add('n-retro-comment-time');
+                            }
+
+                            // Ensure spacer div exists between author/time and action buttons
+                            let spacer = header.querySelector('.n-retro-comment-spacer');
+                            if (!spacer) {
+                                spacer = document.createElement('div');
+                                spacer.className = 'n-retro-comment-spacer';
+                                if (timeEl) timeEl.after(spacer);
+                                else if (authorSpan) authorSpan.after(spacer);
+                                else header.prepend(spacer);
+                            }
+                        }
+
+                        // Embedded card content wrapper
+                        const contentDiv = article.querySelector('.prose, [class*="markdown"], .text-sm, div.mt-2');
+                        if (contentDiv && !contentDiv.classList.contains('comment-card')) {
+                            contentDiv.classList.add('comment-card');
+                        }
+                    });
+
+                    applyCommentThemeInlineStyles();
+                }
+
+                function isTargetDomain() {
+                    if (getMockPath()) return true;
+                    return location.hostname === 'forum.novelia.cc';
+                }
+
+                function runRetro() {
+                    if (!isTargetDomain()) return;
+                    injectStyles();
+                    transformCategoryHeader();
+                    transformPostList();
+                    transformPostDetail();
+                }
+
+                // SPA observer
+                let timer = null;
+                const observer = new MutationObserver(() => {
+                    clearTimeout(timer);
+                    timer = setTimeout(runRetro, 80);
+                });
+
+                function initObserver() {
+                    const target = document.documentElement || document.body;
+                    if (target) {
+                        observer.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+                    }
+                }
+
+                window.addEventListener('message', (e) => {
+                    if (e.data && e.data.type === 'NOVELIA_THEME_CHANGE') {
+                        if (e.data.isDark) {
+                            document.documentElement.classList.add('dark');
+                            if (document.body) document.body.classList.add('dark');
+                        } else {
+                            document.documentElement.classList.remove('dark');
+                            if (document.body) document.body.classList.remove('dark');
+                        }
+                        applyCommentThemeInlineStyles();
+                    }
+                });
+
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        initObserver();
+                        runRetro();
+                    });
+                } else {
+                    initObserver();
+                    runRetro();
+                }
+
+                setInterval(runRetro, 1000);
+
+                window.addEventListener('tm-locationchange', () => {
+                    // Reset processed guards on location change
+                    document.querySelectorAll('[data-novelia-retro-processed]').forEach(el => {
+                        delete el.dataset.noveliaRetroProcessed;
+                    });
+                    document.querySelectorAll('[data-novelia-retro-header]').forEach(el => {
+                        delete el.dataset.noveliaRetroHeader;
+                    });
+                    runRetro();
+                    setTimeout(runRetro, 200);
+                });
+        }
+    };
+
 
     runModules();
 
