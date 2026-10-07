@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.1
+// @version      1.7.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -696,6 +696,8 @@
         // IFRAME CONTEXT (forum.novelia.cc)
         // =========================================================
         if (IS_IFRAME_CONTEXT) {
+            if (window.top === window.self) return;
+
             function injectIframeStyles() {
                 if (document.getElementById('novelia-iframe-hide-sidebar-style')) return;
                 const css = `
