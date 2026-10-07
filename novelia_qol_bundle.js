@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.2
+// @version      1.7.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -971,6 +971,7 @@
                     padding: 0 !important;
                     box-sizing: border-box !important;
                     overflow: hidden !important;
+                position: relative !important;
                 }
 
                 #novelia-forum-inline-container iframe {
@@ -978,6 +979,45 @@
                     height: 100% !important;
                     border: none !important;
                     display: block !important;
+                opacity: 0;
+                transition: opacity 0.3s ease-in-out;
+            }
+
+            #novelia-forum-inline-container iframe.novelia-iframe-loaded {
+                opacity: 1 !important;
+            }
+
+            .novelia-forum-spinner-wrapper {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 12px;
+                color: var(--n-text-color, #666);
+                transition: opacity 0.3s ease-in-out;
+                pointer-events: none;
+                z-index: 10;
+            }
+
+            .novelia-forum-spinner-wrapper.novelia-spinner-hidden {
+                opacity: 0 !important;
+            }
+
+            .novelia-forum-spinner {
+                width: 36px;
+                height: 36px;
+                border: 3px solid rgba(99, 226, 183, 0.2);
+                border-top-color: #63e2b7;
+                border-radius: 50%;
+                animation: novelia-spin 0.8s linear infinite;
+            }
+
+            @keyframes novelia-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
                 }
 
                 /* Preserve Naive UI sider collapse button & trigger */
@@ -1446,12 +1486,21 @@
                 wrapper = document.createElement('div');
                 wrapper.id = 'novelia-forum-inline-container';
 
+                const loader = document.createElement('div');
+                loader.className = 'novelia-forum-spinner-wrapper';
+                loader.innerHTML = `
+                    <div class="novelia-forum-spinner"></div>
+                    <span style="font-size: 13px; opacity: 0.8;">加载论坛中...</span>
+                `;
+
                 const iframe = document.createElement('iframe');
                 iframe.className = 'novelia-forum-iframe';
                 iframe.src = getIframeTargetUrl();
                 iframe.allow = 'clipboard-read; clipboard-write; autoplay; fullscreen';
 
                 iframe.addEventListener('load', () => {
+                    iframe.classList.add('novelia-iframe-loaded');
+                    if (loader) loader.classList.add('novelia-spinner-hidden');
                     sendThemeToIframe();
                     const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                     const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
@@ -1461,6 +1510,7 @@
                     }, '*');
                 });
 
+                wrapper.appendChild(loader);
                 wrapper.appendChild(iframe);
             } else {
                 const iframe = wrapper.querySelector('iframe');
