@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.3
+// @version      1.7.4
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1544,8 +1544,38 @@
             sendThemeToIframe();
         }
 
-        // Intercept click on links targeting forum
+        // Intercept click on links targeting forum or non-forum host navigation
         window.addEventListener('click', function(e) {
+            const menuItem = e.target.closest('.n-menu-item, .n-menu-item-content');
+            if (menuItem && !menuItem.closest('.novelia-forum-submenu')) {
+                const anchor = menuItem.querySelector('a');
+                if (anchor) {
+                    const href = anchor.getAttribute('href') || anchor.href;
+                    if (href && !isForumUrl(href)) {
+                        let targetPath = href;
+                        try {
+                            const parsed = new URL(href, location.origin);
+                            targetPath = parsed.pathname + parsed.search + parsed.hash;
+                        } catch (err) {}
+
+                        setTimeout(() => {
+                            if (location.pathname !== targetPath) {
+                                history.pushState({}, '', targetPath);
+                                window.dispatchEvent(new Event("tm-locationchange"));
+                            }
+                            handleForumPage();
+                            updateSelectedSubmenuItem();
+                        }, 0);
+                        return;
+                    }
+                }
+                setTimeout(() => {
+                    handleForumPage();
+                    updateSelectedSubmenuItem();
+                }, 0);
+                return;
+            }
+
             const anchor = e.target.closest('a');
             if (anchor) {
                 const href = anchor.getAttribute('href') || anchor.href;
@@ -1572,6 +1602,11 @@
                     handleForumPage();
                     updateSelectedSubmenuItem();
                     return;
+                } else {
+                    setTimeout(() => {
+                        handleForumPage();
+                        updateSelectedSubmenuItem();
+                    }, 0);
                 }
             }
         }, true);
