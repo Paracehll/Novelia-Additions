@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.0
+// @version      1.7.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -806,6 +806,37 @@
             injectMobileDrawerButton();
             // injectFavoriteButton();
 
+            function notifyHostUrlChange() {
+                if (window.parent !== window) {
+                    const path = location.pathname + location.search + location.hash;
+                    window.parent.postMessage({
+                        type: 'NOVELIA_URL_CHANGE',
+                        path: path
+                    }, '*');
+                }
+            }
+
+            const originalPushState = history.pushState;
+            const originalReplaceState = history.replaceState;
+
+            history.pushState = function(...args) {
+                const result = originalPushState.apply(this, args);
+                notifyHostUrlChange();
+                return result;
+            };
+
+            history.replaceState = function(...args) {
+                const result = originalReplaceState.apply(this, args);
+                notifyHostUrlChange();
+                return result;
+            };
+
+            window.addEventListener('popstate', notifyHostUrlChange);
+            window.addEventListener('hashchange', notifyHostUrlChange);
+            window.addEventListener('tm-locationchange', notifyHostUrlChange);
+
+            notifyHostUrlChange();
+
             const iframeObserver = new MutationObserver(() => {
                 injectMobileDrawerButton();
                 // injectFavoriteButton();
@@ -817,7 +848,8 @@
 
                 if (e.data.type === 'NOVELIA_NAVIGATE') {
                     const targetPath = e.data.path || '/';
-                    if (location.pathname !== targetPath) {
+                    const currentPath = location.pathname + location.search + location.hash;
+                    if (currentPath !== targetPath && location.pathname !== targetPath) {
                         history.pushState({}, '', targetPath);
                         window.dispatchEvent(new Event('popstate'));
                         window.dispatchEvent(new Event('tm-locationchange'));
@@ -865,7 +897,7 @@
         }
 
         function getIframeTargetUrl() {
-            const path = window.__noveliaMockPath || location.pathname;
+            const path = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
             if (path.startsWith('/forum/')) {
                 const sub = path.substring('/forum'.length);
                 return 'https://forum.novelia.cc' + sub;
@@ -1078,11 +1110,13 @@
         }
 
         window.addEventListener('message', function(e) {
-            if (e.data && e.data.type === 'NOVELIA_TOGGLE_HOST_SIDEBAR') {
+            if (!e.data) return;
+
+            if (e.data.type === 'NOVELIA_TOGGLE_HOST_SIDEBAR') {
                 const drawerBtn = document.querySelector('header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button');
                 if (drawerBtn) drawerBtn.click();
             }
-            if (e.data && e.data.type === 'NOVELIA_NAVIGATE_HOST') {
+            if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
                 const targetPath = e.data.path || '/favorite/web';
                 if (location.pathname !== targetPath) {
                     history.pushState({}, '', targetPath);
@@ -1090,6 +1124,19 @@
                 }
                 handleForumPage();
                 updateSelectedSubmenuItem();
+            }
+            if (e.data.type === 'NOVELIA_URL_CHANGE') {
+                const innerPath = e.data.path || '/';
+                const targetHostPath = (innerPath === '/' || innerPath === '') ? '/forum' : '/forum' + (innerPath.startsWith('/') ? innerPath : '/' + innerPath);
+                const currentHostPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
+                if (currentHostPath !== targetHostPath && isForumPage()) {
+                    if (window.__noveliaMockPath) {
+                        window.__noveliaMockPath = targetHostPath;
+                    } else {
+                        history.replaceState({}, '', targetHostPath);
+                    }
+                    updateSelectedSubmenuItem();
+                }
             }
         });
 
@@ -1404,7 +1451,7 @@
 
                 iframe.addEventListener('load', () => {
                     sendThemeToIframe();
-                    const currentPath = window.__noveliaMockPath || location.pathname;
+                    const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                     const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
                     iframe.contentWindow.postMessage({
                         type: 'NOVELIA_NAVIGATE',
@@ -1416,7 +1463,7 @@
             } else {
                 const iframe = wrapper.querySelector('iframe');
                 if (iframe && iframe.contentWindow) {
-                    const currentPath = window.__noveliaMockPath || location.pathname;
+                    const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                     const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
                     iframe.contentWindow.postMessage({
                         type: 'NOVELIA_NAVIGATE',
@@ -1458,9 +1505,9 @@
                     try {
                         const parsed = new URL(href, location.origin);
                         if (parsed.hostname === location.hostname) {
-                            targetPath = parsed.pathname;
+                            targetPath = parsed.pathname + parsed.search + parsed.hash;
                         } else if (parsed.hostname === 'forum.novelia.cc') {
-                            targetPath = '/forum' + parsed.pathname;
+                            targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                         }
                     } catch (err) {
                         if (href.startsWith('/forum')) targetPath = href;
@@ -1484,9 +1531,9 @@
                 try {
                     const parsed = new URL(url, location.origin);
                     if (parsed.hostname === location.hostname) {
-                        targetPath = parsed.pathname;
+                        targetPath = parsed.pathname + parsed.search + parsed.hash;
                     } else if (parsed.hostname === 'forum.novelia.cc') {
-                        targetPath = '/forum' + parsed.pathname;
+                        targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                     }
                 } catch (err) {
                     if (url.startsWith('/forum')) targetPath = url;
