@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.6
+// @version      1.7.7
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -24,10 +24,10 @@
 
     const FEATURES = [
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
-        
+
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
-
+        
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
         { id: 'collapse_images', name: '預設摺疊圖片', default: true },
 
@@ -724,7 +724,12 @@
                         max-width: 100% !important;
                         margin-left: 0 !important;
                         padding-left: 0 !important;
-                        padding-bottom: 64px !important;
+                        padding-bottom: 32px !important;
+                    }
+                    @media (max-width: 768px) {
+                        main, body, #app {
+                            padding-bottom: 96px !important;
+                        }
                     }
                 `;
                 if (typeof GM_addStyle === 'function') {
@@ -865,11 +870,9 @@
 
                 if (e.data.type === 'NOVELIA_THEME_CHANGE') {
                     const isDark = !!e.data.isDark;
-
-                    const wasDark = document.documentElement.classList.contains('dark') ||
-                                    document.body.classList.contains('dark') ||
-                                    document.documentElement.getAttribute('data-theme') === 'dark' ||
-                                    !!document.querySelector('.__menu-dark-131ezvy-b, .n-config-provider--dark');
+                    const forumIsDarkBefore = document.documentElement.classList.contains('dark') ||
+                                            document.body.classList.contains('dark') ||
+                                            document.documentElement.getAttribute('data-theme') === 'dark';
 
                     if (isDark) {
                         document.documentElement.classList.add('dark');
@@ -884,7 +887,7 @@
                     const themeBtn = document.querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
                     if (themeBtn) {
                         const btnText = ((themeBtn.textContent || '') + ' ' + (themeBtn.getAttribute('aria-label') || '') + ' ' + (themeBtn.getAttribute('title') || '')).toLowerCase();
-                        const isCurrentlyDarkInForum = wasDark || btnText.includes('浅色') || btnText.includes('淺色') || btnText.includes('亮色') || btnText.includes('light');
+                        const isCurrentlyDarkInForum = forumIsDarkBefore || btnText.includes('浅色') || btnText.includes('淺色') || btnText.includes('亮色') || btnText.includes('light');
                         if (isDark !== isCurrentlyDarkInForum) {
                             themeBtn.click();
                         }
@@ -1114,10 +1117,39 @@
         }
 
         function isHostDarkTheme() {
-            return document.documentElement.classList.contains('dark') ||
-                   document.body.classList.contains('dark') ||
-                   document.documentElement.getAttribute('data-theme') === 'dark' ||
-                   !!document.querySelector('.__menu-dark-131ezvy-b, .n-config-provider--dark');
+            if (document.documentElement.classList.contains('dark') ||
+                document.body.classList.contains('dark') ||
+                document.documentElement.getAttribute('data-theme') === 'dark' ||
+                !!document.querySelector('.n-config-provider--dark')) {
+                return true;
+            }
+
+            if (document.documentElement.classList.contains('light') ||
+                document.body.classList.contains('light') ||
+                document.documentElement.getAttribute('data-theme') === 'light') {
+                return false;
+            }
+
+            try {
+                const targets = [document.body, document.documentElement, document.getElementById('app'), document.querySelector('.n-layout'), document.querySelector('.n-config-provider')].filter(Boolean);
+                for (const el of targets) {
+                    const bg = window.getComputedStyle(el).backgroundColor;
+                    const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                    if (match) {
+                        const r = parseInt(match[1], 10);
+                        const g = parseInt(match[2], 10);
+                        const b = parseInt(match[3], 10);
+                        const isTransparent = bg.includes('rgba(') && bg.endsWith(', 0)');
+                        if (!isTransparent) {
+                            const luminance = (r * 299 + g * 587 + b * 114) / 1000;
+                            if (luminance < 128) return true;
+                            if (luminance >= 128) return false;
+                        }
+                    }
+                }
+            } catch (e) {}
+
+            return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         }
 
         function sendThemeToIframe() {
@@ -1133,22 +1165,31 @@
         function observeThemeChange() {
             const observer = new MutationObserver(() => {
                 sendThemeToIframe();
+                if (typeof queueMicrotask === 'function') queueMicrotask(sendThemeToIframe);
+                if (typeof requestAnimationFrame === 'function') requestAnimationFrame(sendThemeToIframe);
             });
+
             observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
             observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
 
+            if (document.head) {
+                observer.observe(document.head, { childList: true, subtree: true, attributes: true });
+            }
+
             const appEl = document.getElementById('app') || document.body;
-            observer.observe(appEl, { attributes: true, subtree: true, attributeFilter: ['class', 'style', 'data-theme'] });
+            observer.observe(appEl, { childList: true, subtree: true, attributes: true });
 
             window.addEventListener('click', (e) => {
-                const btn = e.target && e.target.closest && e.target.closest('button, [role="button"]');
+                const btn = e.target && e.target.closest && e.target.closest('button, [role="button"], a, .n-menu-item-content, .n-layout-sider, .n-layout-header, [class*="sider"], [class*="header"]');
                 if (btn) {
-                    const label = ((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || '') + ' ' + (btn.textContent || '') + ' ' + (btn.className || '')).toLowerCase();
-                    if (label.includes('主题') || label.includes('主題') || label.includes('theme') || label.includes('dark') || label.includes('light')) {
-                        setTimeout(sendThemeToIframe, 50);
-                        setTimeout(sendThemeToIframe, 200);
-                        setTimeout(sendThemeToIframe, 500);
-                    }
+                    sendThemeToIframe();
+                    if (typeof queueMicrotask === 'function') queueMicrotask(sendThemeToIframe);
+                    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(sendThemeToIframe);
+                    setTimeout(sendThemeToIframe, 0);
+                    setTimeout(sendThemeToIframe, 20);
+                    setTimeout(sendThemeToIframe, 80);
+                    setTimeout(sendThemeToIframe, 200);
+                    setTimeout(sendThemeToIframe, 500);
                 }
             }, true);
 
