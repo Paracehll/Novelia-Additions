@@ -151,19 +151,26 @@
             if (e.data.type === 'NOVELIA_THEME_CHANGE') {
                 const isDark = !!e.data.isDark;
 
+                const wasDark = document.documentElement.classList.contains('dark') ||
+                                document.body.classList.contains('dark') ||
+                                document.documentElement.getAttribute('data-theme') === 'dark' ||
+                                !!document.querySelector('.__menu-dark-131ezvy-b, .n-config-provider--dark');
+
                 if (isDark) {
                     document.documentElement.classList.add('dark');
                     document.body.classList.add('dark');
+                    document.documentElement.setAttribute('data-theme', 'dark');
                 } else {
                     document.documentElement.classList.remove('dark');
                     document.body.classList.remove('dark');
+                    document.documentElement.removeAttribute('data-theme');
                 }
 
-                const themeBtn = document.querySelector('button[aria-label*="主题"], button[title*="主题"]');
+                const themeBtn = document.querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
                 if (themeBtn) {
-                    const btnText = themeBtn.textContent || themeBtn.getAttribute('aria-label') || '';
-                    const isCurrentlyDark = btnText.includes('浅色') || document.documentElement.classList.contains('dark');
-                    if (isDark !== isCurrentlyDark) {
+                    const btnText = ((themeBtn.textContent || '') + ' ' + (themeBtn.getAttribute('aria-label') || '') + ' ' + (themeBtn.getAttribute('title') || '')).toLowerCase();
+                    const isCurrentlyDarkInForum = wasDark || btnText.includes('浅色') || btnText.includes('淺色') || btnText.includes('亮色') || btnText.includes('light');
+                    if (isDark !== isCurrentlyDarkInForum) {
                         themeBtn.click();
                     }
                 }
@@ -354,6 +361,7 @@
     function isHostDarkTheme() {
         return document.documentElement.classList.contains('dark') ||
                document.body.classList.contains('dark') ||
+               document.documentElement.getAttribute('data-theme') === 'dark' ||
                !!document.querySelector('.__menu-dark-131ezvy-b, .n-config-provider--dark');
     }
 
@@ -371,8 +379,32 @@
         const observer = new MutationObserver(() => {
             sendThemeToIframe();
         });
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
-        observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+        observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+
+        const appEl = document.getElementById('app') || document.body;
+        observer.observe(appEl, { attributes: true, subtree: true, attributeFilter: ['class', 'style', 'data-theme'] });
+
+        window.addEventListener('click', (e) => {
+            const btn = e.target && e.target.closest && e.target.closest('button, [role="button"]');
+            if (btn) {
+                const label = ((btn.getAttribute('aria-label') || '') + ' ' + (btn.getAttribute('title') || '') + ' ' + (btn.textContent || '') + ' ' + (btn.className || '')).toLowerCase();
+                if (label.includes('主题') || label.includes('主題') || label.includes('theme') || label.includes('dark') || label.includes('light')) {
+                    setTimeout(sendThemeToIframe, 50);
+                    setTimeout(sendThemeToIframe, 200);
+                    setTimeout(sendThemeToIframe, 500);
+                }
+            }
+        }, true);
+
+        try {
+            const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener('change', () => sendThemeToIframe());
+            } else if (mediaQuery.addListener) {
+                mediaQuery.addListener(() => sendThemeToIframe());
+            }
+        } catch (e) {}
     }
 
     function updateSelectedSubmenuItem() {
