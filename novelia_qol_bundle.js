@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.7
+// @version      1.7.8
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -706,10 +706,10 @@
                 const css = `
                     /* Hide ONLY forum left sidebar, PRESERVE forum top header/navbar */
                     aside,
-                    [class*="sidebar"],
+                    aside[class*="sidebar"],
                     .web-kit-sidebar,
-                    nav[aria-label="站点导航"],
-                    div[data-v-491796e2] {
+                    nav[aria-label="章節導航"],
+                    nav[aria-label="章节导航"] {
                         display: none !important;
                     }
                     /* Hide sidebar toggle button in forum header */
@@ -717,6 +717,13 @@
                     button[aria-label*="sidebar"],
                     button[aria-label*="侧边栏"] {
                         display: none !important;
+                    }
+                    /* Explicitly preserve top header & nav bar */
+                    header,
+                    nav[aria-label="站点导航"],
+                    nav[aria-label="站點導航"],
+                    .forum-header {
+                        display: flex !important;
                     }
                     /* Ensure main body takes full width and extends downward by 64px */
                     main, body, #app {
