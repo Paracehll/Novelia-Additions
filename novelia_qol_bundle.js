@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.10
+// @version      1.7.11
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1353,22 +1353,47 @@
                 return popover;
             }
 
+            function isSidebarMenuItem(a) {
+                if (!a) return false;
+
+                // Must NOT be in header, main content area, or breadcrumbs unless inside a mobile drawer
+                const drawer = a.closest('.n-drawer');
+                if (!drawer) {
+                    if (a.closest('header, .n-layout-header, main, .n-layout-content, .layout-content, .novel-page-content, #banner, .n-card, .n-grid, .n-breadcrumb, [aria-label*="Breadcrumb"], [aria-label*="面包屑"]')) {
+                        return false;
+                    }
+                }
+
+                // Must be inside a sidebar/menu container or have a sidebar menu item class
+                const menuItem = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]');
+                const sidebarContainer = a.closest('aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]');
+
+                return !!(menuItem || sidebarContainer);
+            }
+
             function findForumMenuItem() {
-                const anchors = Array.from(document.querySelectorAll('a[href]'));
-                for (const a of anchors) {
+                const sidebarContainers = 'aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]';
+                const menuItemSelector = '.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]';
+
+                const candidateAnchors = Array.from(document.querySelectorAll(`${sidebarContainers} a[href], ${menuItemSelector} a[href], a${menuItemSelector}`));
+                for (const a of candidateAnchors) {
+                    if (!isSidebarMenuItem(a)) continue;
                     if (isForumUrl(a.getAttribute('href') || a.href)) {
                         const item = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]') || a;
                         return { element: item, anchor: a, isWebKit: item.classList.contains('web-kit-sidebar-item') || !!item.closest('.web-kit-sidebar') };
                     }
                 }
-                const textAnchors = Array.from(document.querySelectorAll('aside a, nav a, .web-kit-sidebar a, .n-menu a'));
+
+                const textAnchors = Array.from(document.querySelectorAll(`${sidebarContainers} a, ${menuItemSelector} a, a${menuItemSelector}`));
                 for (const a of textAnchors) {
+                    if (!isSidebarMenuItem(a)) continue;
                     const text = a.textContent.trim();
                     if (text === '论坛' || text === '論壇') {
                         const item = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]') || a;
                         return { element: item, anchor: a, isWebKit: item.classList.contains('web-kit-sidebar-item') || !!item.closest('.web-kit-sidebar') };
                     }
                 }
+
                 return null;
             }
 
