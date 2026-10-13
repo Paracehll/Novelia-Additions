@@ -1052,6 +1052,9 @@
                     .novelia-forum-submenu .n-menu-item-content__arrow {
                         margin-left: auto !important;
                     }
+                    .sidebar-submenu .web-kit-sidebar-item {
+                        padding-left: 36px !important;
+                    }
 
                     /* Forum Collapsed Popover Menu */
                     .novelia-forum-dropdown-popover {
@@ -1438,7 +1441,9 @@
                     labelSpan.textContent = '论坛';
 
                     const arrowSvg = document.createElement('svg');
-                    arrowSvg.className = `size-4 flex-none transition-[transform,opacity] duration-150 ${isExpanded ? 'rotate-0' : '-rotate-90'} opacity-100`;
+                    arrowSvg.className = `size-4 flex-none transition-[transform,opacity] duration-150 opacity-100`;
+                    arrowSvg.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                    arrowSvg.style.transition = 'transform 0.2s ease';
                     arrowSvg.setAttribute('aria-hidden', 'true');
                     arrowSvg.setAttribute('viewBox', '0 0 24 24');
                     arrowSvg.innerHTML = `<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6l-6-6l1.41-1.41z" fill="currentColor"></path>`;
@@ -1449,7 +1454,7 @@
                     submenuContainer.appendChild(headerBtn);
 
                     const childrenDiv = document.createElement('div');
-                    childrenDiv.className = `sidebar-submenu ${isExpanded ? 'flex' : 'hidden'} flex-col gap-1 pl-9 mt-0.5`;
+                    childrenDiv.className = `sidebar-submenu ${isExpanded ? 'flex' : 'hidden'} flex-col gap-1 mt-0.5`;
 
                     subItems.forEach(item => {
                         const link = document.createElement('a');
@@ -1515,7 +1520,9 @@
                         localStorage.setItem('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
 
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-                        arrowSvg.className = `size-4 flex-none transition-[transform,opacity] duration-150 ${isExpanded ? 'rotate-0' : '-rotate-90'} opacity-100`;
+                        arrowSvg.className = `size-4 flex-none transition-[transform,opacity] duration-150 opacity-100`;
+                    arrowSvg.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                    arrowSvg.style.transition = 'transform 0.2s ease';
 
                         if (isExpanded) {
                             childrenDiv.classList.remove('hidden');
