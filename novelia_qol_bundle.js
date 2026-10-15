@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.7.11
+// @version      1.8.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -29,6 +29,7 @@
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
 
         { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
+        { id: 'comment_notify', name: '評論區更新排序', default: true },
 
         { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
 
@@ -2876,6 +2877,316 @@
             } else {
                 NovelCommentCollapse.init();
             }
+        }
+    };
+
+    // ==========================================
+    // 7. 評論區更新排序 (Modules.comment_notify)
+    // ==========================================
+    Modules.comment_notify = {
+        init: function() {
+            if (location.hostname !== 'n.novelia.cc' && location.hostname !== 'forum.novelia.cc') return;
+
+            let isUpdatingDom = false;
+            let lastUrl = location.href;
+
+            function isAllowedPage() {
+                const path = window.__noveliaMockPath || location.pathname;
+                const host = location.hostname;
+
+                if (host === 'n.novelia.cc' && /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(path)) {
+                    return true;
+                }
+
+                if (host === 'n.novelia.cc' && /^\/wenku\/[^\/]+\/?$/i.test(path)) {
+                    return true;
+                }
+
+                if ((host === 'n.novelia.cc' && /^\/forum\/p\/[^\/]+\/?$/i.test(path)) ||
+                    (host === 'forum.novelia.cc' && /^\/p\/[^\/]+\/?$/i.test(path))) {
+                    return true;
+                }
+
+                return false;
+            }
+
+            function parseTimeToSecondsAgo(text) {
+                if (!text) return Infinity;
+                const str = text.trim();
+                if (!str) return Infinity;
+
+                if (/^(刚刚|剛剛|just now)$/i.test(str)) return 0;
+
+                let m = str.match(/(\d+)\s*秒/);
+                if (m) return parseInt(m[1], 10);
+
+                m = str.match(/(\d+)\s*(?:分钟|分鐘|分)/);
+                if (m) return parseInt(m[1], 10) * 60;
+
+                m = str.match(/(\d+)\s*(?:小时|小時|時|时)/);
+                if (m) return parseInt(m[1], 10) * 3600;
+
+                m = str.match(/(\d+)\s*(?:天|日)/);
+                if (m) return parseInt(m[1], 10) * 86400;
+
+                m = str.match(/(\d+)\s*(?:个?月|個?月)/);
+                if (m) return parseInt(m[1], 10) * 2592000;
+
+                m = str.match(/(\d+)\s*年/);
+                if (m) return parseInt(m[1], 10) * 31536000;
+
+                const parsedDate = Date.parse(str);
+                if (!isNaN(parsedDate)) {
+                    return Math.max(0, (Date.now() - parsedDate) / 1000);
+                }
+
+                return Infinity;
+            }
+
+            function processNovelComments() {
+                const activeTab = document.querySelector('.n-tabs-tab--active, .n-tabs-tab[aria-selected="true"]');
+                const activeTabIsComment = activeTab && (activeTab.textContent.includes('评论') || activeTab.textContent.includes('評論'));
+
+                let pane = null;
+                const h2s = document.querySelectorAll('h2');
+                for (const h2 of h2s) {
+                    const text = h2.textContent.trim();
+                    if (text.startsWith('评论') || text.startsWith('評論')) {
+                        pane = h2.closest('.n-tab-pane') || h2.closest('div[role="none"]')?.parentElement || h2.parentElement?.parentElement;
+                        if (pane) break;
+                    }
+                }
+
+                if (!pane && !activeTabIsComment) return;
+                if (!pane) pane = document.querySelector('.n-tab-pane');
+                if (!pane) return;
+
+                const allHeaders = Array.from(pane.querySelectorAll('.n-flex')).filter(flex => {
+                    const hasB = flex.querySelector('b');
+                    if (!hasB) return false;
+                    const isReply = flex.closest('div[style*="margin-left: 32px"]');
+                    return !isReply;
+                });
+
+                if (allHeaders.length <= 1) return;
+
+                const commonParent = allHeaders[0].parentElement;
+                if (!commonParent) return;
+
+                const floors = [];
+                for (let i = 0; i < allHeaders.length; i++) {
+                    const headerFlex = allHeaders[i];
+                    if (headerFlex.parentElement !== commonParent) continue;
+
+                    const nodes = [headerFlex];
+                    let curr = headerFlex.nextElementSibling;
+                    while (curr) {
+                        if (curr.classList.contains('n-pagination') || curr.querySelector('.n-pagination')) {
+                            break;
+                        }
+                        if (allHeaders.includes(curr)) {
+                            break;
+                        }
+                        if (curr.classList.contains('n-divider')) {
+                            nodes.push(curr);
+                            break;
+                        }
+                        nodes.push(curr);
+                        curr = curr.nextElementSibling;
+                    }
+
+                    let minSeconds = Infinity;
+                    nodes.forEach(node => {
+                        const times = Array.from(node.querySelectorAll('time'));
+                        if (node.tagName === 'TIME') times.push(node);
+                        times.forEach(timeEl => {
+                            const sec = parseTimeToSecondsAgo(timeEl.textContent);
+                            if (sec < minSeconds) {
+                                minSeconds = sec;
+                            }
+                        });
+                    });
+
+                    floors.push({
+                        originalIndex: i,
+                        headerFlex,
+                        nodes,
+                        minSeconds
+                    });
+                }
+
+                if (floors.length <= 1) return;
+
+                const sortedFloors = [...floors].sort((a, b) => {
+                    if (a.minSeconds !== b.minSeconds) {
+                        return a.minSeconds - b.minSeconds;
+                    }
+                    return a.originalIndex - b.originalIndex;
+                });
+
+                const needsReorder = floors.some((f, idx) => f !== sortedFloors[idx]);
+                if (!needsReorder) return;
+
+                const lastFloor = floors[floors.length - 1];
+                const lastNodeOfLastFloor = lastFloor.nodes[lastFloor.nodes.length - 1];
+                const refNode = lastNodeOfLastFloor ? lastNodeOfLastFloor.nextElementSibling : null;
+
+                isUpdatingDom = true;
+                try {
+                    sortedFloors.forEach(floor => {
+                        floor.nodes.forEach(node => {
+                            if (refNode) {
+                                commonParent.insertBefore(node, refNode);
+                            } else {
+                                commonParent.appendChild(node);
+                            }
+                        });
+                    });
+                } finally {
+                    isUpdatingDom = false;
+                }
+            }
+
+            function processForumComments() {
+                const commentsEl = document.getElementById('comments') || document.querySelector('[id="comments"]');
+                if (!commentsEl) return;
+
+                const floorContainer = commentsEl.querySelector('.divide-y') || commentsEl.querySelector('.contents') || commentsEl;
+
+                const candidateFloors = Array.from(floorContainer.children).filter(child => {
+                    if (child.tagName === 'HEADER' || child.classList.contains('comments-title')) return false;
+                    return child.querySelector('article, time, .comment-card') !== null;
+                });
+
+                if (candidateFloors.length <= 1) return;
+
+                const floors = candidateFloors.map((el, i) => {
+                    let minSeconds = Infinity;
+                    const times = Array.from(el.querySelectorAll('time'));
+                    if (el.tagName === 'TIME') times.push(el);
+                    times.forEach(timeEl => {
+                        const sec = parseTimeToSecondsAgo(timeEl.textContent);
+                        if (sec < minSeconds) {
+                            minSeconds = sec;
+                        }
+                    });
+
+                    return {
+                        originalIndex: i,
+                        element: el,
+                        minSeconds
+                    };
+                });
+
+                if (floors.length <= 1) return;
+
+                const sortedFloors = [...floors].sort((a, b) => {
+                    if (a.minSeconds !== b.minSeconds) {
+                        return a.minSeconds - b.minSeconds;
+                    }
+                    return a.originalIndex - b.originalIndex;
+                });
+
+                const needsReorder = floors.some((f, idx) => f !== sortedFloors[idx]);
+                if (!needsReorder) return;
+
+                const lastFloor = floors[floors.length - 1];
+                const refNode = lastFloor.element.nextElementSibling;
+
+                isUpdatingDom = true;
+                try {
+                    sortedFloors.forEach(floor => {
+                        if (refNode) {
+                            floorContainer.insertBefore(floor.element, refNode);
+                        } else {
+                            floorContainer.appendChild(floor.element);
+                        }
+                    });
+                } finally {
+                    isUpdatingDom = false;
+                }
+            }
+
+            function runSort() {
+                if (isUpdatingDom) return;
+                if (!isAllowedPage()) return;
+
+                if (location.hostname.includes('forum.novelia.cc') || location.pathname.includes('/forum/p/')) {
+                    processForumComments();
+                } else {
+                    processNovelComments();
+                }
+            }
+
+            let scanTimer = null;
+            function scheduleSort() {
+                clearTimeout(scanTimer);
+                scanTimer = setTimeout(runSort, 150);
+            }
+
+            function setupSpaUrlObserver() {
+                const originalPushState = history.pushState;
+                const originalReplaceState = history.replaceState;
+
+                history.pushState = function(...args) {
+                    const res = originalPushState.apply(this, args);
+                    onUrlChange();
+                    return res;
+                };
+
+                history.replaceState = function(...args) {
+                    const res = originalReplaceState.apply(this, args);
+                    onUrlChange();
+                    return res;
+                };
+
+                window.addEventListener('popstate', onUrlChange);
+                window.addEventListener('hashchange', onUrlChange);
+                window.addEventListener('tm-locationchange', onUrlChange);
+
+                window.addEventListener('message', function(e) {
+                    if (e.data && (e.data.type === 'NOVELIA_URL_CHANGE' || e.data.type === 'NOVELIA_NAVIGATE')) {
+                        onUrlChange();
+                    }
+                });
+
+                window.addEventListener('click', (e) => {
+                    const tab = e.target.closest && e.target.closest('.n-tabs-tab, [class*="tab"]');
+                    if (tab) {
+                        scheduleSortWithRetries();
+                    }
+                }, true);
+
+                setInterval(() => {
+                    if (location.href !== lastUrl) {
+                        onUrlChange();
+                    }
+                }, 300);
+            }
+
+            function scheduleSortWithRetries() {
+                scheduleSort();
+                setTimeout(scheduleSort, 300);
+                setTimeout(scheduleSort, 600);
+                setTimeout(scheduleSort, 1200);
+            }
+
+            function onUrlChange() {
+                lastUrl = location.href;
+                if (isAllowedPage()) {
+                    scheduleSortWithRetries();
+                }
+            }
+
+            const observer = new MutationObserver(() => {
+                if (!isUpdatingDom && isAllowedPage()) scheduleSort();
+            });
+
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            setupSpaUrlObserver();
+
+            scheduleSortWithRetries();
         }
     };
 
