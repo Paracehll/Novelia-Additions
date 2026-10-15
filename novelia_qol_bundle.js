@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.8.0
+// @version      1.8.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1192,6 +1192,10 @@
                 const currentPath = window.__noveliaMockPath || location.pathname;
                 const isForum = isForumPage();
 
+                document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => {
+                    btn.setAttribute('href', getIframeTargetUrl());
+                });
+
                 if (isForum) {
                     document.querySelectorAll('.n-menu > .n-menu-item > .n-menu-item-content, .n-menu > .n-submenu > .n-menu-item > .n-menu-item-content').forEach(content => {
                         if (!content.closest('.novelia-forum-submenu')) {
@@ -1470,7 +1474,7 @@
                     actionsDiv.className = 'flex items-center gap-1.5 flex-none ml-auto';
 
                     const popoutBtn = document.createElement('a');
-                    popoutBtn.href = 'https://forum.novelia.cc/c/novel';
+                    popoutBtn.href = getIframeTargetUrl();
                     popoutBtn.target = '_self';
                     popoutBtn.dataset.noveliaPopout = '1';
                     popoutBtn.title = '前往論壇 (取代當前頁面)';
@@ -1481,7 +1485,7 @@
                     popoutBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        window.location.assign('https://forum.novelia.cc/c/novel');
+                        window.location.assign(getIframeTargetUrl());
                     }, true);
 
                     actionsDiv.appendChild(popoutBtn);
@@ -1604,7 +1608,7 @@
 
                     const titleHeader = `<div class="n-menu-item-content-header" role="none">论坛</div>`;
                     const popoutIcon = `
-                        <a href="https://forum.novelia.cc/c/novel" class="novelia-forum-popout-btn" title="前往論壇 (取代當前頁面)" style="margin-left: auto; margin-right: 6px; display: inline-flex; align-items: center; color: inherit; opacity: 0.7; padding: 2px;">
+                        <a href="${getIframeTargetUrl()}" class="novelia-forum-popout-btn" title="前往論壇 (取代當前頁面)" style="margin-left: auto; margin-right: 6px; display: inline-flex; align-items: center; color: inherit; opacity: 0.7; padding: 2px;" data-novelia-popout="1">
                             <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor;">
                                 <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z"></path>
                             </svg>
@@ -1624,7 +1628,7 @@
                     naivePopoutBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        window.location.href = 'https://forum.novelia.cc/c/novel';
+                        window.location.href = getIframeTargetUrl();
                     });
                 }
                     headerMenuItem.appendChild(contentDiv);
