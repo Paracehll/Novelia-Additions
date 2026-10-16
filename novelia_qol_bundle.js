@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.9.0
+// @version      2.0.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -22,6 +22,11 @@
 (function() {
     'use strict';
 
+    const DOMAINS = {
+        HOST: 'n.novelia.cc',
+        FORUM: 'forum.novelia.cc'
+    };
+
     const FEATURES = [
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
 
@@ -38,16 +43,201 @@
         // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
     ];
 
+    // Top-level central utilities
+    const Utils = {
+        gm: {
+            addStyle(css, id) {
+                if (id && document.getElementById(id)) return document.getElementById(id);
+                if (typeof GM_addStyle === 'function') {
+                    const style = GM_addStyle(css);
+                    if (id && style && style.id !== undefined) style.id = id;
+                    return style;
+                } else {
+                    const style = document.createElement('style');
+                    if (id) style.id = id;
+                    style.textContent = css;
+                    (document.head || document.documentElement).appendChild(style);
+                    return style;
+                }
+            },
+            getValue(key, defaultValue) {
+                if (typeof GM_getValue === 'function') return GM_getValue(key, defaultValue);
+                return defaultValue;
+            },
+            setValue(key, value) { if (typeof GM_setValue === 'function') GM_setValue(key, value) },
+            registerMenuCommand(label, fn) { if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, fn) },
+            setClipboard(text) {
+                if (typeof GM_setClipboard === 'function') {
+                    GM_setClipboard(text);
+                    return Promise.resolve(true);
+                } else if (navigator.clipboard) {
+                    return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+                }
+                return Promise.resolve(false);
+            }
+        },
+        storage: {
+            get(key, defaultValue = {}) {
+                try {
+                    const raw = localStorage.getItem(key);
+                    return raw !== null ? JSON.parse(raw) : defaultValue;
+                } catch (e) {
+                    return defaultValue;
+                }
+            },
+            set(key, value) {
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                    return true;
+                } catch (e) {
+                    console.error(`[Utils.storage] Failed to set ${key}:`, e);
+                    return false;
+                }
+            }
+        },
+        dom: {
+            isNoveliaOwnNode(node) {
+                if (!node) return false;
+                if (node.nodeType === Node.TEXT_NODE) return Utils.dom.isNoveliaOwnNode(node.parentElement);
+                if (node.nodeType !== Node.ELEMENT_NODE) return false;
+                if (typeof node.className === 'string' && /(^|\s)novelia-/.test(node.className)) return true;
+                return !!(node.closest && node.closest('[class*="novelia-"]'));
+            },
+            isSelfCausedMutation(mutation) {
+                if (Utils.dom.isNoveliaOwnNode(mutation.target)) return true;
+                const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+                return nodes.length > 0 && nodes.every((node) => Utils.dom.isNoveliaOwnNode(node));
+            }
+        },
+        route: {
+            getPath() { return window.__noveliaMockPath || location.pathname },
+            matchNovelPath(pathname) {
+                const pathMatch = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
+                if (pathMatch) return { source: pathMatch[1], id: pathMatch[2] };
+                const wenkuMatch = pathname.match(/^\/wenku\/([^\/?#]+)\/?$/i);
+                if (wenkuMatch) return { source: 'wenku', id: wenkuMatch[1] };
+                return null;
+            },
+            isForumPage() {
+                const path = Utils.route.getPath();
+                return path === '/forum' || path.startsWith('/forum/');
+            },
+            isForumUrl(href) {
+                if (!href) return false;
+                try {
+                    const parsed = new URL(href, location.origin);
+                    if (parsed.hostname === DOMAINS.FORUM) return true;
+                    if (parsed.hostname === location.hostname && (parsed.pathname === '/forum' || parsed.pathname.startsWith('/forum/'))) return true;
+                } catch (e) {
+                    if (new RegExp('^https?:\\/\\/' + DOMAINS.FORUM.replace('.', '\\.'), 'i').test(href)) return true;
+                    if (href === '/forum' || href.startsWith('/forum/')) return true;
+                }
+                return false;
+            },
+            isSharePage() {
+                const path = Utils.route.getPath();
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
+                if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(path)) return false;
+                return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite') || path.startsWith('/wenku') || path.startsWith('/search') || path.startsWith('/read-history');
+            },
+            isCommentCountPage() {
+                const path = Utils.route.getPath();
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
+                return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite') || path.startsWith('/wenku') || path.startsWith('/read-history');
+            },
+            isCommentNotifyPage() {
+                const path = Utils.route.getPath();
+                const host = location.hostname;
+                if (host === DOMAINS.HOST && /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(path)) return true;
+                if (host === DOMAINS.HOST && /^\/wenku\/[^\/]+\/?$/i.test(path)) return true;
+                if ((host === DOMAINS.HOST && /^\/forum\/p\/[^\/]+\/?$/i.test(path)) || (host === DOMAINS.FORUM && /^\/p\/[^\/]+\/?$/i.test(path))) return true;
+                return false;
+            }
+        },
+        time: {
+            parseToSecondsAgo(text) {
+                if (!text) return Infinity;
+                const str = text.trim();
+                if (!str) return Infinity;
+                if (/^(刚刚|剛剛|just now)$/i.test(str)) return 0;
+                const patterns = [
+                    { regex: /(\d+)\s*秒/, mult: 1 },
+                    { regex: /(\d+)\s*(?:分钟|分鐘|分)/, mult: 60 },
+                    { regex: /(\d+)\s*(?:小时|小時|時|时)/, mult: 3600 },
+                    { regex: /(\d+)\s*(?:天|日)/, mult: 86400 },
+                    { regex: /(\d+)\s*(?:个?月|個?月)/, mult: 2592000 },
+                    { regex: /(\d+)\s*年/, mult: 31536000 }
+                ];
+                for (const { regex, mult } of patterns) {
+                    const m = str.match(regex);
+                    if (m) return parseInt(m[1], 10) * mult;
+                }
+                const parsedDate = Date.parse(str);
+                return !isNaN(parsedDate) ? Math.max(0, (Date.now() - parsedDate) / 1000) : Infinity;
+            }
+        },
+        ui: {
+            createToastManager(className = 'novelia-toast') {
+                let toastEl = document.querySelector(`.${className}`);
+                let timer = null;
+                if (!toastEl) {
+                    toastEl = document.createElement('div');
+                    toastEl.className = className;
+                    document.body.appendChild(toastEl);
+                }
+                return {
+                    show(message, duration = 2200) {
+                        clearTimeout(timer);
+                        toastEl.textContent = message;
+                        toastEl.classList.add('show');
+                        timer = setTimeout(() => toastEl.classList.remove('show'), duration);
+                    }
+                };
+            }
+        },
+        hash: {
+            hashString(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    const char = str.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return Math.abs(hash).toString(36);
+            }
+        },
+        limiter: {
+            createConcurrencyLimiter(limit) {
+                let activeCount = 0;
+                const taskQueue = [];
+                const runNextTask = () => {
+                    if (activeCount >= limit || taskQueue.length === 0) return;
+                    activeCount++;
+                    const { task, resolve, reject } = taskQueue.shift();
+                    task().then(resolve, reject).finally(() => { activeCount--; runNextTask(); });
+                };
+                return (task) => new Promise((resolve, reject) => { taskQueue.push({ task, resolve, reject }); runNextTask(); });
+            }
+        },
+        svg: {
+            REFRESH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
+            BULK: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>',
+            CLEAR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
+            VIEW: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>',
+            CHEVRON: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path></svg>'
+        }
+    };
+
     const config = {};
 
     function initMenu() {
         FEATURES.forEach(feature => {
-            const enabled = GM_getValue(`feature_${feature.id}`, feature.default);
+            const enabled = Utils.gm.getValue(`feature_${feature.id}`, feature.default);
             config[feature.id] = enabled;
 
             const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
-            GM_registerMenuCommand(label, () => {
-                GM_setValue(`feature_${feature.id}`, !enabled);
+            Utils.gm.registerMenuCommand(label, () => {
+                Utils.gm.setValue(`feature_${feature.id}`, !enabled);
                 location.reload();
             });
         });
@@ -61,8 +251,8 @@
                 try {
                     console.log(`[Novelia Bundle] Initializing ${feature.name}...`);
                     Modules[feature.id].init();
-                } catch (error) {
-                    console.error(`[Novelia Bundle] Failed to initialize ${feature.name}:`, error);
+                } catch (error) { 
+                    console.error(`[Novelia Bundle] Failed to initialize ${feature.name}:`, error)
                 }
             }
         });
@@ -127,7 +317,6 @@
         `;
         document.head.appendChild(styleElement);
     }
-
     injectGlobalStyles();
 
     function setupRouterObserver() {
@@ -150,7 +339,6 @@
             window.dispatchEvent(new Event("tm-locationchange"));
         });
     }
-
     setupRouterObserver();
 
     // ==========================================
@@ -158,7 +346,7 @@
     // ==========================================
     Modules.comment_count = {
         init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
+            if (location.hostname !== DOMAINS.HOST) return;
 
             const PAGE_SIZE = 100;
             const CONCURRENCY_LIMIT = 3;
@@ -170,44 +358,18 @@
             const COUNT_REPLIES = true;
             const CACHE_REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
-            const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
-            const SVG_BULK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>';
+            const SVG_REFRESH = Utils.svg.REFRESH;
+            const SVG_BULK = Utils.svg.BULK;
 
-            const styleElement = document.createElement('style');
-            styleElement.textContent = `
-                .novelia-comment-badge, .novelia-h1-comment-badge {
-                  opacity: 0.85;
-                  white-space: nowrap;
-                }
-                .novelia-comment-badge {
-                  font-size: 12px;
-                  flex: 0 0 auto;
-                  margin-right: 8px;
-                }
-                .novelia-h1-comment-badge {
-                  font-size: 14px;
-                  margin-left: 8px;
-                }
-            `;
-            document.head.appendChild(styleElement);
+            Utils.gm.addStyle(`
+                .novelia-comment-badge, .novelia-h1-comment-badge { opacity: 0.85; white-space: nowrap; }
+                .novelia-comment-badge { font-size: 12px; flex: 0 0 auto; margin-right: 8px; }
+                .novelia-h1-comment-badge { font-size: 14px; margin-left: 8px; }
+            `);
 
-            function getFullStorage() {
-                try {
-                    const rawData = localStorage.getItem('novelia_comment_count');
-                    return rawData ? JSON.parse(rawData) : {};
-                } catch (error) {
-                    return {};
-                }
-            }
-
-            function saveFullStorage(data) {
-                try {
-                    localStorage.setItem('novelia_comment_count', JSON.stringify(data));
-                } catch (error) {
-                    console.error('[novelia-comments] localStorage 寫入失敗:', error);
-                }
-            }
-
+            function getFullStorage() { return Utils.storage.get('novelia_comment_count', {}) }
+            function saveFullStorage(data) { Utils.storage.set('novelia_comment_count', data) }
+            
             function getStoredEntry(source, id) {
                 const storage = getFullStorage();
                 return (storage[source] && storage[source][id]) || null;
@@ -242,7 +404,7 @@
             async function fetchCommentPage(site, page, pageSize = PAGE_SIZE) {
                 const p = Math.max(1, page);
                 const ps = Math.max(1, pageSize);
-                const url = `https://forum.novelia.cc/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
+                const url = `https://${DOMAINS.FORUM}/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
                 const response = await fetch(url, { credentials: 'same-origin' });
                 if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
                 return response.json();
@@ -327,40 +489,11 @@
                 return buildResultFromEntry(cached);
             }
 
-            function createConcurrencyLimiter(limit) {
-                let activeCount = 0;
-                const taskQueue = [];
-                const runNextTask = () => {
-                    if (activeCount >= limit || taskQueue.length === 0) return;
-                    activeCount++;
-                    const { task, resolve, reject } = taskQueue.shift();
-                    task().then(resolve, reject).finally(() => { activeCount--; runNextTask(); });
-                };
-                return (task) => new Promise((resolve, reject) => { taskQueue.push({ task, resolve, reject }); runNextTask(); });
-            }
-            const taskLimiter = createConcurrencyLimiter(CONCURRENCY_LIMIT);
-
-            function matchNovelPath(pathname) {
-                const pathMatch = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
-                if (pathMatch) return { source: pathMatch[1], id: pathMatch[2] };
-                const wenkuMatch = pathname.match(/^\/wenku\/([^\/?#]+)\/?$/i);
-                if (wenkuMatch) return { source: 'wenku', id: wenkuMatch[1] };
-                return null;
-            }
-
-            function isAllowedPage() {
-                const path = window.__noveliaMockPath || location.pathname;
-                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
-                return path === '/' ||
-                path.startsWith('/novel') ||
-                path.startsWith('/favorite') ||
-                path.startsWith('/wenku') ||
-                path.startsWith('/read-history');
-            }
+            const taskLimiter = Utils.limiter.createConcurrencyLimiter(CONCURRENCY_LIMIT);
 
             function parseNovelPath(anchorElement) {
                 try {
-                    return matchNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
+                    return Utils.route.matchNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
                 } catch (error) {
                     return null;
                 }
@@ -378,26 +511,12 @@
                 return wrapperElement;
             }
 
-            function createNewBadge(count, diff) {
-                const badgeElement = document.createElement('span');
-                badgeElement.className = 'novelia-comment-badge';
-                badgeElement.dataset.noveliaRenderedText = `${count}|${diff}`;
-
-                badgeElement.appendChild(document.createTextNode(`${COMMENT_ICON} ${count}`));
-                if (diff > 0) {
-                    const incrementSpan = document.createElement('span');
-                    incrementSpan.className = 'novelia-comment-diff';
-                    incrementSpan.style.color = INCREMENT_COLOR;
-                    incrementSpan.textContent = ` (+${diff})`;
-                    badgeElement.appendChild(incrementSpan);
-                }
-                return badgeElement;
-            }
-
-            function renderPlainBadge(targetElement, text, { isError = false } = {}) {
+            function renderBadge(targetElement, { count, diff, text, isError = false, force = false } = {}) {
                 const wrapperElement = ensureWrapper(targetElement);
                 let badgeElement = wrapperElement.querySelector(':scope > .novelia-comment-badge');
-                if (badgeElement && badgeElement.dataset.noveliaLocked === '1') return;
+
+                if (badgeElement && badgeElement.dataset.noveliaLocked === '1' && !force) return;
+
                 if (!badgeElement) {
                     badgeElement = document.createElement('span');
                     badgeElement.className = 'novelia-comment-badge';
@@ -405,37 +524,32 @@
                     if (shareButton) shareButton.after(badgeElement);
                     else wrapperElement.prepend(badgeElement);
                 }
-                badgeElement.textContent = text;
-                badgeElement.style.color = isError ? '#e06c75' : '';
-                delete badgeElement.dataset.noveliaRenderedText;
-            }
 
-            function renderCountBadge(targetElement, count, diff) {
-                const wrapperElement = ensureWrapper(targetElement);
-                const existingBadge = wrapperElement.querySelector(':scope > .novelia-comment-badge');
-                if (existingBadge && existingBadge.dataset.noveliaLocked === '1') return;
-                updateBadgeInWrapper(wrapperElement, count, diff);
-            }
+                if (text !== undefined) {
+                    badgeElement.textContent = text;
+                    badgeElement.style.color = isError ? '#e06c75' : '';
+                    delete badgeElement.dataset.noveliaRenderedText;
+                    return;
+                }
 
-            function forceRenderCountBadge(targetElement, count, diff) {
-                const wrapperElement = ensureWrapper(targetElement);
-                updateBadgeInWrapper(wrapperElement, count, diff);
-            }
-
-            function updateBadgeInWrapper(wrapperElement, count, diff) {
                 const key = `${count}|${diff}`;
-                const existingBadge = wrapperElement.querySelector(':scope > .novelia-comment-badge');
-                if (existingBadge && existingBadge.dataset.noveliaRenderedText === key) return;
+                if (badgeElement.dataset.noveliaRenderedText === key) return;
 
-                if (existingBadge) existingBadge.remove();
-
-                const newBadge = createNewBadge(count, diff);
-                newBadge.dataset.noveliaLocked = '1';
-
-                const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
-                if (shareButton) shareButton.after(newBadge);
-                else wrapperElement.prepend(newBadge);
+                badgeElement.dataset.noveliaRenderedText = key;
+                badgeElement.dataset.noveliaLocked = '1';
+                badgeElement.textContent = `${COMMENT_ICON} ${count}`;
+                if (diff > 0) {
+                    const incrementSpan = document.createElement('span');
+                    incrementSpan.className = 'novelia-comment-diff';
+                    incrementSpan.style.color = INCREMENT_COLOR;
+                    incrementSpan.textContent = ` (+${diff})`;
+                    badgeElement.appendChild(incrementSpan);
+                }
             }
+            function renderPlainBadge(targetElement, text, opts) { renderBadge(targetElement, { text, isError: opts?.isError })}
+            function renderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff })}
+            function forceRenderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff, force: true })}
+            function isAllowedPage() { return Utils.route.isCommentCountPage(); }
 
             function getListTarget(anchorElement) {
                 const flexParent = anchorElement.closest('.n-flex') || anchorElement.closest('.n-grid > div');
@@ -541,7 +655,7 @@
 
             function injectUpdateButtonsForCurrentNovel() {
                 if (!isAllowedPage()) return;
-                const novelInfo = matchNovelPath(location.pathname);
+                const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
                 if (!novelInfo) return;
                 const h1Elements = document.querySelectorAll('h1');
                 if (!h1Elements.length) return;
@@ -571,9 +685,12 @@
 
             function injectH2CommentCount() {
                 if (!isAllowedPage()) return;
-                const novelInfo = matchNovelPath(location.pathname);
+                const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
                 if (!novelInfo) return;
-                const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => h2.textContent.trim() === '评论');
+                const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => {
+                    const text = h2.textContent.trim();
+                    return text === '评论' || text === '評論' || text.startsWith('评论') || text.startsWith('評論');
+                });
                 if (!h2Elements.length) return;
                 const novelKey = `${novelInfo.source}/${novelInfo.id}`;
                 const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
@@ -654,24 +771,10 @@
                 scanTimeoutTimer = setTimeout(() => scanPage({ isInitial }), 200);
             }
 
-            function isNoveliaOwnNode(node) {
-                if (!node) return false;
-                if (node.nodeType === Node.TEXT_NODE) return isNoveliaOwnNode(node.parentElement);
-                if (node.nodeType !== Node.ELEMENT_NODE) return false;
-                if (typeof node.className === 'string' && /(^|\s)novelia-/.test(node.className)) return true;
-                return !!(node.closest && node.closest('[class*="novelia-"]'));
-            }
-
-            function isSelfCausedMutation(mutation) {
-                if (isNoveliaOwnNode(mutation.target)) return true;
-                const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
-                return nodes.length > 0 && nodes.every((node) => isNoveliaOwnNode(node));
-            }
-
             function observeDomChanges() {
                 const observer = new MutationObserver((mutations) => {
                     if (!isAllowedPage()) return;
-                    if (mutations.some((mutation) => mutation.addedNodes && mutation.addedNodes.length > 0 && !isSelfCausedMutation(mutation))) schedulePageScan({ isInitial: false });
+                    if (mutations.some((mutation) => mutation.addedNodes && mutation.addedNodes.length > 0 && !Utils.dom.isSelfCausedMutation(mutation))) schedulePageScan({ isInitial: false });
                 });
                 observer.observe(document.body, { childList: true, subtree: true });
             }
@@ -696,8 +799,8 @@
         init: function() {
             'use strict';
 
-            const IS_HOST = (location.hostname === 'n.novelia.cc');
-            const IS_IFRAME_CONTEXT = (location.hostname === 'forum.novelia.cc');
+            const IS_HOST = (location.hostname === DOMAINS.HOST);
+            const IS_IFRAME_CONTEXT = (location.hostname === DOMAINS.FORUM);
 
             // =========================================================
             // IFRAME CONTEXT (forum.novelia.cc)
@@ -706,8 +809,7 @@
                 if (window.top === window.self) return;
 
                 function injectIframeStyles() {
-                    if (document.getElementById('novelia-iframe-hide-sidebar-style')) return;
-                    const css = `
+                    Utils.gm.addStyle(`
                         /* Hide ONLY forum left sidebar, PRESERVE forum top header/navbar */
                         aside,
                         aside[class*="sidebar"],
@@ -743,15 +845,7 @@
                                 padding-bottom: 96px !important;
                             }
                         }
-                    `;
-                    if (typeof GM_addStyle === 'function') {
-                        GM_addStyle(css);
-                    } else {
-                        const style = document.createElement('style');
-                        style.id = 'novelia-iframe-hide-sidebar-style';
-                        style.textContent = css;
-                        (document.head || document.documentElement).appendChild(style);
-                    }
+                    `, 'novelia-iframe-hide-sidebar-style');
                 }
 
                 function injectMobileDrawerButton() {
@@ -765,22 +859,13 @@
                     btn.className = '__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type novelia-host-drawer-btn';
                     btn.type = 'button';
                     btn.style.cssText = 'margin: 0px 8px; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center;';
-                    btn.innerHTML = `
-                        <span class="n-button__content">
-                            <i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: 24px; display: inline-flex;">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-                                    <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path>
-                                </svg>
-                            </i>
-                        </span>
-                    `;
+                    btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: 24px; display: inline-flex;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path></svg></i></span>`;
 
                     btn.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*');
                     });
-
                     targetContainer.before(btn);
                 }
 
@@ -818,14 +903,11 @@
                 injectIframeStyles();
                 injectMobileDrawerButton();
 
-                const iframeObserver = new MutationObserver(() => {
-                    injectMobileDrawerButton();
-                });
+                const iframeObserver = new MutationObserver(() => { injectMobileDrawerButton() });
                 iframeObserver.observe(document.body, { childList: true, subtree: true });
 
                 window.addEventListener('message', function(e) {
                     if (!e.data) return;
-
                     if (e.data.type === 'NOVELIA_NAVIGATE') {
                         const targetPath = e.data.path || '/';
                         const currentPath = location.pathname + location.search + location.hash;
@@ -857,13 +939,10 @@
                         if (themeBtn) {
                             const btnText = ((themeBtn.textContent || '') + ' ' + (themeBtn.getAttribute('aria-label') || '') + ' ' + (themeBtn.getAttribute('title') || '')).toLowerCase();
                             const isCurrentlyDarkInForum = forumIsDarkBefore || btnText.includes('浅色') || btnText.includes('淺色') || btnText.includes('亮色') || btnText.includes('light');
-                            if (isDark !== isCurrentlyDarkInForum) {
-                                themeBtn.click();
-                            }
+                            if (isDark !== isCurrentlyDarkInForum) themeBtn.click();
                         }
                     }
                 });
-
                 return;
             }
 
@@ -876,37 +955,21 @@
             const originalOpen = window.open;
             let isUpdatingDom = false;
 
-            function isForumPage() {
-                const path = window.__noveliaMockPath || location.pathname;
-                return path === '/forum' || path.startsWith('/forum/');
-            }
+            function isForumPage() { return Utils.route.isForumPage() }
 
             function getIframeTargetUrl() {
                 const path = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                 if (path.startsWith('/forum/')) {
                     const sub = path.substring('/forum'.length);
-                    return 'https://forum.novelia.cc' + sub;
+                    return `https://${DOMAINS.FORUM}${sub}`;
                 }
-                return 'https://forum.novelia.cc/';
+                return `https://${DOMAINS.FORUM}/`;
             }
-
-            function isForumUrl(href) {
-                if (!href) return false;
-                try {
-                    const parsed = new URL(href, location.origin);
-                    if (parsed.hostname === 'forum.novelia.cc') return true;
-                    if (parsed.hostname === location.hostname && (parsed.pathname === '/forum' || parsed.pathname.startsWith('/forum/'))) return true;
-                } catch (e) {
-                    if (/^https?:\/\/forum\.novelia\.cc/i.test(href)) return true;
-                    if (href === '/forum' || href.startsWith('/forum/')) return true;
-                }
-                return false;
-            }
+            
+            function isForumUrl(href) { return Utils.route.isForumUrl(href) }
 
             function injectInlineStyles() {
-                if (document.getElementById('novelia-forum-inline-styles')) return;
-
-                const css = `
+                Utils.gm.addStyle(`
                     /* Hide host page navbar when on forum page */
                     html.novelia-forum-active header,
                     html.novelia-forum-active .n-layout-header,
@@ -1087,16 +1150,7 @@
                         height: 18px;
                         fill: currentColor;
                     }
-                `;
-
-                if (typeof GM_addStyle === 'function') {
-                    GM_addStyle(css);
-                } else {
-                    const style = document.createElement('style');
-                    style.id = 'novelia-forum-inline-styles';
-                    style.textContent = css;
-                    document.head.appendChild(style);
-                }
+                `, 'novelia-forum-inline-styles');
             }
 
             function isHostDarkTheme() {
@@ -1131,7 +1185,6 @@
                         }
                     }
                 } catch (e) {}
-
                 return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             }
 
@@ -1155,9 +1208,7 @@
                 observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
                 observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
 
-                if (document.head) {
-                    observer.observe(document.head, { childList: true, subtree: true, attributes: true });
-                }
+                if (document.head) observer.observe(document.head, { childList: true, subtree: true, attributes: true });
 
                 const appEl = document.getElementById('app') || document.body;
                 observer.observe(appEl, { childList: true, subtree: true, attributes: true });
@@ -1178,11 +1229,7 @@
 
                 try {
                     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-                    if (mediaQuery.addEventListener) {
-                        mediaQuery.addEventListener('change', () => sendThemeToIframe());
-                    } else if (mediaQuery.addListener) {
-                        mediaQuery.addListener(() => sendThemeToIframe());
-                    }
+                    if (mediaQuery.addEventListener) mediaQuery.addEventListener('change', () => sendThemeToIframe())
                 } catch (e) {}
             }
 
@@ -1190,9 +1237,7 @@
                 const currentPath = window.__noveliaMockPath || location.pathname;
                 const isForum = isForumPage();
 
-                document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => {
-                    btn.setAttribute('href', getIframeTargetUrl());
-                });
+                document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => { btn.setAttribute('href', getIframeTargetUrl()) });
 
                 if (isForum) {
                     document.querySelectorAll('.n-menu > .n-menu-item > .n-menu-item-content, .n-menu > .n-submenu > .n-menu-item > .n-menu-item-content').forEach(content => {
@@ -1227,11 +1272,8 @@
                                 target.removeAttribute('aria-current');
                             }
                         } else if (item.classList.contains('n-menu-item-content')) {
-                            if (isSelected) {
-                                item.classList.add('n-menu-item-content--selected');
-                            } else {
-                                item.classList.remove('n-menu-item-content--selected');
-                            }
+                            if (isSelected) item.classList.add('n-menu-item-content--selected');
+                            else item.classList.remove('n-menu-item-content--selected');
                         }
                     }
                 });
@@ -1239,7 +1281,6 @@
 
             window.addEventListener('message', function(e) {
                 if (!e.data) return;
-
                 if (e.data.type === 'NOVELIA_TOGGLE_HOST_SIDEBAR') {
                     const drawerBtn = document.querySelector('header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
                     if (drawerBtn) drawerBtn.click();
@@ -1258,11 +1299,9 @@
                     const targetHostPath = (innerPath === '/' || innerPath === '') ? '/forum' : '/forum' + (innerPath.startsWith('/') ? innerPath : '/' + innerPath);
                     const currentHostPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                     if (currentHostPath !== targetHostPath && isForumPage()) {
-                        if (window.__noveliaMockPath) {
-                            window.__noveliaMockPath = targetHostPath;
-                        } else {
-                            history.replaceState({}, '', targetHostPath);
-                        }
+                        if (window.__noveliaMockPath) window.__noveliaMockPath = targetHostPath;
+                        else history.replaceState({}, '', targetHostPath);
+
                         updateSelectedSubmenuItem();
                     }
                 }
@@ -1316,9 +1355,7 @@
                 const sider = document.querySelector('.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside');
                 if (sider && !sider.dataset.noveliaSiderObserverAttached) {
                     sider.dataset.noveliaSiderObserverAttached = '1';
-                    const observer = new MutationObserver(() => {
-                        syncSidebarCollapsedState();
-                    });
+                    const observer = new MutationObserver(() => { syncSidebarCollapsedState() });
                     observer.observe(sider, { attributes: true, attributeFilter: ['class', 'style', 'aria-expanded'] });
                 }
             }
@@ -1361,12 +1398,9 @@
 
                 // Must NOT be in header, main content area, or breadcrumbs unless inside a mobile drawer
                 const drawer = a.closest('.n-drawer');
-                if (!drawer) {
-                    if (a.closest('header, .n-layout-header, main, .n-layout-content, .layout-content, .novel-page-content, #banner, .n-card, .n-grid, .n-breadcrumb, [aria-label*="Breadcrumb"], [aria-label*="面包屑"]')) {
-                        return false;
-                    }
+                if (!drawer && a.closest('header, .n-layout-header, main, .n-layout-content, .layout-content, .novel-page-content, #banner, .n-card, .n-grid, .n-breadcrumb, [aria-label*="Breadcrumb"], [aria-label*="面包屑"]')) {
+                    return false;
                 }
-
                 // Must be inside a sidebar/menu container or have a sidebar menu item class
                 const menuItem = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]');
                 const sidebarContainer = a.closest('aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]');
@@ -1487,7 +1521,6 @@
                     }, true);
 
                     actionsDiv.appendChild(popoutBtn);
-
                     headerBtn.appendChild(iconSpan);
                     headerBtn.appendChild(labelSpan);
                     headerBtn.appendChild(actionsDiv);
@@ -1523,7 +1556,6 @@
                             handleForumPage();
                             updateSelectedSubmenuItem();
                         });
-
                         childrenDiv.appendChild(link);
                     });
 
@@ -1543,9 +1575,7 @@
                     headerBtn.addEventListener('mouseleave', () => {
                         if (isSidebarCollapsed()) {
                             hidePopoverTimer = setTimeout(() => {
-                                if (!popover.matches(':hover')) {
-                                    popover.style.display = 'none';
-                                }
+                                if (!popover.matches(':hover')) popover.style.display = 'none';
                             }, 150);
                         }
                     });
@@ -1553,14 +1583,12 @@
                     headerBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-
                         if (isSidebarCollapsed()) return;
 
                         isExpanded = !isExpanded;
                         localStorage.setItem('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
 
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-
 
                         if (isExpanded) {
                             childrenDiv.classList.remove('hidden');
@@ -1578,179 +1606,18 @@
                     } finally {
                         isUpdatingDom = false;
                     }
-                } else {
-                    // Create exact Naive UI submenu structure
-                    const submenuDiv = document.createElement('div');
-                    submenuDiv.className = 'n-submenu novelia-forum-submenu';
-                    submenuDiv.setAttribute('role', 'menu');
-                    submenuDiv.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-
-                    const headerMenuItem = document.createElement('div');
-                    headerMenuItem.className = 'n-menu-item';
-                    headerMenuItem.setAttribute('role', 'menuitem');
-
-                    const contentDiv = document.createElement('div');
-                    contentDiv.setAttribute('role', 'none');
-                    contentDiv.className = `n-menu-item-content ${isExpanded ? '' : 'n-menu-item-content--collapsed'}`;
-                    contentDiv.style.paddingLeft = isSidebarCollapsed() ? '21px' : '32px';
-                    contentDiv.style.cursor = 'pointer';
-
-                    const origIcon = menuItemDiv.querySelector('.n-menu-item-content__icon');
-                    const iconHtml = origIcon ? origIcon.outerHTML : `
-                        <div class="n-menu-item-content__icon" role="none" style="width: 22px; height: 22px; font-size: 22px; margin-right: 19px;">
-                            <i role="img" class="n-icon __icon-dark-131ezvy-d">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M15 4v7H5.17L4 12.17V4h11m1-2H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm5 4h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1z" fill="currentColor"></path></svg>
-                            </i>
-                        </div>
-                    `;
-
-                    const titleHeader = `<div class="n-menu-item-content-header" role="none">论坛</div>`;
-                    const popoutIcon = `
-                        <a href="${getIframeTargetUrl()}" class="novelia-forum-popout-btn" title="前往論壇 (取代當前頁面)" style="margin-left: auto; margin-right: 6px; display: inline-flex; align-items: center; color: inherit; opacity: 0.7; padding: 2px;" data-novelia-popout="1">
-                            <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor;">
-                                <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z"></path>
-                            </svg>
-                        </a>
-                    `;
-                    const arrowIcon = `
-                        <i class="n-base-icon n-menu-item-content__arrow" aria-hidden="true" style="transition: transform 0.2s ease; transform: ${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}">
-                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M3.20041 5.73966C3.48226 5.43613 3.95681 5.41856 4.26034 5.70041L8 9.22652L11.7397 5.70041C12.0432 5.41856 12.5177 5.43613 12.7996 5.73966C13.0815 6.0432 13.0639 6.51775 12.7603 6.7996L8.51034 10.7996C8.22258 11.0668 7.77743 11.0668 7.48967 10.7996L3.23966 6.7996C2.93613 6.51775 2.91856 6.0432 3.20041 5.73966Z" fill="currentColor"></path>
-                            </svg>
-                        </i>
-                    `;
-
-                    contentDiv.innerHTML = iconHtml + titleHeader + popoutIcon + arrowIcon;
-                const naivePopoutBtn = contentDiv.querySelector('.novelia-forum-popout-btn');
-                if (naivePopoutBtn) {
-                    naivePopoutBtn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.location.href = getIframeTargetUrl();
-                    });
-                }
-                    headerMenuItem.appendChild(contentDiv);
-                    submenuDiv.appendChild(headerMenuItem);
-
-                    const childrenDiv = document.createElement('div');
-                    childrenDiv.className = `n-submenu-children ${isExpanded ? 'expanded' : 'collapsed'}`;
-                    childrenDiv.setAttribute('role', 'menu');
-
-                    subItems.forEach(item => {
-                        const itemDiv = document.createElement('div');
-                        itemDiv.className = 'n-menu-item';
-                        itemDiv.setAttribute('role', 'menuitem');
-
-                        const itemContent = document.createElement('div');
-                        itemContent.setAttribute('role', 'none');
-                        itemContent.className = 'n-menu-item-content';
-                        itemContent.style.paddingLeft = '53px';
-
-                        const itemIcon = document.createElement('div');
-                        itemIcon.className = 'n-menu-item-content__icon';
-                        itemIcon.setAttribute('role', 'none');
-                        itemIcon.style.cssText = 'width: 22px; height: 22px; font-size: 22px; margin-right: 19px; display: inline-flex; align-items: center;';
-                        itemIcon.innerHTML = `<i role="img" class="n-icon __icon-dark-131ezvy-d">${item.icon}</i>`;
-
-                        const itemHeader = document.createElement('div');
-                        itemHeader.className = 'n-menu-item-content-header';
-                        itemHeader.setAttribute('role', 'none');
-
-                        const link = document.createElement('a');
-                        link.href = item.path;
-                        link.textContent = item.name;
-
-                        link.addEventListener('click', (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (location.pathname !== item.path) {
-                                history.pushState({}, '', item.path);
-                                window.dispatchEvent(new Event("tm-locationchange"));
-                            }
-                            handleForumPage();
-                            updateSelectedSubmenuItem();
-                        });
-
-                        itemHeader.appendChild(link);
-                        itemContent.appendChild(itemIcon);
-                        itemContent.appendChild(itemHeader);
-                        itemDiv.appendChild(itemContent);
-                        childrenDiv.appendChild(itemDiv);
-                    });
-
-                    submenuDiv.appendChild(childrenDiv);
-
-                    contentDiv.addEventListener('mouseenter', () => {
-                        syncSidebarCollapsedState();
-                        if (isSidebarCollapsed()) {
-                            clearTimeout(hidePopoverTimer);
-                            const rect = contentDiv.getBoundingClientRect();
-                            popover.style.top = `${rect.top}px`;
-                            popover.style.left = `${rect.right + 6}px`;
-                            popover.style.display = 'flex';
-                        }
-                    });
-
-                    contentDiv.addEventListener('mouseleave', () => {
-                        if (isSidebarCollapsed()) {
-                            hidePopoverTimer = setTimeout(() => {
-                                if (!popover.matches(':hover')) {
-                                    popover.style.display = 'none';
-                                }
-                            }, 150);
-                        }
-                    });
-
-                    contentDiv.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        if (isSidebarCollapsed()) return;
-
-                        isExpanded = !isExpanded;
-                        localStorage.setItem('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
-
-                        submenuDiv.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-                        const arrow = contentDiv.querySelector('.n-menu-item-content__arrow');
-                        if (arrow) arrow.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
-
-                        if (isExpanded) {
-                            childrenDiv.classList.remove('collapsed');
-                            childrenDiv.classList.add('expanded');
-                            contentDiv.classList.remove('n-menu-item-content--collapsed');
-                        } else {
-                            childrenDiv.classList.remove('expanded');
-                            childrenDiv.classList.add('collapsed');
-                            contentDiv.classList.add('n-menu-item-content--collapsed');
-                        }
-                    });
-
-                    isUpdatingDom = true;
-                    try {
-                        menuItemDiv.replaceWith(submenuDiv);
-                        updateSelectedSubmenuItem();
-                    } finally {
-                        isUpdatingDom = false;
-                    }
                 }
 
-                popover.addEventListener('mouseleave', () => {
-                    popover.style.display = 'none';
-                });
+                popover.addEventListener('mouseleave', () => { popover.style.display = 'none'});
 
-                popover.addEventListener('mouseenter', () => {
-                    clearTimeout(hidePopoverTimer);
-                });
+                popover.addEventListener('mouseenter', () => { clearTimeout(hidePopoverTimer) });
             }
 
             function handleForumPage() {
                 if (!isForumPage()) {
                     document.documentElement.classList.remove('novelia-forum-active');
                     document.body.classList.remove('novelia-forum-active');
-
-                    document.querySelectorAll('.novelia-forum-hide').forEach(el => {
-                        el.classList.remove('novelia-forum-hide');
-                    });
+                    document.querySelectorAll('.novelia-forum-hide').forEach(el => { el.classList.remove('novelia-forum-hide') });
 
                     const existing = document.getElementById('novelia-forum-inline-container');
                     if (existing) existing.remove();
@@ -1769,17 +1636,13 @@
                                         document.querySelector('.layout-content');
 
                 if (!scrollContainer) return;
-
                 if (!wrapper) {
                     wrapper = document.createElement('div');
                     wrapper.id = 'novelia-forum-inline-container';
 
                     const loader = document.createElement('div');
                     loader.className = 'novelia-forum-spinner-wrapper';
-                    loader.innerHTML = `
-                        <img src="https://n.novelia.cc/assets/mascot-DSVGgW05.webp" class="novelia-forum-mascot" alt="Loading..." />
-                        <span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>
-                    `;
+                    loader.innerHTML = `<img src="https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>`;
 
                     const iframe = document.createElement('iframe');
                     iframe.className = 'novelia-forum-iframe';
@@ -1797,7 +1660,6 @@
                             path: innerPath
                         }, '*');
                     });
-
                     wrapper.appendChild(loader);
                     wrapper.appendChild(iframe);
                 } else {
@@ -1805,28 +1667,20 @@
                     if (iframe && iframe.contentWindow) {
                         const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
-                        iframe.contentWindow.postMessage({
-                            type: 'NOVELIA_NAVIGATE',
-                            path: innerPath
-                        }, '*');
+                        iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
                     }
                 }
 
                 isUpdatingDom = true;
                 try {
                     Array.from(scrollContainer.children).forEach(child => {
-                        if (child !== wrapper) {
-                            child.classList.add('novelia-forum-hide');
-                        }
+                        if (child !== wrapper) child.classList.add('novelia-forum-hide');
                     });
+                    if (wrapper.parentElement !== scrollContainer) scrollContainer.appendChild(wrapper); 
 
-                    if (wrapper.parentElement !== scrollContainer) {
-                        scrollContainer.appendChild(wrapper);
-                    }
                 } finally {
                     isUpdatingDom = false;
                 }
-
                 sendThemeToIframe();
             }
 
@@ -1875,7 +1729,7 @@
                             const parsed = new URL(href, location.origin);
                             if (parsed.hostname === location.hostname) {
                                 targetPath = parsed.pathname + parsed.search + parsed.hash;
-                            } else if (parsed.hostname === 'forum.novelia.cc') {
+                            } else if (parsed.hostname === DOMAINS.FORUM) {
                                 targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                             }
                         } catch (err) {
@@ -1904,15 +1758,11 @@
                     let targetPath = '/forum';
                     try {
                         const parsed = new URL(url, location.origin);
-                        if (parsed.hostname === location.hostname) {
-                            targetPath = parsed.pathname + parsed.search + parsed.hash;
-                        } else if (parsed.hostname === 'forum.novelia.cc') {
-                            targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
-                        }
+                        if (parsed.hostname === location.hostname)          targetPath = parsed.pathname + parsed.search + parsed.hash;
+                        else if (parsed.hostname === DOMAINS.FORUM)         targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                     } catch (err) {
                         if (url.startsWith('/forum')) targetPath = url;
                     }
-
                     if (location.pathname !== targetPath) {
                         history.pushState({}, '', targetPath);
                         window.dispatchEvent(new Event("tm-locationchange"));
@@ -1940,9 +1790,7 @@
                     handleForumPage();
                 }
             });
-
             observer.observe(document.body, { childList: true, subtree: true });
-
             // Listen for sider toggle clicks
             window.addEventListener('click', (e) => {
                 if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button')) {
@@ -1953,7 +1801,6 @@
             }, true);
 
             observeThemeChange();
-
             // Initial check
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => {
@@ -1964,92 +1811,78 @@
                 transformForumSidebarMenu();
                 handleForumPage();
             }
-
         }
     };
 
-    // ==========================================
-// 2. 論壇搜尋增強 (Modules.forum_search)
-// ==========================================
-    Modules.forum_search = {
-        init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
-            if (window.top !== window.self) return;
-
-            function main() {}
-
-            main();
-        }
-    };
+    Modules.forum_search = { init: function() {} };
 
     // ==========================================
     // 3. 小說分享按鈕 (Modules.share_btn)
     // ==========================================
     Modules.share_btn = {
         init: function() {
-            if (location.hostname !== 'n.novelia.cc') return;
+            if (location.hostname !== DOMAINS.HOST) return;
 
             const CLEAR_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "q" };
             const VIEW_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "v" };
             const REFRESH_UI_KEY = { ctrl: false, alt: false, shift: true, key: "r" };
             const BUTTON_WIDTH = "36px";
-            const ALIGNMENT_TYPE = "center";
-            const SHOW_HEADER_BUTTONS_CONFIG = true;
+            const SHOW_HEADER_BTNS = true;
 
             const CACHE_CHANGE_EVENT_NAME = "novelia-cache-change",
                 COPY_BUTTON_CLASS = "novelia-copy-btn",
-                TOAST_NOTIFICATION_CLASS = "novelia-toast",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
                 HEADER_INJECTION_MARK = "noveliaHeaderInjected",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
-            const SVG_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>';
-            const SVG_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
-            const SVG_VIEW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+            const SVG_REFRESH = Utils.svg.REFRESH;
+            const SVG_CLEAR = Utils.svg.CLEAR;
+            const SVG_VIEW = Utils.svg.VIEW;
 
-            let linkCache = [],
-                toastNotificationTimer;
-
-            const styleElement = document.createElement("style");
-            styleElement.textContent = `
+            Utils.gm.addStyle(`
                 .${COPY_BUTTON_CLASS}{position:relative;overflow:hidden;margin-right:6px;padding:1px 0;width:${BUTTON_WIDTH};font-size:12px;cursor:pointer;background:transparent;border:1px solid #aaa;border-radius:4px;vertical-align:middle;opacity:.6;text-align:center;flex-shrink:0;line-height:1.4;transition:opacity .15s,background .15s,border-color .15s}
                 .${COPY_BUTTON_CLASS}:hover{opacity:1;background:#eee}
                 .${COPY_BUTTON_CLASS}.flashing::after{content:'';position:absolute;top:50%;left:50%;width:10px;height:10px;background:rgba(40,167,69,.4);border-radius:50%;transform:translate(-50%,-50%);animation:novelia-ripple .4s ease-out}
                 @keyframes novelia-ripple{0%{width:0;height:0;opacity:1}100%{width:120px;height:120px;opacity:0}}
-                .${TOAST_NOTIFICATION_CLASS}{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}
-                .${TOAST_NOTIFICATION_CLASS}.show{top:30px;opacity:1}
+                .novelia-toast{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}
+                .novelia-toast.show{top:30px;opacity:1}
                 .${LIST_WRAPPER_CLASS}{display:inline-flex;align-items:center;width:auto;flex-flow:row;margin-bottom:2px;}
                 .novelia-grid-wrapper{display:inline-flex;align-items:flex-start;width:100%}
-            `;
-            document.head.appendChild(styleElement);
+            `);
 
-            const toastElement = document.createElement("div");
-            toastElement.className = TOAST_NOTIFICATION_CLASS;
-            document.body.appendChild(toastElement);
+            const toast = Utils.ui.createToastManager('novelia-toast');
 
-            function showCopyToast(message, duration = 2200) {
-                clearTimeout(toastNotificationTimer);
-                toastElement.textContent = message;
-                toastElement.classList.add("show");
-                toastNotificationTimer = setTimeout(() => toastElement.classList.remove("show"), duration);
-            }
+            const LinkCache = {
+                items: [],
+                add(link) {
+                    if (!this.items.includes(link)) {
+                        this.items.push(link);
+                        this.dispatch();
+                        return true;
+                    }
+                    return false;
+                },
+                clear() {
+                    this.items = [];
+                    Utils.gm.setClipboard('');
+                    this.dispatch();
+                },
+                has(link) { return this.items.includes(link); },
+                dispatch() {
+                    document.dispatchEvent(new CustomEvent(CACHE_CHANGE_EVENT_NAME, { detail: { cache: [...this.items] } }));
+                }
+            };
 
             function writeToClipboard(text, buttonElement) {
-                if (typeof GM_setClipboard === "function") {
-                    GM_setClipboard(text);
-                    if (buttonElement) animateCopySuccess(buttonElement);
-                } else if (navigator.clipboard) {
-                    navigator.clipboard.writeText(text)
-                        .then(() => { if (buttonElement) animateCopySuccess(buttonElement); })
-                        .catch((error) => {
-                            console.error("[Novelia Share]", error);
-                            if (buttonElement) {
-                                buttonElement.textContent = "❌";
-                                setTimeout(() => { buttonElement.textContent = "📋"; }, 1550);
-                            }
-                        });
-                }
+                Utils.gm.setClipboard(text).then((success) => {
+                    if (success) {
+                        if (buttonElement) animateCopySuccess(buttonElement);
+                    } else if (buttonElement) {
+                        buttonElement.textContent = "❌";
+                        setTimeout(() => { buttonElement.textContent = "📋"; }, 1550);
+                    }
+                });
             }
 
             function animateCopySuccess(buttonElement) {
@@ -2064,46 +1897,21 @@
                 }, 1500);
             }
 
-            function dispatchCacheChangeEvent() {
-                document.dispatchEvent(new CustomEvent(CACHE_CHANGE_EVENT_NAME, { detail: { cache: [...linkCache] } }));
-            }
-
             function clearLinkCache() {
-                linkCache = [];
-                writeToClipboard("", null);
-                dispatchCacheChangeEvent();
-                showCopyToast("🧹 快取與剪貼簿已清空！");
+                LinkCache.clear();
+                toast.show("🧹 快取與剪貼簿已清空！");
             }
 
             function viewLinkCache() {
-                if (linkCache.length === 0) {
-                    showCopyToast("ℹ️ 當前快取中沒有任何連結。");
-                } else {
-                    showCopyToast(`📂 當前快取連結 (共 ${linkCache.length} 條)：\n${linkCache.join("\n")}`, 3500);
-                }
-            }
-
-            function isSharePage() {
-                const path = location.pathname;
-                // 黑名單: n.novelia.cc/novel/*/*/*
-                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
-                // 排除 /novel/source/id 格式的小說詳情頁
-                if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(path)) return false;
-
-                return path === '/' ||
-                       path.startsWith('/novel') ||
-                       path.startsWith('/favorite') ||
-                       path.startsWith('/wenku') ||
-                       path.startsWith('/search') ||
-                       path.startsWith('/read-history');
+                if (LinkCache.items.length === 0) toast.show("ℹ️ 當前快取中沒有任何連結。");
+                else toast.show(`📂 當前快取連結 (共 ${LinkCache.items.length} 條)：\n${LinkCache.items.join("\n")}`, 3500);
             }
 
             function triggerUIRefresh() {
                 removeStaleButtons(true);
-                // Ensure DOM has settled before re-scanning
                 setTimeout(() => {
                     performFullScan();
-                    showCopyToast("🔄 已重新偵測當前頁面並重新注入按鈕！");
+                    toast.show("🔄 已重新偵測當前頁面並重新注入按鈕！");
                 }, 200);
             }
 
@@ -2112,7 +1920,7 @@
                 buttonElement.className = COPY_BUTTON_CLASS;
                 buttonElement.title = "點擊累加複製：" + formattedLink;
                 buttonElement.textContent = "📋";
-                if (linkCache.includes(formattedLink)) buttonElement.style.display = "none";
+                if (LinkCache.has(formattedLink)) buttonElement.style.display = "none";
 
                 document.addEventListener(CACHE_CHANGE_EVENT_NAME, (event) => {
                     buttonElement.style.display = event.detail.cache.includes(formattedLink) ? "none" : "";
@@ -2124,39 +1932,30 @@
                     buttonElement.classList.remove("flashing");
                     void buttonElement.offsetWidth;
                     buttonElement.classList.add("flashing");
-                    if (linkCache.includes(formattedLink)) {
-                        showCopyToast("ℹ️ 此小說連結已在快取清單中！");
+                    if (LinkCache.has(formattedLink)) {
+                        toast.show("ℹ️ 此小說連結已在快取清單中！");
                         animateCopySuccess(buttonElement);
                     } else {
-                        linkCache.push(formattedLink);
-                        writeToClipboard(linkCache.join("\n"), buttonElement);
-                        setTimeout(dispatchCacheChangeEvent, 1500);
+                        LinkCache.add(formattedLink);
+                        writeToClipboard(LinkCache.items.join("\n"), buttonElement);
                     }
                 });
                 return buttonElement;
             }
 
             function injectLinkButtonsToItems(parentElement) {
-                if (!isSharePage()) return;
-                // For novel lists (Home, Search, Favorites)
+                if (!Utils.route.isSharePage()) return;
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
-                    if (itemElement.closest('.n-drawer')) return;
-                    if (itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
-
-                    // Find the main novel link.
+                    if (itemElement.closest('.n-drawer') || itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const anchorElement = itemElement.querySelector("a[href^='/novel/']");
                     if (!anchorElement) return;
-
-                    // Also find the Chinese title if it exists to include in the copy format
                     const textSpanElement = itemElement.querySelector("span.n-text");
                     const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
 
-                    const formattedLink = `[${titleText}](https://n.novelia.cc${linkHref})`;
+                    const formattedLink = `[${titleText}](https://${DOMAINS.HOST}${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
-
-                    // Create a row wrapper for the button and anchor to keep them together
                     let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}`);
                     if (!wrapper) {
                         wrapper = document.createElement('div');
@@ -2169,16 +1968,15 @@
                     }
                 });
 
-                // For Wenku grid
                 parentElement.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
-                    if (anchorElement.closest('.n-drawer')) return;
-                    if (anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
+                    if (anchorElement.closest('.n-drawer') || anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const textSpanElement = anchorElement.querySelector("span.n-text");
                     if (!textSpanElement) return;
                     const titleText = textSpanElement.textContent.trim();
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
-                    const formattedLink = `[${titleText}](https://n.novelia.cc${linkHref})`;
+
+                    const formattedLink = `[${titleText}](https://${DOMAINS.HOST}${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
 
                     const gridWrapperDiv = document.createElement("div");
@@ -2190,49 +1988,51 @@
             }
 
             function shouldDisplayHeaderButtons() {
-                if (SHOW_HEADER_BUTTONS_CONFIG === true) return true;
-                if (SHOW_HEADER_BUTTONS_CONFIG === false) return false;
-                return (navigator.maxTouchPoints > 0 || window.matchMedia("(pointer:coarse)").matches);
+                return (
+                    !0 === SHOW_HEADER_BTNS ||
+                    (!1 !== SHOW_HEADER_BTNS &&
+                        (navigator.maxTouchPoints > 0 || window.matchMedia("(pointer:coarse)").matches))
+                );
             }
 
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
-
-                const h1Element = document.querySelector("h1");
                 const existingButtons = document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`);
 
-                if (!isSharePage()) {
+                if (!Utils.route.isSharePage()) {
                     existingButtons.forEach(button => button.remove());
-                    if (h1Element) delete h1Element.dataset[HEADER_INJECTION_MARK];
+                    document.querySelectorAll("h1").forEach((h1) => delete h1.dataset[HEADER_INJECTION_MARK]);
                     return;
                 }
 
-                if (!h1Element || h1Element.closest('.n-drawer') || h1Element.dataset[HEADER_INJECTION_MARK]) return;
+                const h1Elements = document.querySelectorAll("h1");
+                if (!h1Elements.length) return;
 
-                // Double check if buttons already exist (manual check instead of just dataset)
-                if (h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;
+                h1Elements.forEach((h1Element) => {
+                    if (h1Element.closest('.n-drawer') || h1Element.dataset[HEADER_INJECTION_MARK] || h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;
 
-                h1Element.dataset[HEADER_INJECTION_MARK] = "1";
-                Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
+                    h1Element.dataset[HEADER_INJECTION_MARK] = "1";
+                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
 
-                const refreshBtn = document.createElement("button");
-                refreshBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                refreshBtn.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
-                refreshBtn.addEventListener("click", (event) => { event.preventDefault(); triggerUIRefresh(); });
+                    const refreshBtn = document.createElement("button");
+                    refreshBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                    refreshBtn.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
+                    refreshBtn.addEventListener("click", (e) => { e.preventDefault(); triggerUIRefresh(); });
 
-                const clearBtn = document.createElement("button");
-                clearBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                clearBtn.innerHTML = `${SVG_CLEAR}<span>清除快取</span>`;
-                clearBtn.addEventListener("click", (event) => { event.preventDefault(); clearLinkCache(); });
+                    const clearBtn = document.createElement("button");
+                    clearBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                    clearBtn.innerHTML = `${SVG_CLEAR}<span>清除快取</span>`;
+                    clearBtn.addEventListener("click", (e) => { e.preventDefault(); clearLinkCache(); });
 
-                const viewBtn = document.createElement("button");
-                viewBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                viewBtn.innerHTML = `${SVG_VIEW}<span>查看快取</span>`;
-                viewBtn.addEventListener("click", (event) => { event.preventDefault(); viewLinkCache(); });
+                    const viewBtn = document.createElement("button");
+                    viewBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
+                    viewBtn.innerHTML = `${SVG_VIEW}<span>查看快取</span>`;
+                    viewBtn.addEventListener("click", (e) => { e.preventDefault(); viewLinkCache(); });
 
-                h1Element.appendChild(refreshBtn);
-                h1Element.appendChild(clearBtn);
-                h1Element.appendChild(viewBtn);
+                    h1Element.appendChild(refreshBtn);
+                    h1Element.appendChild(clearBtn);
+                    h1Element.appendChild(viewBtn);
+                });
             }
 
             function checkKeyboardShortcut(event, shortcutConfig) {
@@ -2251,32 +2051,28 @@
             });
 
             function removeStaleButtons(skipHeaders = false) {
-                // Revert novel list item wrappers
                 document.querySelectorAll(`.${LIST_WRAPPER_CLASS}`).forEach((wrapper) => {
                     const anchor = wrapper.querySelector('a');
                     if (anchor) wrapper.replaceWith(anchor);
                     else wrapper.remove();
                 });
 
-                // Revert grid wrappers
                 document.querySelectorAll('.novelia-grid-wrapper').forEach((wrapper) => {
                     const originalText = wrapper.querySelector("span.n-text");
                     if (originalText) wrapper.replaceWith(originalText);
                     else wrapper.remove();
                 });
 
-                // Remove any leftover buttons just in case
                 document.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((button) => button.remove());
 
                 if (!skipHeaders) {
                     document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
-                    const h1Element = document.querySelector("h1");
-                    if (h1Element) delete h1Element.dataset[HEADER_INJECTION_MARK];
+                    document.querySelectorAll("h1").forEach((h1Element) => delete h1Element.dataset[HEADER_INJECTION_MARK]);
                 }
             }
 
             function performFullScan() {
-                if (!isSharePage()) {
+                if (!Utils.route.isSharePage()) {
                     removeStaleButtons();
                     return;
                 }
@@ -2286,17 +2082,11 @@
 
             function main() {
                 performFullScan();
-
-                window.addEventListener("tm-locationchange", () => {
-                    // Slight delay to allow DOM to update after SPA navigation
-                    setTimeout(performFullScan, 200);
-                });
+                window.addEventListener("tm-locationchange", () => { setTimeout(performFullScan, 200)});
 
                 const mutationObserver = new MutationObserver((mutations) => {
-                    if (!isSharePage()) {
-                        if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) {
-                            removeStaleButtons();
-                        }
+                    if (!Utils.route.isSharePage()) {
+                        if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) removeStaleButtons();
                         return;
                     }
 
@@ -2318,7 +2108,6 @@
                 });
                 mutationObserver.observe(document.body, { childList: true, subtree: true });
             }
-
             main();
         }
     };
@@ -2328,87 +2117,57 @@
     // ==========================================
     Modules.source_link = {
         init: function() {
-            if (location.hostname.includes('novelia.cc')) return;
+            if (location.hostname.includes(DOMAINS.HOST) || location.hostname.includes(DOMAINS.FORUM)) return;
             const currentHostName = location.hostname;
 
-            function processAnchor(anchorLink) {
-                if (anchorLink.dataset.noveliaSourceLinkProcessed) return;
-
-                const linkHref = anchorLink.href;
-                const linkText = anchorLink.textContent.trim();
-                let sourceSiteType;
-                let novelId = '';
-
-                if (linkHref.includes('n.novelia.cc')) return;
-
+            function parseSourceUrl(url, text) {
+                if (!url || url.includes(DOMAINS.HOST)) return null;
                 const syosetuRegex = /https?:\/\/(ncode|novel18)\.syosetu\.com\/([^/]+)/;
                 const hamelnRegex = /https?:\/\/syosetu\.org\/novel\/(\d+)/;
 
-                let match = linkHref.match(syosetuRegex);
-                if (match) {
-                    sourceSiteType = "syosetu";
-                    novelId = match[2];
-                } else if ((match = linkHref.match(hamelnRegex))) {
-                    sourceSiteType = "hameln";
-                    novelId = match[1];
-                } else {
-                    match = linkText.match(syosetuRegex);
-                    if (match) {
-                        sourceSiteType = "syosetu";
-                        novelId = match[2];
-                    } else if ((match = linkText.match(hamelnRegex))) {
-                        sourceSiteType = "hameln";
-                        novelId = match[1];
-                    } else {
-                        return;
-                    }
-                }
+                let match = url.match(syosetuRegex) || text.match(syosetuRegex);
+                if (match) return { siteType: 'syosetu', novelId: match[2] };
 
+                match = url.match(hamelnRegex) || text.match(hamelnRegex);
+                if (match) return { siteType: 'hameln', novelId: match[1] };
+
+                return null;
+            }
+
+            function processAnchor(anchorLink) {
+                if (anchorLink.dataset.noveliaSourceLinkProcessed) return;
+                const parsed = parseSourceUrl(anchorLink.href, anchorLink.textContent.trim());
+                if (!parsed) return;
                 anchorLink.dataset.noveliaSourceLinkProcessed = "1";
 
-                const jumpButton = document.createElement('button');
-                jumpButton.textContent = '↗';
-                jumpButton.style.marginLeft = '6px';
-                jumpButton.style.border = 'none';
-                jumpButton.style.background = 'none';
-                jumpButton.style.cursor = 'pointer';
-                jumpButton.style.fontSize = '14px';
-                jumpButton.style.color = '#007BFF';
-
-                jumpButton.addEventListener('click', event => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    window.open(`https://n.novelia.cc/novel/${sourceSiteType}/${novelId}`, '_blank');
+                const jumpBtn = document.createElement('button');
+                jumpBtn.textContent = '↗';
+                jumpBtn.style.cssText = 'margin-left:6px;border:none;background:none;cursor:pointer;font-size:14px;color:#007BFF;';
+                jumpBtn.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(`https://${DOMAINS.HOST}/novel/${parsed.siteType}/${parsed.novelId}`, '_blank');
                 });
 
-                if (currentHostName.includes("syosetu.com")) {
-                    anchorLink.appendChild(jumpButton);
-                } else {
-                    anchorLink.insertAdjacentElement('afterend', jumpButton);
-                }
+                if (currentHostName.includes('syosetu.com')) anchorLink.appendChild(jumpBtn);
+                else anchorLink.insertAdjacentElement('afterend', jumpBtn);
             }
 
             function scanAllAnchors(rootElement = document) {
-                const anchors = rootElement.querySelectorAll('a');
-                anchors.forEach(processAnchor);
+                rootElement.querySelectorAll('a').forEach(processAnchor);
             }
-
             scanAllAnchors();
 
             const observer = new MutationObserver((mutations) => {
                 mutations.forEach(mutation => {
                     mutation.addedNodes.forEach(node => {
                         if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.tagName === 'A') {
-                                processAnchor(node);
-                            } else {
-                                scanAllAnchors(node);
-                            }
+                            if (node.tagName === 'A') processAnchor(node);
+                            else scanAllAnchors(node);
                         }
                     });
                 });
             });
-
             observer.observe(document.body, { childList: true, subtree: true });
         }
     };
@@ -2418,9 +2177,9 @@
     // ==========================================
     Modules.collapse_replies = {
         init: function() {
-            if (location.hostname !== 'n.novelia.cc' && location.hostname !== 'forum.novelia.cc') return;
+            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
 
-            GM_addStyle(`
+            Utils.gm.addStyle(`
                 .novelia-collapse-btn-wrapper {
                     margin-top: 8px;
                     display: flex;
@@ -2474,30 +2233,16 @@
                     display: flow-root;
                 }
             `);
-
             const LS_KEY = 'novelia_collapsed_comments';
-            let collapsedStore = {};
-            try {
-                collapsedStore = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-                if (typeof collapsedStore !== 'object' || collapsedStore === null) collapsedStore = {};
-            } catch (e) {
-                collapsedStore = {};
-            }
+            let collapsedStore = Utils.storage.get(LS_KEY, {});
 
-            function saveStore() {
-                localStorage.setItem(LS_KEY, JSON.stringify(collapsedStore));
-            }
+            function saveStore() { Utils.storage.set(LS_KEY, collapsedStore) }
 
-            const chevronSvg = `
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-                    <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path>
-                </svg>
-            `;
-
+            const chevronSvg = Utils.svg.CHEVRON;
             // Sub-module 1: Novel Comment Collapse
             const NovelCommentCollapse = {
                 getContext: function() {
-                    const path = window.__noveliaMockPath || location.pathname;
+                    const path = Utils.route.getPath();
                     const matchNovel = path.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
                     if (matchNovel) return { provider: matchNovel[1], id: matchNovel[2] };
 
@@ -2506,20 +2251,16 @@
 
                     return null;
                 },
-
                 isCollapsed: function(ctx, hash) {
                     if (!hash || !ctx) return false;
                     const list = collapsedStore[ctx.provider]?.[ctx.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-
                 setCollapsed: function(ctx, hash, collapsedState) {
                     if (!hash || !ctx) return;
                     if (collapsedState) {
                         if (!collapsedStore[ctx.provider]) collapsedStore[ctx.provider] = {};
-                        if (!Array.isArray(collapsedStore[ctx.provider][ctx.id])) {
-                            collapsedStore[ctx.provider][ctx.id] = [];
-                        }
+                        if (!Array.isArray(collapsedStore[ctx.provider][ctx.id])) { collapsedStore[ctx.provider][ctx.id] = []; }
                         const list = collapsedStore[ctx.provider][ctx.id];
                         if (!list.includes(hash)) list.push(hash);
                     } else {
@@ -2533,7 +2274,6 @@
                     }
                     saveStore();
                 },
-
                 getReplyCount: function(repliesArea) {
                     if (!repliesArea) return 0;
                     const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
@@ -2541,7 +2281,6 @@
                     if (repliesArea.matches('div[style*="margin-left: 32px"]')) return 1;
                     return repliesArea.querySelectorAll('.n-flex').length;
                 },
-
                 processThread: function(commentHeader) {
                     try {
                         const headerFlex = commentHeader.closest('.n-flex');
@@ -2620,13 +2359,7 @@
                         const author = commentHeader.innerText.trim();
                         const time = headerFlex.querySelector('time')?.innerText || "";
                         const rawId = author + time;
-                        let hash = 0;
-                        for (let i = 0; i < rawId.length; i++) {
-                            const char = rawId.charCodeAt(i);
-                            hash = ((hash << 5) - hash) + char;
-                            hash = hash & hash;
-                        }
-                        const commentId = Math.abs(hash).toString(36);
+                        const commentId = Utils.hash.hashString(rawId);
 
                         const ctx = NovelCommentCollapse.getContext();
                         const isCollapsedState = NovelCommentCollapse.isCollapsed(ctx, commentId);
@@ -2638,9 +2371,7 @@
                         btn.className = 'novelia-collapse-btn';
                         btn.innerHTML = `
                             <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
-                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>
-                        `;
-
+                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`;
                         btnWrapper.appendChild(btn);
                         card.after(btnWrapper);
 
@@ -2671,7 +2402,6 @@
                                 NovelCommentCollapse.setCollapsed(ctx, commentId, true);
                             }
                         });
-
                         btn.addEventListener('mouseup', () => btn.blur());
 
                         const nativeReplyBtn = Array.from(headerFlex.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
@@ -2684,11 +2414,7 @@
                         console.error('[Novelia Bundle] Error processing novel comment thread:', e);
                     }
                 },
-
-                scan: function() {
-                    document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread);
-                },
-
+                scan: function() { document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread) },
                 init: function() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
@@ -2701,28 +2427,23 @@
                     setTimeout(NovelCommentCollapse.scan, 500);
                 }
             };
-
             // Sub-module 2: Forum Comment Collapse
             const ForumCommentCollapse = {
                 getContext: function() {
-                    const path = window.__noveliaMockPath || location.pathname;
+                    const path = Utils.route.getPath();
                     const match = path.match(/^\/p\/([^\/?#]+)/i);
                     if (match) return { id: match[1] };
                     return null;
                 },
-
                 isCollapsed: function(ctx, hash) {
                     if (!hash || !ctx) return false;
                     const list = collapsedStore[ctx.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-
                 setCollapsed: function(ctx, hash, collapsedState) {
                     if (!hash || !ctx) return;
                     if (collapsedState) {
-                        if (!Array.isArray(collapsedStore[ctx.id])) {
-                            collapsedStore[ctx.id] = [];
-                        }
+                        if (!Array.isArray(collapsedStore[ctx.id])) collapsedStore[ctx.id] = []; 
                         const list = collapsedStore[ctx.id];
                         if (!list.includes(hash)) list.push(hash);
                     } else {
@@ -2735,14 +2456,11 @@
                     }
                     saveStore();
                 },
-
                 processSection: function(section) {
                     try {
                         const rootArticle = section.querySelector('article');
                         if (!rootArticle) return;
-
                         if (rootArticle.classList.contains('ml-6') || rootArticle.className.includes('ml-')) return;
-
                         if (rootArticle.dataset.noveliaCollapseProcessed) {
                             const btnWrapper = rootArticle.nextElementSibling;
                             if (!btnWrapper || !btnWrapper.classList.contains('novelia-collapse-btn-wrapper')) return;
@@ -2775,12 +2493,10 @@
                         while (repliesArea && !repliesArea.querySelector('article')) {
                             repliesArea = repliesArea.nextElementSibling;
                         }
-
                         if (!repliesArea) return;
 
                         const replyCount = repliesArea.querySelectorAll('article').length;
                         if (replyCount === 0) return;
-
                         rootArticle.dataset.noveliaCollapseProcessed = "true";
 
                         let commentId = rootArticle.id ? rootArticle.id.replace(/^comment-/, '') : '';
@@ -2788,18 +2504,10 @@
                             const author = rootArticle.querySelector('header span')?.innerText.trim() || "";
                             const time = rootArticle.querySelector('time')?.innerText.trim() || "";
                             const rawId = author + time;
-                            let hash = 0;
-                            for (let i = 0; i < rawId.length; i++) {
-                                const char = rawId.charCodeAt(i);
-                                hash = ((hash << 5) - hash) + char;
-                                hash = hash & hash;
-                            }
-                            commentId = Math.abs(hash).toString(36);
+                            commentId = Utils.hash.hashString(rawId);
                         }
-
                         const ctx = ForumCommentCollapse.getContext();
                         const isCollapsedState = ForumCommentCollapse.isCollapsed(ctx, commentId);
-
                         const btnWrapper = document.createElement('div');
                         btnWrapper.className = 'novelia-collapse-btn-wrapper';
                         btnWrapper.style.margin = '4px 0 8px 0';
@@ -2807,10 +2515,8 @@
                         const btn = document.createElement('button');
                         btn.className = 'novelia-collapse-btn';
                         btn.type = 'button';
-                        btn.innerHTML = `
-                            <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
-                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>
-                        `;
+                        btn.innerHTML = `<span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
+                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`;
 
                         btnWrapper.appendChild(btn);
                         rootArticle.after(btnWrapper);
@@ -2842,7 +2548,6 @@
                                 ForumCommentCollapse.setCollapsed(ctx, commentId, true);
                             }
                         });
-
                         btn.addEventListener('mouseup', () => btn.blur());
 
                         const nativeReplyBtn = Array.from(rootArticle.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
@@ -2855,30 +2560,23 @@
                         console.error('[Novelia Bundle] Error processing forum section:', e);
                     }
                 },
-
                 scan: function() {
                     document.querySelectorAll('section').forEach(ForumCommentCollapse.processSection);
                 },
-
                 init: function() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
                         clearTimeout(timer);
                         timer = setTimeout(ForumCommentCollapse.scan, 100);
                     });
-
                     observer.observe(document.body, { childList: true, subtree: true });
                     ForumCommentCollapse.scan();
                     setTimeout(ForumCommentCollapse.scan, 500);
                 }
             };
-
             // Route initialization based on domain
-            if (location.hostname.includes('forum.novelia.cc')) {
-                ForumCommentCollapse.init();
-            } else {
-                NovelCommentCollapse.init();
-            }
+            if (location.hostname.includes(DOMAINS.FORUM)) ForumCommentCollapse.init();
+            else NovelCommentCollapse.init();
         }
     };
 
@@ -2887,62 +2585,44 @@
     // ==========================================
     Modules.comment_notify = {
         init: function() {
-            if (location.hostname !== 'n.novelia.cc' && location.hostname !== 'forum.novelia.cc') return;
+            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
 
             let isUpdatingDom = false;
             let lastUrl = location.href;
 
-            function isAllowedPage() {
-                const path = window.__noveliaMockPath || location.pathname;
-                const host = location.hostname;
-
-                if (host === 'n.novelia.cc' && /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(path)) {
-                    return true;
-                }
-
-                if (host === 'n.novelia.cc' && /^\/wenku\/[^\/]+\/?$/i.test(path)) {
-                    return true;
-                }
-
-                if ((host === 'n.novelia.cc' && /^\/forum\/p\/[^\/]+\/?$/i.test(path)) ||
-                    (host === 'forum.novelia.cc' && /^\/p\/[^\/]+\/?$/i.test(path))) {
-                    return true;
-                }
-
-                return false;
+            function extractMinAge(nodes) {
+                let min = Infinity;
+                nodes.forEach(node => {
+                    const times = Array.from(node.querySelectorAll('time'));
+                    if (node.tagName === 'TIME') times.push(node);
+                    times.forEach(t => {
+                        const sec = Utils.time.parseToSecondsAgo(t.textContent);
+                        if (sec < min) min = sec;
+                    });
+                });
+                return min;
             }
 
-            function parseTimeToSecondsAgo(text) {
-                if (!text) return Infinity;
-                const str = text.trim();
-                if (!str) return Infinity;
+            function reorderFloorList(container, floors, refNode) {
+                if (floors.length <= 1) return;
+                const sorted = [...floors].sort((a, b) => {
+                    if (a.minSeconds !== b.minSeconds) return a.minSeconds - b.minSeconds;
+                    return a.originalIndex - b.originalIndex;
+                });
+                if (!floors.some((f, idx) => f !== sorted[idx])) return;
 
-                if (/^(刚刚|剛剛|just now)$/i.test(str)) return 0;
-
-                let m = str.match(/(\d+)\s*秒/);
-                if (m) return parseInt(m[1], 10);
-
-                m = str.match(/(\d+)\s*(?:分钟|分鐘|分)/);
-                if (m) return parseInt(m[1], 10) * 60;
-
-                m = str.match(/(\d+)\s*(?:小时|小時|時|时)/);
-                if (m) return parseInt(m[1], 10) * 3600;
-
-                m = str.match(/(\d+)\s*(?:天|日)/);
-                if (m) return parseInt(m[1], 10) * 86400;
-
-                m = str.match(/(\d+)\s*(?:个?月|個?月)/);
-                if (m) return parseInt(m[1], 10) * 2592000;
-
-                m = str.match(/(\d+)\s*年/);
-                if (m) return parseInt(m[1], 10) * 31536000;
-
-                const parsedDate = Date.parse(str);
-                if (!isNaN(parsedDate)) {
-                    return Math.max(0, (Date.now() - parsedDate) / 1000);
+                isUpdatingDom = true;
+                try {
+                    sorted.forEach(floor => {
+                        const nodes = floor.nodes || [floor.element];
+                        nodes.forEach(node => {
+                            if (refNode) container.insertBefore(node, refNode);
+                            else container.appendChild(node);
+                        });
+                    });
+                } finally {
+                    isUpdatingDom = false;
                 }
-
-                return Infinity;
             }
 
             function processNovelComments() {
@@ -2958,18 +2638,13 @@
                         if (pane) break;
                     }
                 }
-
                 if (!pane && !activeTabIsComment) return;
                 if (!pane) pane = document.querySelector('.n-tab-pane');
                 if (!pane) return;
 
                 const allHeaders = Array.from(pane.querySelectorAll('.n-flex')).filter(flex => {
-                    const hasB = flex.querySelector('b');
-                    if (!hasB) return false;
-                    const isReply = flex.closest('div[style*="margin-left: 32px"]');
-                    return !isReply;
+                    return flex.querySelector('b') && !flex.closest('div[style*="margin-left: 32px"]');
                 });
-
                 if (allHeaders.length <= 1) return;
 
                 const commonParent = allHeaders[0].parentElement;
@@ -2983,70 +2658,24 @@
                     const nodes = [headerFlex];
                     let curr = headerFlex.nextElementSibling;
                     while (curr) {
-                        if (curr.classList.contains('n-pagination') || curr.querySelector('.n-pagination')) {
-                            break;
-                        }
-                        if (allHeaders.includes(curr)) {
-                            break;
-                        }
-                        if (curr.classList.contains('n-divider')) {
-                            nodes.push(curr);
-                            break;
-                        }
+                        if (curr.classList.contains('n-pagination') || curr.querySelector('.n-pagination')) break;
+                        if (allHeaders.includes(curr)) break;
                         nodes.push(curr);
+                        if (curr.classList.contains('n-divider')) break;
                         curr = curr.nextElementSibling;
                     }
 
-                    let minSeconds = Infinity;
-                    nodes.forEach(node => {
-                        const times = Array.from(node.querySelectorAll('time'));
-                        if (node.tagName === 'TIME') times.push(node);
-                        times.forEach(timeEl => {
-                            const sec = parseTimeToSecondsAgo(timeEl.textContent);
-                            if (sec < minSeconds) {
-                                minSeconds = sec;
-                            }
-                        });
-                    });
-
                     floors.push({
                         originalIndex: i,
-                        headerFlex,
                         nodes,
-                        minSeconds
+                        minSeconds: extractMinAge(nodes)
                     });
                 }
 
                 if (floors.length <= 1) return;
-
-                const sortedFloors = [...floors].sort((a, b) => {
-                    if (a.minSeconds !== b.minSeconds) {
-                        return a.minSeconds - b.minSeconds;
-                    }
-                    return a.originalIndex - b.originalIndex;
-                });
-
-                const needsReorder = floors.some((f, idx) => f !== sortedFloors[idx]);
-                if (!needsReorder) return;
-
                 const lastFloor = floors[floors.length - 1];
-                const lastNodeOfLastFloor = lastFloor.nodes[lastFloor.nodes.length - 1];
-                const refNode = lastNodeOfLastFloor ? lastNodeOfLastFloor.nextElementSibling : null;
-
-                isUpdatingDom = true;
-                try {
-                    sortedFloors.forEach(floor => {
-                        floor.nodes.forEach(node => {
-                            if (refNode) {
-                                commonParent.insertBefore(node, refNode);
-                            } else {
-                                commonParent.appendChild(node);
-                            }
-                        });
-                    });
-                } finally {
-                    isUpdatingDom = false;
-                }
+                const lastNode = lastFloor.nodes[lastFloor.nodes.length - 1];
+                reorderFloorList(commonParent, floors, lastNode ? lastNode.nextElementSibling : null);
             }
 
             function processForumComments() {
@@ -3054,70 +2683,25 @@
                 if (!commentsEl) return;
 
                 const floorContainer = commentsEl.querySelector('.divide-y') || commentsEl.querySelector('.contents') || commentsEl;
-
                 const candidateFloors = Array.from(floorContainer.children).filter(child => {
                     if (child.tagName === 'HEADER' || child.classList.contains('comments-title')) return false;
                     return child.querySelector('article, time, .comment-card') !== null;
                 });
-
                 if (candidateFloors.length <= 1) return;
 
-                const floors = candidateFloors.map((el, i) => {
-                    let minSeconds = Infinity;
-                    const times = Array.from(el.querySelectorAll('time'));
-                    if (el.tagName === 'TIME') times.push(el);
-                    times.forEach(timeEl => {
-                        const sec = parseTimeToSecondsAgo(timeEl.textContent);
-                        if (sec < minSeconds) {
-                            minSeconds = sec;
-                        }
-                    });
+                const floors = candidateFloors.map((el, i) => ({
+                    originalIndex: i,
+                    element: el,
+                    minSeconds: extractMinAge([el])
+                }));
 
-                    return {
-                        originalIndex: i,
-                        element: el,
-                        minSeconds
-                    };
-                });
-
-                if (floors.length <= 1) return;
-
-                const sortedFloors = [...floors].sort((a, b) => {
-                    if (a.minSeconds !== b.minSeconds) {
-                        return a.minSeconds - b.minSeconds;
-                    }
-                    return a.originalIndex - b.originalIndex;
-                });
-
-                const needsReorder = floors.some((f, idx) => f !== sortedFloors[idx]);
-                if (!needsReorder) return;
-
-                const lastFloor = floors[floors.length - 1];
-                const refNode = lastFloor.element.nextElementSibling;
-
-                isUpdatingDom = true;
-                try {
-                    sortedFloors.forEach(floor => {
-                        if (refNode) {
-                            floorContainer.insertBefore(floor.element, refNode);
-                        } else {
-                            floorContainer.appendChild(floor.element);
-                        }
-                    });
-                } finally {
-                    isUpdatingDom = false;
-                }
+                reorderFloorList(floorContainer, floors, candidateFloors[candidateFloors.length - 1].nextElementSibling);
             }
 
             function runSort() {
-                if (isUpdatingDom) return;
-                if (!isAllowedPage()) return;
-
-                if (location.hostname.includes('forum.novelia.cc') || location.pathname.includes('/forum/p/')) {
-                    processForumComments();
-                } else {
-                    processNovelComments();
-                }
+                if (isUpdatingDom || !Utils.route.isCommentNotifyPage()) return;
+                if (location.hostname.includes(DOMAINS.FORUM) || location.pathname.includes('/forum/p/')) processForumComments();
+                else processNovelComments();
             }
 
             let scanTimer = null;
@@ -3127,17 +2711,17 @@
             }
 
             function setupSpaUrlObserver() {
-                const originalPushState = history.pushState;
-                const originalReplaceState = history.replaceState;
+                const origPush = history.pushState;
+                const origReplace = history.replaceState;
 
                 history.pushState = function(...args) {
-                    const res = originalPushState.apply(this, args);
+                    const res = origPush.apply(this, args);
                     onUrlChange();
                     return res;
                 };
 
                 history.replaceState = function(...args) {
-                    const res = originalReplaceState.apply(this, args);
+                    const res = origReplace.apply(this, args);
                     onUrlChange();
                     return res;
                 };
@@ -3145,25 +2729,14 @@
                 window.addEventListener('popstate', onUrlChange);
                 window.addEventListener('hashchange', onUrlChange);
                 window.addEventListener('tm-locationchange', onUrlChange);
-
-                window.addEventListener('message', function(e) {
-                    if (e.data && (e.data.type === 'NOVELIA_URL_CHANGE' || e.data.type === 'NOVELIA_NAVIGATE')) {
-                        onUrlChange();
-                    }
+                window.addEventListener('message', e => {
+                    if (e.data && (e.data.type === 'NOVELIA_URL_CHANGE' || e.data.type === 'NOVELIA_NAVIGATE')) onUrlChange();
                 });
-
-                window.addEventListener('click', (e) => {
-                    const tab = e.target.closest && e.target.closest('.n-tabs-tab, [class*="tab"]');
-                    if (tab) {
-                        scheduleSortWithRetries();
-                    }
+                window.addEventListener('click', e => {
+                    if (e.target.closest && e.target.closest('.n-tabs-tab, [class*="tab"]')) scheduleSortWithRetries();
                 }, true);
 
-                setInterval(() => {
-                    if (location.href !== lastUrl) {
-                        onUrlChange();
-                    }
-                }, 300);
+                setInterval(() => { if (location.href !== lastUrl) onUrlChange(); }, 300);
             }
 
             function scheduleSortWithRetries() {
@@ -3175,24 +2748,15 @@
 
             function onUrlChange() {
                 lastUrl = location.href;
-                if (isAllowedPage()) {
-                    scheduleSortWithRetries();
-                }
+                if (Utils.route.isCommentNotifyPage()) scheduleSortWithRetries();
             }
 
-            const observer = new MutationObserver(() => {
-                if (!isUpdatingDom && isAllowedPage()) scheduleSort();
-            });
-
+            const observer = new MutationObserver(() => { if (!isUpdatingDom && Utils.route.isCommentNotifyPage()) scheduleSort(); });
             observer.observe(document.body, { childList: true, subtree: true });
 
             setupSpaUrlObserver();
-
             scheduleSortWithRetries();
         }
     };
-
-
     runModules();
-
 })();
