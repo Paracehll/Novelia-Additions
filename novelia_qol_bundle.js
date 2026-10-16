@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      1.8.1
+// @version      1.9.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1001,18 +1001,16 @@
                         opacity: 0 !important;
                     }
 
-                    .novelia-forum-spinner {
-                        width: 36px;
-                        height: 36px;
-                        border: 3px solid rgba(99, 226, 183, 0.2);
-                        border-top-color: #63e2b7;
-                        border-radius: 50%;
-                        animation: novelia-spin 0.8s linear infinite;
+                    .novelia-forum-mascot {
+                        width: 128px;
+                        height: 128px;
+                        object-fit: contain;
+                        animation: novelia-float 2s ease-in-out infinite;
                     }
 
-                    @keyframes novelia-spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
+                    @keyframes novelia-float {
+                        0%, 100% { transform: translateY(0); }
+                        50% { transform: translateY(-16px); }
                     }
 
                     /* Preserve Naive UI sider collapse button & trigger */
@@ -1779,8 +1777,8 @@
                     const loader = document.createElement('div');
                     loader.className = 'novelia-forum-spinner-wrapper';
                     loader.innerHTML = `
-                        <div class="novelia-forum-spinner"></div>
-                        <span style="font-size: 13px; opacity: 0.8;">加载论坛中...</span>
+                        <img src="https://n.novelia.cc/assets/mascot-DSVGgW05.webp" class="novelia-forum-mascot" alt="Loading..." />
+                        <span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>
                     `;
 
                     const iframe = document.createElement('iframe');
