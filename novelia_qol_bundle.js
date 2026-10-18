@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      2.2.1
+// @version      2.2.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -400,136 +400,125 @@
             const COUNT_REPLIES = true;
             const CACHE_REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
-            const SVG_REFRESH = Utils.svg.REFRESH;
-            const SVG_BULK = Utils.svg.BULK;
-
             Utils.gm.addStyle(`
                 .novelia-comment-badge, .novelia-h1-comment-badge { opacity: 0.85; white-space: nowrap; }
                 .novelia-comment-badge { font-size: 12px; flex: 0 0 auto; margin-right: 8px; }
                 .novelia-h1-comment-badge { font-size: 14px; margin-left: 8px; }
             `);
 
-            function getFullStorage() { return Utils.storage.get('novelia_comment_count', {}) }
-            function saveFullStorage(data) { Utils.storage.set('novelia_comment_count', data) }
-            
-            function getStoredEntry(source, id) {
-                const storage = getFullStorage();
-                return (storage[source] && storage[source][id]) || null;
-            }
-
-            function saveCache(source, id, counts, previous) {
-                const { comment_count, all_comment_count } = counts;
-                const storage = getFullStorage();
-                if (!storage[source]) storage[source] = {};
-                storage[source][id] = {
-                    prev: previous ? (previous.now ?? previous.comment_count) : comment_count,
-                    prev_all: previous ? (previous.now_all ?? previous.all_comment_count) : all_comment_count,
-                    now: comment_count,
-                    now_all: all_comment_count,
-                    update: Date.now(),
-                };
-                saveFullStorage(storage);
-            }
-
-            function buildResultFromEntry(entry) {
-                if (!entry) return null;
-                const now = entry.now ?? entry.comment_count;
-                const nowAll = entry.now_all ?? entry.all_comment_count;
-                const prev = entry.prev ?? entry.prev_comment_count ?? now;
-                const prevAll = entry.prev_all ?? entry.prev_all_comment_count ?? nowAll;
-                const count = COUNT_REPLIES ? nowAll : now;
-                const prevCount = COUNT_REPLIES ? prevAll : prev;
-                const diff = Math.max(0, (count ?? 0) - (prevCount ?? 0));
-                return { count, diff, entry };
-            }
-
-            async function fetchCommentPage(site, page, pageSize = PAGE_SIZE) {
-                const p = Math.max(1, page);
-                const ps = Math.max(1, pageSize);
-                const url = `https://${DOMAINS.FORUM}/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
-                const response = await fetch(url, { credentials: 'same-origin' });
-                if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-                return response.json();
-            }
-
-            function countItemWithReplies(item) {
-                let total = 1;
-                const repliesArray = item ? item['replies'] : null;
-                if (Array.isArray(repliesArray) && repliesArray.length > 0) {
-                    for (const reply of repliesArray) total += countItemWithReplies(reply);
-                } else if (item && typeof item['replyCount'] === 'number') {
-                    total += item['replyCount'];
+            const CommentService = {
+                getFullStorage() { return Utils.storage.get('novelia_comment_count', {}); },
+                saveFullStorage(data) { Utils.storage.set('novelia_comment_count', data); },
+                getStoredEntry(source, id) {
+                    const storage = this.getFullStorage();
+                    return (storage[source] && storage[source][id]) || null;
+                },
+                saveCache(source, id, counts, previous) {
+                    const { comment_count, all_comment_count } = counts;
+                    const storage = this.getFullStorage();
+                    if (!storage[source]) storage[source] = {};
+                    storage[source][id] = {
+                        prev: previous ? (previous.now ?? previous.comment_count) : comment_count,
+                        prev_all: previous ? (previous.now_all ?? previous.all_comment_count) : all_comment_count,
+                        now: comment_count,
+                        now_all: all_comment_count,
+                        update: Date.now(),
+                    };
+                    this.saveFullStorage(storage);
+                },
+                buildResultFromEntry(entry) {
+                    if (!entry) return null;
+                    const now = entry.now ?? entry.comment_count;
+                    const nowAll = entry.now_all ?? entry.all_comment_count;
+                    const prev = entry.prev ?? entry.prev_comment_count ?? now;
+                    const prevAll = entry.prev_all ?? entry.prev_all_comment_count ?? nowAll;
+                    const count = COUNT_REPLIES ? nowAll : now;
+                    const prevCount = COUNT_REPLIES ? prevAll : prev;
+                    const diff = Math.max(0, (count ?? 0) - (prevCount ?? 0));
+                    return { count, diff, entry };
+                },
+                async fetchCommentPage(site, page, pageSize = PAGE_SIZE) {
+                    const p = Math.max(1, page);
+                    const ps = Math.max(1, pageSize);
+                    const url = `https://${DOMAINS.FORUM}/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
+                    const response = await fetch(url, { credentials: 'same-origin' });
+                    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+                    return response.json();
+                },
+                countItemWithReplies(item) {
+                    let total = 1;
+                    const repliesArray = item ? item['replies'] : null;
+                    if (Array.isArray(repliesArray) && repliesArray.length > 0) {
+                        for (const reply of repliesArray) total += this.countItemWithReplies(reply);
+                    } else if (item && typeof item['replyCount'] === 'number') {
+                        total += item['replyCount'];
+                    }
+                    return total;
+                },
+                async fetchAllPagesForReplies(site, totalPages, alreadyFetched) {
+                    const results = new Array(totalPages).fill(null);
+                    results[0] = alreadyFetched[0];
+                    if (alreadyFetched.length > 1) results[totalPages - 1] = alreadyFetched[1];
+                    const missingPages = [];
+                    for (let index = 0; index < totalPages; index++) if (!results[index]) missingPages.push(index);
+                    const pageLimiter = Utils.limiter.createConcurrencyLimiter(PAGE_FETCH_CONCURRENCY);
+                    await Promise.all(missingPages.map((pageIndex) => pageLimiter(async () => { results[pageIndex] = await this.fetchCommentPage(site, pageIndex + 1); })));
+                    return results;
+                },
+                async fetchCounts(source, id) {
+                    const site = source === 'wenku' ? `wenku-${id}` : `web-${source}-${id}`;
+                    const firstPage = await this.fetchCommentPage(site, 1, 1);
+                    if (typeof firstPage.total === 'number') {
+                        return { topCount: firstPage.total, allCount: firstPage.total };
+                    }
+                    const fullFirstPage = (PAGE_SIZE === 1) ? firstPage : await this.fetchCommentPage(site, 1, PAGE_SIZE);
+                    const totalPages = fullFirstPage.pageNumber || fullFirstPage.totalPages || 1;
+                    const items = fullFirstPage.items || fullFirstPage.data || [];
+                    let topCount;
+                    const alreadyFetched = [fullFirstPage];
+                    if (totalPages <= 1) {
+                        topCount = items.length;
+                    } else {
+                        const lastPage = await this.fetchCommentPage(site, totalPages, PAGE_SIZE);
+                        const lastItems = lastPage.items || lastPage.data || [];
+                        topCount = (totalPages - 1) * PAGE_SIZE + lastItems.length;
+                        alreadyFetched.push(lastPage);
+                    }
+                    if (!COUNT_REPLIES) return { topCount, allCount: topCount };
+                    const pages = totalPages <= 1 ? [fullFirstPage] : await this.fetchAllPagesForReplies(site, totalPages, alreadyFetched);
+                    let allCount = 0;
+                    for (const page of pages) if (page) for (const item of (page.items || page.data || [])) allCount += this.countItemWithReplies(item);
+                    return { topCount, allCount };
+                },
+                pendingKeys: new Set(),
+                fetchedOnceKeys: new Set(),
+                async updateCommentCount(source, id) {
+                    const uniqueKey = `${source}/${id}`;
+                    if (this.pendingKeys.has(uniqueKey)) return null;
+                    this.pendingKeys.add(uniqueKey);
+                    try {
+                        const previous = this.getStoredEntry(source, id);
+                        const { topCount, allCount } = await this.fetchCounts(source, id);
+                        this.saveCache(source, id, { comment_count: topCount, all_comment_count: allCount }, previous);
+                        return this.buildResultFromEntry(this.getStoredEntry(source, id));
+                    } finally {
+                        this.pendingKeys.delete(uniqueKey);
+                    }
+                },
+                async getCommentCount(source, id, { force = false, isInitial = false } = {}) {
+                    const uniqueKey = `${source}/${id}`;
+                    if (force) return this.updateCommentCount(source, id);
+                    if (this.fetchedOnceKeys.has(uniqueKey)) return null;
+                    this.fetchedOnceKeys.add(uniqueKey);
+                    const cached = this.getStoredEntry(source, id);
+                    if (!cached) return this.updateCommentCount(source, id);
+                    const updatedAt = cached.update ?? cached.updated_at ?? 0;
+                    const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
+                    const isNewInstall = !localStorage.getItem('novelia_comment_count');
+                    if ((isInitial || isNewInstall) && isStale) return this.updateCommentCount(source, id);
+                    return this.buildResultFromEntry(cached);
                 }
-                return total;
-            }
-
-            async function fetchAllPagesForReplies(site, totalPages, alreadyFetched) {
-                const results = new Array(totalPages).fill(null);
-                results[0] = alreadyFetched[0];
-                if (alreadyFetched.length > 1) results[totalPages - 1] = alreadyFetched[1];
-                const missingPages = [];
-                for (let index = 0; index < totalPages; index++) if (!results[index]) missingPages.push(index);
-                const pageLimiter = createConcurrencyLimiter(PAGE_FETCH_CONCURRENCY);
-                await Promise.all(missingPages.map((pageIndex) => pageLimiter(async () => { results[pageIndex] = await fetchCommentPage(site, pageIndex + 1); })));
-                return results;
-            }
-
-            async function fetchCounts(source, id) {
-                const site = source === 'wenku' ? `wenku-${id}` : `web-${source}-${id}`;
-                const firstPage = await fetchCommentPage(site, 1, 1);
-                if (typeof firstPage.total === 'number') {
-                    return { topCount: firstPage.total, allCount: firstPage.total };
-                }
-                const fullFirstPage = (PAGE_SIZE === 1) ? firstPage : await fetchCommentPage(site, 1, PAGE_SIZE);
-                const totalPages = fullFirstPage.pageNumber || fullFirstPage.totalPages || 1;
-                const items = fullFirstPage.items || fullFirstPage.data || [];
-                let topCount;
-                const alreadyFetched = [fullFirstPage];
-                if (totalPages <= 1) {
-                    topCount = items.length;
-                } else {
-                    const lastPage = await fetchCommentPage(site, totalPages, PAGE_SIZE);
-                    const lastItems = lastPage.items || lastPage.data || [];
-                    topCount = (totalPages - 1) * PAGE_SIZE + lastItems.length;
-                    alreadyFetched.push(lastPage);
-                }
-                if (!COUNT_REPLIES) return { topCount, allCount: topCount };
-                const pages = totalPages <= 1 ? [fullFirstPage] : await fetchAllPagesForReplies(site, totalPages, alreadyFetched);
-                let allCount = 0;
-                for (const page of pages) if (page) for (const item of (page.items || page.data || [])) allCount += countItemWithReplies(item);
-                return { topCount, allCount };
-            }
-
-            const pendingKeys = new Set();
-            const fetchedOnceKeys = new Set();
-
-            async function updateCommentCount(source, id) {
-                const uniqueKey = `${source}/${id}`;
-                if (pendingKeys.has(uniqueKey)) return null;
-                pendingKeys.add(uniqueKey);
-                try {
-                    const previous = getStoredEntry(source, id);
-                    const { topCount, allCount } = await fetchCounts(source, id);
-                    saveCache(source, id, { comment_count: topCount, all_comment_count: allCount }, previous);
-                    return buildResultFromEntry(getStoredEntry(source, id));
-                } finally {
-                    pendingKeys.delete(uniqueKey);
-                }
-            }
-
-            async function getCommentCount(source, id, { force = false, isInitial = false } = {}) {
-                const uniqueKey = `${source}/${id}`;
-                if (force) return updateCommentCount(source, id);
-                if (fetchedOnceKeys.has(uniqueKey)) return null;
-                fetchedOnceKeys.add(uniqueKey);
-                const cached = getStoredEntry(source, id);
-                if (!cached) return updateCommentCount(source, id);
-                const updatedAt = cached.update ?? cached.updated_at ?? 0;
-                const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
-                const isNewInstall = !localStorage.getItem('novelia_comment_count');
-                if ((isInitial || isNewInstall) && isStale) return updateCommentCount(source, id);
-                return buildResultFromEntry(cached);
-            }
+            };
 
             const taskLimiter = Utils.limiter.createConcurrencyLimiter(CONCURRENCY_LIMIT);
 
@@ -588,9 +577,10 @@
                     badgeElement.appendChild(incrementSpan);
                 }
             }
-            function renderPlainBadge(targetElement, text, opts) { renderBadge(targetElement, { text, isError: opts?.isError })}
-            function renderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff })}
-            function forceRenderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff, force: true })}
+
+            function renderPlainBadge(targetElement, text, opts) { renderBadge(targetElement, { text, isError: opts?.isError }); }
+            function renderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff }); }
+            function forceRenderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff, force: true }); }
             function isAllowedPage() { return Utils.route.isCommentCountPage(); }
 
             function getListTarget(anchorElement) {
@@ -612,8 +602,8 @@
                     if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: [] });
                     const targetElement = getListTarget(anchorElement);
                     groupsMap.get(key).targets.push(targetElement);
-                    const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
-                    const result = buildResultFromEntry(storedEntry);
+                    const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
+                    const result = CommentService.buildResultFromEntry(storedEntry);
                     if (result) renderCountBadge(targetElement, result.count, result.diff);
                     else renderPlainBadge(targetElement, `${COMMENT_ICON} …`);
                 });
@@ -624,7 +614,7 @@
                 if (!isAllowedPage()) return;
                 await taskLimiter(async () => {
                     try {
-                        const result = await getCommentCount(novelGroup.source, novelGroup.id, { isInitial });
+                        const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { isInitial });
                         if (!result) return;
                         novelGroup.targets.forEach((targetElement) => renderCountBadge(targetElement, result.count, result.diff));
                     } catch (error) {
@@ -642,7 +632,7 @@
             }
 
             function renderH1Badge(badgeElement, entry) {
-                const result = buildResultFromEntry(entry);
+                const result = CommentService.buildResultFromEntry(entry);
                 const count = result ? result.count : '…';
                 const diff = result ? result.diff : 0;
                 const key = `${count}|${diff}`;
@@ -663,7 +653,7 @@
             function createUpdateButton(source, id, novelKey, badgeElement) {
                 const buttonElement = document.createElement('button');
                 buttonElement.className = 'novelia-bundle-btn novelia-update-button';
-                buttonElement.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
+                buttonElement.innerHTML = `${Utils.svg.REFRESH}<span>刷新</span>`;
                 buttonElement.dataset.noveliaNovelKey = novelKey;
                 buttonElement.title = '手動更新留言數';
                 buttonElement.addEventListener('click', async () => {
@@ -672,7 +662,7 @@
                     const originalContent = buttonElement.innerHTML;
                     buttonElement.innerHTML = `<span>⏳ 刷新中</span>`;
                     try {
-                        const result = await getCommentCount(source, id, { force: true });
+                        const result = await CommentService.getCommentCount(source, id, { force: true });
                         if (result) {
                             delete badgeElement.dataset.noveliaRenderedText;
                             renderH1Badge(badgeElement, result.entry);
@@ -702,7 +692,7 @@
                 const h1Elements = document.querySelectorAll('h1');
                 if (!h1Elements.length) return;
                 const novelKey = `${novelInfo.source}/${novelInfo.id}`;
-                const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
+                const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
                 h1Elements.forEach((h1Element) => {
                     if (h1Element.closest('.n-drawer')) return;
                     Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
@@ -735,7 +725,7 @@
                 });
                 if (!h2Elements.length) return;
                 const novelKey = `${novelInfo.source}/${novelInfo.id}`;
-                const storedEntry = getStoredEntry(novelInfo.source, novelInfo.id);
+                const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
                 h2Elements.forEach((h2Element) => {
                     if (h2Element.closest('.n-drawer')) return;
                     Object.assign(h2Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
@@ -751,7 +741,7 @@
             function createBulkUpdateButton() {
                 const buttonElement = document.createElement('button');
                 buttonElement.className = 'novelia-bundle-btn novelia-bulk-update-button';
-                buttonElement.innerHTML = `${SVG_BULK}<span>${UPDATE_BUTTON_LABEL}</span>`;
+                buttonElement.innerHTML = `${Utils.svg.BULK}<span>${UPDATE_BUTTON_LABEL}</span>`;
                 buttonElement.title = '手動更新本頁所有留言數';
                 buttonElement.addEventListener('click', async () => {
                     if (buttonElement.disabled) return;
@@ -770,7 +760,7 @@
                         });
                         await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
                             try {
-                                const result = await getCommentCount(novelGroup.source, novelGroup.id, { force: true });
+                                const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
                                 if (result) novelGroup.targets.forEach((targetElement) => forceRenderCountBadge(targetElement, result.count, result.diff));
                             } catch (error) {
                                 novelGroup.targets.forEach((targetElement) => renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
@@ -821,16 +811,12 @@
                 observer.observe(document.body, { childList: true, subtree: true });
             }
 
-            function main() {
-                scanPage({ isInitial: true });
-                observeDomChanges();
-                window.addEventListener("tm-locationchange", () => {
-                    schedulePageScan({ isInitial: false });
-                    setTimeout(() => scanPage({ isInitial: false }), 500);
-                });
-            }
-
-            main();
+            scanPage({ isInitial: true });
+            observeDomChanges();
+            window.addEventListener("tm-locationchange", () => {
+                schedulePageScan({ isInitial: false });
+                setTimeout(() => scanPage({ isInitial: false }), 500);
+            });
         }
     };
 
@@ -839,13 +825,11 @@
     // ==========================================
     Modules.forum_iframe = {
         init: function() {
-            'use strict';
-
             const IS_HOST = (location.hostname === DOMAINS.HOST);
             const IS_IFRAME_CONTEXT = (location.hostname === DOMAINS.FORUM);
 
             // =========================================================
-            // IFRAME CONTEXT (forum.novelia.cc)
+            // IFRAME CLIENT CONTEXT (forum.novelia.cc)
             // =========================================================
             if (IS_IFRAME_CONTEXT) {
                 if (window.top === window.self) return;
@@ -855,40 +839,22 @@
 
                 function injectIframeStyles() {
                     Utils.gm.addStyle(`
-                        /* Hide ONLY forum left sidebar, PRESERVE forum top header/navbar */
-                        aside,
-                        aside[class*="sidebar"],
-                        .web-kit-sidebar,
-                        nav[aria-label="站点导航"],
-                        nav[aria-label="站點導航"],
-                        nav[aria-label="章節導航"],
-                        nav[aria-label="章节导航"],
-                        div[data-v-491796e2] {
+                        aside, aside[class*="sidebar"], .web-kit-sidebar,
+                        nav[aria-label="站点导航"], nav[aria-label="站點導航"],
+                        nav[aria-label="章節導航"], nav[aria-label="章节导航"], div[data-v-491796e2] {
                             display: none !important;
                         }
-                        /* Hide sidebar toggle button in forum header */
-                        .layout-toggle,
-                        button[aria-label*="sidebar"],
-                        button[aria-label*="侧边栏"] {
+                        .layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"] {
                             display: none !important;
                         }
-                        /* Explicitly preserve top header & nav bar */
-                        header,
-                        .forum-header {
-                            display: flex !important;
-                        }
-                        /* Ensure main body takes full width and extends downward */
+                        header, .forum-header { display: flex !important; }
                         main, body, #app {
-                            width: 100% !important;
-                            max-width: 100% !important;
-                            margin-left: 0 !important;
-                            padding-left: 0 !important;
+                            width: 100% !important; max-width: 100% !important;
+                            margin-left: 0 !important; padding-left: 0 !important;
                             padding-bottom: 32px !important;
                         }
                         @media (max-width: 768px) {
-                            main, body, #app {
-                                padding-bottom: 96px !important;
-                            }
+                            main, body, #app { padding-bottom: 96px !important; }
                         }
                     `, 'novelia-iframe-hide-sidebar-style');
                 }
@@ -909,11 +875,8 @@
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             marginRight: HEADER_BTN_FST_GAP,
                             iconSvg: Utils.svg.DRAWER,
-                            onClick: () => {
-                                window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*');
-                            }
+                            onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                         });
-
                         targetContainer.before(drawerBtn);
                     } else {
                         drawerBtn.style.marginRight = HEADER_BTN_FST_GAP;
@@ -936,7 +899,6 @@
                                 }
                             }
                         });
-
                         drawerBtn.after(popoutBtn);
                     }
 
@@ -950,11 +912,8 @@
                                 iconSize: 20,
                                 margin: `0px ${HEADER_BTN_INNER_GAP}`,
                                 iconSvg: Utils.svg.RELOAD_CIRCLE,
-                                onClick: () => {
-                                    window.location.reload();
-                                }
+                                onClick: () => window.location.reload()
                             });
-
                             anchorEl.after(reloadBtn);
                         }
                     }
@@ -982,25 +941,19 @@
                             if (window.parent !== window) {
                                 window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
                             } else {
-                                window.location.href = 'https://n.novelia.cc/favorite/web';
+                                window.location.href = `https://${DOMAINS.HOST}/favorite/web`;
                             }
                         }
                     });
 
-                    if (themeBtn) {
-                        themeBtn.before(btn);
-                    } else {
-                        targetContainer.before(btn);
-                    }
+                    if (themeBtn) themeBtn.before(btn);
+                    else targetContainer.before(btn);
                 }
 
                 function notifyHostUrlChange() {
                     if (window.parent !== window) {
                         const path = location.pathname + location.search + location.hash;
-                        window.parent.postMessage({
-                            type: 'NOVELIA_URL_CHANGE',
-                            path: path
-                        }, '*');
+                        window.parent.postMessage({ type: 'NOVELIA_URL_CHANGE', path }, '*');
                     }
                 }
 
@@ -1011,10 +964,7 @@
                 injectMobileHeaderButtons();
                 injectFavoriteButton();
 
-                window.addEventListener('resize', () => {
-                    injectMobileHeaderButtons();
-                });
-
+                window.addEventListener('resize', injectMobileHeaderButtons);
                 const iframeObserver = new MutationObserver(() => {
                     injectMobileHeaderButtons();
                     injectFavoriteButton();
@@ -1064,208 +1014,91 @@
             // =========================================================
             // HOST CONTEXT (n.novelia.cc)
             // =========================================================
-            if (!IS_HOST) return;
-            if (window.top !== window.self) return;
+            if (!IS_HOST || window.top !== window.self) return;
 
             const originalOpen = window.open;
             let isUpdatingDom = false;
             let lastIsForum = false;
 
-            function isForumPage() { return Utils.route.isForumPage() }
-
             function getIframeTargetUrl() {
-                const path = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
+                const path = Utils.route.getPath();
                 if (path.startsWith('/forum/')) {
                     const sub = path.substring('/forum'.length);
                     return `https://${DOMAINS.FORUM}${sub}`;
                 }
                 return `https://${DOMAINS.FORUM}/`;
             }
-            
-            function isForumUrl(href) { return Utils.route.isForumUrl(href) }
 
             function injectInlineStyles() {
                 Utils.gm.addStyle(`
-                    /* Hide host page navbar when on forum page */
-                    html.novelia-forum-active header,
-                    html.novelia-forum-active .n-layout-header,
-                    html.novelia-forum-active nav.n-layout-header {
+                    html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header {
                         display: none !important;
                     }
-
-                    /* Preserve host sidebar full height when host navbar is hidden */
-                    html.novelia-forum-active .n-layout-sider,
-                    html.novelia-forum-active .n-layout-sidebar,
-                    html.novelia-forum-active aside.n-layout-sider,
-                    html.novelia-forum-active aside.web-kit-sidebar,
+                    html.novelia-forum-active .n-layout-sider, html.novelia-forum-active .n-layout-sidebar,
+                    html.novelia-forum-active aside.n-layout-sider, html.novelia-forum-active aside.web-kit-sidebar,
                     html.novelia-forum-active .sidebar-shell {
-                        display: flex !important;
-                        height: 100vh !important;
-                        top: 0 !important;
+                        display: flex !important; height: 100vh !important; top: 0 !important;
                     }
-
-                    html.novelia-forum-active,
-                    html.novelia-forum-active body,
-                    html.novelia-forum-active #app,
-                    html.novelia-forum-active .web-kit-layout,
-                    html.novelia-forum-active .n-layout-scroll-container,
+                    html.novelia-forum-active, html.novelia-forum-active body, html.novelia-forum-active #app,
+                    html.novelia-forum-active .web-kit-layout, html.novelia-forum-active .n-layout-scroll-container,
                     html.novelia-forum-active .n-layout {
-                        height: 100vh !important;
-                        overflow: hidden !important;
+                        height: 100vh !important; overflow: hidden !important;
                     }
-
-                    html.novelia-forum-active main,
-                    html.novelia-forum-active .n-layout-content,
+                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content,
                     html.novelia-forum-active .n-layout-content .n-layout-scroll-container,
                     html.novelia-forum-active .n-layout-content .layout-content {
-                        max-width: 100% !important;
-                        width: 100% !important;
-                        height: 100% !important;
-                        padding: 0 !important;
-                        margin: 0 !important;
-                        display: flex !important;
-                        flex-direction: column !important;
-                        flex: 1 1 auto !important;
+                        max-width: 100% !important; width: 100% !important; height: 100% !important;
+                        padding: 0 !important; margin: 0 !important; display: flex !important;
+                        flex-direction: column !important; flex: 1 1 auto !important;
                     }
-
-                    .novelia-forum-hide {
-                        display: none !important;
-                    }
-
+                    .novelia-forum-hide { display: none !important; }
                     #novelia-forum-inline-container {
-                        width: 100% !important;
-                        height: 100% !important;
-                        min-height: 100% !important;
-                        max-width: 100% !important;
-                        display: flex !important;
-                        flex-direction: column !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                        box-sizing: border-box !important;
-                        overflow: hidden !important;
-                        position: relative !important;
-                        flex: 1 1 auto !important;
+                        width: 100% !important; height: 100% !important; min-height: 100% !important;
+                        max-width: 100% !important; display: flex !important; flex-direction: column !important;
+                        margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
+                        overflow: hidden !important; position: relative !important; flex: 1 1 auto !important;
                     }
-
                     #novelia-forum-inline-container iframe {
-                        width: 100% !important;
-                        height: 100% !important;
-                        min-height: 100% !important;
-                        border: none !important;
-                        display: block !important;
-                        opacity: 0;
+                        width: 100% !important; height: 100% !important; min-height: 100% !important;
+                        border: none !important; display: block !important; opacity: 0;
                         transition: opacity 0.3s ease-in-out;
                     }
-
-                    #novelia-forum-inline-container iframe.novelia-iframe-loaded {
-                        opacity: 1 !important;
-                    }
-
+                    #novelia-forum-inline-container iframe.novelia-iframe-loaded { opacity: 1 !important; }
                     .novelia-forum-spinner-wrapper {
-                        position: absolute;
-                        top: 50%;
-                        left: 50%;
-                        transform: translate(-50%, -50%);
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        gap: 12px;
-                        color: var(--n-text-color, #666);
-                        transition: opacity 0.3s ease-in-out;
-                        pointer-events: none;
-                        z-index: 10;
+                        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        display: flex; flex-direction: column; align-items: center; gap: 12px;
+                        color: var(--n-text-color, #666); transition: opacity 0.3s ease-in-out;
+                        pointer-events: none; z-index: 10;
                     }
-
-                    .novelia-forum-spinner-wrapper.novelia-spinner-hidden {
-                        opacity: 0 !important;
-                    }
-
-                    .novelia-forum-mascot {
-                        width: 128px;
-                        height: 128px;
-                        object-fit: contain;
-                        animation: novelia-float 2s ease-in-out infinite;
-                    }
-
+                    .novelia-forum-spinner-wrapper.novelia-spinner-hidden { opacity: 0 !important; }
+                    .novelia-forum-mascot { width: 128px; height: 128px; object-fit: contain; animation: novelia-float 2s ease-in-out infinite; }
                     @keyframes novelia-float {
                         0%, 100% { transform: translateY(0); }
                         50% { transform: translateY(-16px); }
                     }
-
-                    /* Preserve Naive UI sider collapse button & trigger */
-                    .n-layout-sider-toggle-button,
-                    .n-layout-sider-trigger,
-                    .n-layout-sider-toggle-bar,
-                    .n-layout-toggle-button,
-                    .sidebar-collapse {
-                        display: flex !important;
-                        z-index: 1000 !important;
-                    }
-
-                    /* Naive UI Submenu & Collapsed Sidebar Utility */
-                    .n-menu--collapsed .n-menu-item-content-header,
-                    .n-layout-sider--collapsed .n-menu-item-content-header,
-                    .n-menu--collapsed .n-submenu-children,
-                    .n-layout-sider--collapsed .n-submenu-children,
-                    .n-menu--collapsed .n-menu-item-content__arrow,
-                    .n-layout-sider--collapsed .n-menu-item-content__arrow {
-                        display: none !important;
-                    }
-
-                    .n-submenu-children.collapsed {
-                        display: none !important;
-                    }
-                    .n-submenu-children.expanded {
-                        display: block !important;
-                    }
-                    .n-menu-item-content-header {
-                        flex: 1 1 0%;
-                    }
-                    .n-menu-item-content-header a {
-                        color: inherit;
-                        text-decoration: none;
-                        display: block;
-                        width: 100%;
-                    }
-                    .novelia-forum-submenu .n-menu-item-content__arrow {
-                        margin-left: auto !important;
-                    }
-                    .sidebar-submenu .web-kit-sidebar-item {
-                        padding-left: 36px !important;
-                    }
-
-                    /* Forum Collapsed Popover Menu */
+                    .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-sider-toggle-bar,
+                    .n-layout-toggle-button, .sidebar-collapse { display: flex !important; z-index: 1000 !important; }
+                    .n-menu--collapsed .n-menu-item-content-header, .n-layout-sider--collapsed .n-menu-item-content-header,
+                    .n-menu--collapsed .n-submenu-children, .n-layout-sider--collapsed .n-submenu-children,
+                    .n-menu--collapsed .n-menu-item-content__arrow, .n-layout-sider--collapsed .n-menu-item-content__arrow { display: none !important; }
+                    .n-submenu-children.collapsed { display: none !important; }
+                    .n-submenu-children.expanded { display: block !important; }
+                    .n-menu-item-content-header { flex: 1 1 0%; }
+                    .n-menu-item-content-header a { color: inherit; text-decoration: none; display: block; width: 100%; }
+                    .novelia-forum-submenu .n-menu-item-content__arrow { margin-left: auto !important; }
+                    .sidebar-submenu .web-kit-sidebar-item { padding-left: 36px !important; }
                     .novelia-forum-dropdown-popover {
-                        position: fixed;
-                        z-index: 9999;
-                        background-color: rgb(72, 72, 78) !important;
-                        border: 1px solid rgb(72, 72, 78) !important;
-                        border-radius: 4px;
+                        position: fixed; z-index: 9999; background-color: rgb(72, 72, 78) !important;
+                        border: 1px solid rgb(72, 72, 78) !important; border-radius: 4px;
                         box-shadow: 0 3px 6px -4px rgba(0, 0, 0, .12), 0 6px 16px 0 rgba(0, 0, 0, .08), 0 9px 28px 8px rgba(0, 0, 0, .05);
-                        padding: 6px 0;
-                        min-width: 160px;
-                        display: none;
-                        flex-direction: column;
+                        padding: 6px 0; min-width: 160px; display: none; flex-direction: column;
                     }
                     .novelia-forum-dropdown-item {
-                        padding: 8px 16px;
-                        cursor: pointer;
-                        color: #ffffff !important;
-                        font-size: 14px;
-                        display: flex;
-                        align-items: center;
-                        gap: 10px;
-                        transition: background-color 0.2s, color 0.2s;
+                        padding: 8px 16px; cursor: pointer; color: #ffffff !important; font-size: 14px;
+                        display: flex; align-items: center; gap: 10px; transition: background-color 0.2s, color 0.2s;
                     }
-                    .novelia-forum-dropdown-item:hover {
-                        background-color: rgba(255, 255, 255, 0.15) !important;
-                        color: #63e2b7 !important;
-                    }
-                    .novelia-forum-dropdown-item svg {
-                        width: 18px;
-                        height: 18px;
-                        fill: currentColor;
-                    }
+                    .novelia-forum-dropdown-item:hover { background-color: rgba(255, 255, 255, 0.15) !important; color: #63e2b7 !important; }
+                    .novelia-forum-dropdown-item svg { width: 18px; height: 18px; fill: currentColor; }
                 `, 'novelia-forum-inline-styles');
             }
 
@@ -1307,11 +1140,7 @@
             function sendThemeToIframe() {
                 const iframe = document.querySelector('iframe.novelia-forum-iframe');
                 if (!iframe || !iframe.contentWindow) return;
-                const isDark = isHostDarkTheme();
-                iframe.contentWindow.postMessage({
-                    type: 'NOVELIA_THEME_CHANGE',
-                    isDark: isDark
-                }, '*');
+                iframe.contentWindow.postMessage({ type: 'NOVELIA_THEME_CHANGE', isDark: isHostDarkTheme() }, '*');
             }
 
             function observeThemeChange() {
@@ -1323,9 +1152,7 @@
 
                 observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
                 observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
-
                 if (document.head) observer.observe(document.head, { childList: true, subtree: true, attributes: true });
-
                 const appEl = document.getElementById('app') || document.body;
                 observer.observe(appEl, { childList: true, subtree: true, attributes: true });
 
@@ -1345,15 +1172,15 @@
 
                 try {
                     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-                    if (mediaQuery.addEventListener) mediaQuery.addEventListener('change', () => sendThemeToIframe())
+                    if (mediaQuery.addEventListener) mediaQuery.addEventListener('change', sendThemeToIframe);
                 } catch (e) {}
             }
 
             function updateSelectedSubmenuItem() {
-                const currentPath = window.__noveliaMockPath || location.pathname;
-                const isForum = isForumPage();
+                const currentPath = Utils.route.getPath();
+                const isForum = Utils.route.isForumPage();
 
-                document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => { btn.setAttribute('href', getIframeTargetUrl()) });
+                document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => { btn.setAttribute('href', getIframeTargetUrl()); });
 
                 if (isForum) {
                     document.querySelectorAll('.n-menu > .n-menu-item > .n-menu-item-content, .n-menu > .n-submenu > .n-menu-item > .n-menu-item-content').forEach(content => {
@@ -1402,22 +1229,19 @@
                     if (drawerBtn) drawerBtn.click();
                 }
                 if (e.data.type === 'NOVELIA_POPOUT_FORUM') {
-                    const targetUrl = e.data.url || getIframeTargetUrl();
-                    window.location.assign(targetUrl);
+                    window.location.assign(e.data.url || getIframeTargetUrl());
                 }
                 if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
                     const targetPath = e.data.path || '/favorite/web';
-                    const fullUrl = location.origin + (targetPath.startsWith('/') ? targetPath : '/' + targetPath);
-                    window.location.href = fullUrl;
+                    window.location.href = location.origin + (targetPath.startsWith('/') ? targetPath : '/' + targetPath);
                 }
                 if (e.data.type === 'NOVELIA_URL_CHANGE') {
                     const innerPath = e.data.path || '/';
                     const targetHostPath = (innerPath === '/' || innerPath === '') ? '/forum' : '/forum' + (innerPath.startsWith('/') ? innerPath : '/' + innerPath);
-                    const currentHostPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
-                    if (currentHostPath !== targetHostPath && isForumPage()) {
+                    const currentHostPath = Utils.route.getPath();
+                    if (currentHostPath !== targetHostPath && Utils.route.isForumPage()) {
                         if (window.__noveliaMockPath) window.__noveliaMockPath = targetHostPath;
                         else history.replaceState({}, '', targetHostPath);
-
                         updateSelectedSubmenuItem();
                     }
                 }
@@ -1426,15 +1250,9 @@
             function autoCollapseSidebar() {
                 if (window.innerWidth <= 768) {
                     const closeBtn = document.querySelector('button[aria-label*="关闭导航菜单"], button[aria-label*="關閉導航菜單"], button[aria-label*="关闭"], button[aria-label*="關閉"]');
-                    if (closeBtn) {
-                        closeBtn.click();
-                        return;
-                    }
+                    if (closeBtn) { closeBtn.click(); return; }
                     const drawerMask = document.querySelector('.n-drawer-mask');
-                    if (drawerMask) {
-                        drawerMask.click();
-                        return;
-                    }
+                    if (drawerMask) { drawerMask.click(); return; }
                     const openDrawer = document.querySelector('.n-drawer, [role="dialog"][class*="drawer"]');
                     const openToggleBtn = document.querySelector('button.layout-toggle[aria-expanded="true"], button[aria-label*="导航菜单"][aria-expanded="true"], button[aria-label*="導航菜單"][aria-expanded="true"]');
                     if (openDrawer || openToggleBtn) {
@@ -1463,13 +1281,10 @@
                 if (!submenuDiv) return;
 
                 const collapsed = isSidebarCollapsed();
-
                 if (submenuDiv.classList.contains('n-submenu')) {
                     const contentDiv = submenuDiv.querySelector('.n-menu-item-content');
                     const childrenDiv = submenuDiv.querySelector('.n-submenu-children');
-                    if (contentDiv) {
-                        contentDiv.style.paddingLeft = collapsed ? '21px' : '32px';
-                    }
+                    if (contentDiv) contentDiv.style.paddingLeft = collapsed ? '21px' : '32px';
                     if (collapsed && childrenDiv) {
                         childrenDiv.classList.remove('expanded');
                         childrenDiv.classList.add('collapsed');
@@ -1492,7 +1307,7 @@
                 const sider = document.querySelector('.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside');
                 if (sider && !sider.dataset.noveliaSiderObserverAttached) {
                     sider.dataset.noveliaSiderObserverAttached = '1';
-                    const observer = new MutationObserver(() => { syncSidebarCollapsedState() });
+                    const observer = new MutationObserver(() => { syncSidebarCollapsedState(); });
                     observer.observe(sider, { attributes: true, attributeFilter: ['class', 'style', 'aria-expanded'] });
                 }
             }
@@ -1532,13 +1347,10 @@
 
             function isSidebarMenuItem(a) {
                 if (!a) return false;
-
-                // Must NOT be in header, main content area, or breadcrumbs unless inside a mobile drawer
                 const drawer = a.closest('.n-drawer');
                 if (!drawer && a.closest('header, .n-layout-header, main, .n-layout-content, .layout-content, .novel-page-content, #banner, .n-card, .n-grid, .n-breadcrumb, [aria-label*="Breadcrumb"], [aria-label*="面包屑"]')) {
                     return false;
                 }
-                // Must be inside a sidebar/menu container or have a sidebar menu item class
                 const menuItem = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]');
                 const sidebarContainer = a.closest('aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]');
 
@@ -1552,7 +1364,7 @@
                 const candidateAnchors = Array.from(document.querySelectorAll(`${sidebarContainers} a[href], ${menuItemSelector} a[href], a${menuItemSelector}`));
                 for (const a of candidateAnchors) {
                     if (!isSidebarMenuItem(a)) continue;
-                    if (isForumUrl(a.getAttribute('href') || a.href)) {
+                    if (Utils.route.isForumUrl(a.getAttribute('href') || a.href)) {
                         const item = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]') || a;
                         return { element: item, anchor: a, isWebKit: item.classList.contains('web-kit-sidebar-item') || !!item.closest('.web-kit-sidebar') };
                     }
@@ -1571,9 +1383,6 @@
                 return null;
             }
 
-            // Converts the "论坛" single menuitem into a collapse submenu with 4 items:
-            // 站务公告 (/forum/c/announcements), 小说讨论 (/forum/c/novel), 意见反馈 (/forum/c/feedback), 社区守则 (/forum/rules)
-            // - Header has NO hyperlink, ONLY toggles collapse, and defaults to collapsed state
             function transformForumSidebarMenu() {
                 injectInlineStyles();
                 if (document.querySelector('.novelia-forum-submenu')) {
@@ -1589,7 +1398,6 @@
                 if (!menuItemDiv || menuItemDiv.dataset.noveliaSubmenuProcessed) return;
 
                 menuItemDiv.dataset.noveliaSubmenuProcessed = '1';
-
                 let isExpanded = localStorage.getItem('novelia_forum_submenu_expanded') === 'true';
 
                 const subItems = [
@@ -1724,7 +1532,6 @@
 
                         isExpanded = !isExpanded;
                         localStorage.setItem('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
-
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 
                         if (isExpanded) {
@@ -1745,17 +1552,16 @@
                     }
                 }
 
-                popover.addEventListener('mouseleave', () => { popover.style.display = 'none'});
-
-                popover.addEventListener('mouseenter', () => { clearTimeout(hidePopoverTimer) });
+                popover.addEventListener('mouseleave', () => { popover.style.display = 'none'; });
+                popover.addEventListener('mouseenter', () => { clearTimeout(hidePopoverTimer); });
             }
 
             function handleForumPage() {
-                const currentlyForum = isForumPage();
+                const currentlyForum = Utils.route.isForumPage();
                 if (!currentlyForum) {
                     document.documentElement.classList.remove('novelia-forum-active');
                     document.body.classList.remove('novelia-forum-active');
-                    document.querySelectorAll('.novelia-forum-hide').forEach(el => { el.classList.remove('novelia-forum-hide') });
+                    document.querySelectorAll('.novelia-forum-hide').forEach(el => { el.classList.remove('novelia-forum-hide'); });
 
                     const existing = document.getElementById('novelia-forum-inline-container');
                     if (existing) existing.remove();
@@ -1773,7 +1579,6 @@
                 document.body.classList.add('novelia-forum-active');
 
                 let wrapper = document.getElementById('novelia-forum-inline-container');
-
                 const scrollContainer = document.querySelector('main') ||
                                         document.querySelector('.n-layout-scroll-container') ||
                                         document.querySelector('.n-layout-content') ||
@@ -1797,19 +1602,16 @@
                         iframe.classList.add('novelia-iframe-loaded');
                         if (loader) loader.classList.add('novelia-spinner-hidden');
                         sendThemeToIframe();
-                        const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
+                        const currentPath = Utils.route.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
-                        iframe.contentWindow.postMessage({
-                            type: 'NOVELIA_NAVIGATE',
-                            path: innerPath
-                        }, '*');
+                        iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
                     });
                     wrapper.appendChild(loader);
                     wrapper.appendChild(iframe);
                 } else {
                     const iframe = wrapper.querySelector('iframe');
                     if (iframe && iframe.contentWindow) {
-                        const currentPath = window.__noveliaMockPath || (location.pathname + location.search + location.hash);
+                        const currentPath = Utils.route.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
                         iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
                     }
@@ -1821,7 +1623,6 @@
                         if (child !== wrapper) child.classList.add('novelia-forum-hide');
                     });
                     if (wrapper.parentElement !== scrollContainer) scrollContainer.appendChild(wrapper); 
-
                 } finally {
                     isUpdatingDom = false;
                 }
@@ -1836,7 +1637,7 @@
                     const anchor = menuItem.tagName === 'A' ? menuItem : menuItem.querySelector('a');
                     if (anchor) {
                         const href = anchor.getAttribute('href') || anchor.href;
-                        if (href && !isForumUrl(href)) {
+                        if (href && !Utils.route.isForumUrl(href)) {
                             let targetPath = href;
                             try {
                                 const parsed = new URL(href, location.origin);
@@ -1864,7 +1665,7 @@
                 const anchor = e.target.closest('a');
                 if (anchor) {
                     const href = anchor.getAttribute('href') || anchor.href;
-                    if (isForumUrl(href)) {
+                    if (Utils.route.isForumUrl(href)) {
                         e.preventDefault();
                         e.stopPropagation();
 
@@ -1898,7 +1699,7 @@
 
             // Override window.open for forum links
             window.open = function(url, target, features) {
-                if (typeof url === 'string' && isForumUrl(url)) {
+                if (typeof url === 'string' && Utils.route.isForumUrl(url)) {
                     let targetPath = '/forum';
                     try {
                         const parsed = new URL(url, location.origin);
@@ -1930,12 +1731,12 @@
                 observeSidebarToggle();
                 transformForumSidebarMenu();
                 syncSidebarCollapsedState();
-                if (isForumPage()) {
+                if (Utils.route.isForumPage()) {
                     handleForumPage();
                 }
             });
             observer.observe(document.body, { childList: true, subtree: true });
-            // Listen for sider toggle clicks
+
             window.addEventListener('click', (e) => {
                 if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button')) {
                     setTimeout(syncSidebarCollapsedState, 10);
@@ -1945,7 +1746,7 @@
             }, true);
 
             observeThemeChange();
-            // Initial check
+
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', () => {
                     transformForumSidebarMenu();
@@ -1958,7 +1759,8 @@
         }
     };
 
-    Modules.forum_search = { init: function() {} };
+    // Don't Remove: It may be re-enabled in the future.
+    // Modules.forum_search = { init: function() {} };
 
     // ==========================================
     // 3. 小說分享按鈕 (Modules.share_btn)
@@ -1979,10 +1781,6 @@
                 HEADER_INJECTION_MARK = "noveliaHeaderInjected",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
-
-            const SVG_REFRESH = Utils.svg.REFRESH;
-            const SVG_CLEAR = Utils.svg.CLEAR;
-            const SVG_VIEW = Utils.svg.VIEW;
 
             Utils.gm.addStyle(`
                 .${COPY_BUTTON_CLASS}{position:relative;overflow:hidden;margin-right:6px;padding:1px 0;width:${BUTTON_WIDTH};font-size:12px;cursor:pointer;background:transparent;border:1px solid #aaa;border-radius:4px;vertical-align:middle;opacity:.6;text-align:center;flex-shrink:0;line-height:1.4;transition:opacity .15s,background .15s,border-color .15s}
@@ -2160,17 +1958,17 @@
 
                     const refreshBtn = document.createElement("button");
                     refreshBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                    refreshBtn.innerHTML = `${SVG_REFRESH}<span>刷新</span>`;
+                    refreshBtn.innerHTML = `${Utils.svg.REFRESH}<span>刷新</span>`;
                     refreshBtn.addEventListener("click", (e) => { e.preventDefault(); triggerUIRefresh(); });
 
                     const clearBtn = document.createElement("button");
                     clearBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                    clearBtn.innerHTML = `${SVG_CLEAR}<span>清除快取</span>`;
+                    clearBtn.innerHTML = `${Utils.svg.CLEAR}<span>清除快取</span>`;
                     clearBtn.addEventListener("click", (e) => { e.preventDefault(); clearLinkCache(); });
 
                     const viewBtn = document.createElement("button");
                     viewBtn.className = `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`;
-                    viewBtn.innerHTML = `${SVG_VIEW}<span>查看快取</span>`;
+                    viewBtn.innerHTML = `${Utils.svg.VIEW}<span>查看快取</span>`;
                     viewBtn.addEventListener("click", (e) => { e.preventDefault(); viewLinkCache(); });
 
                     h1Element.appendChild(refreshBtn);
@@ -2224,35 +2022,32 @@
                 injectHeaderActionButtons();
             }
 
-            function main() {
-                performFullScan();
-                window.addEventListener("tm-locationchange", () => { setTimeout(performFullScan, 200)});
+            performFullScan();
+            window.addEventListener("tm-locationchange", () => { setTimeout(performFullScan, 200); });
 
-                const mutationObserver = new MutationObserver((mutations) => {
-                    if (!Utils.route.isSharePage()) {
-                        if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) removeStaleButtons();
-                        return;
-                    }
+            const mutationObserver = new MutationObserver((mutations) => {
+                if (!Utils.route.isSharePage()) {
+                    if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) removeStaleButtons();
+                    return;
+                }
 
-                    let needsReinjection = false;
+                let needsReinjection = false;
+                for (const mutation of mutations) {
+                    if (mutation.removedNodes.length >= 3) { needsReinjection = true; break; }
+                }
+                if (needsReinjection) {
+                    removeStaleButtons();
+                    requestAnimationFrame(() => requestAnimationFrame(performFullScan));
+                } else {
                     for (const mutation of mutations) {
-                        if (mutation.removedNodes.length >= 3) { needsReinjection = true; break; }
-                    }
-                    if (needsReinjection) {
-                        removeStaleButtons();
-                        requestAnimationFrame(() => requestAnimationFrame(performFullScan));
-                    } else {
-                        for (const mutation of mutations) {
-                            for (const node of mutation.addedNodes) {
-                                if (node.nodeType === Node.ELEMENT_NODE) injectLinkButtonsToItems(node);
-                            }
+                        for (const node of mutation.addedNodes) {
+                            if (node.nodeType === Node.ELEMENT_NODE) injectLinkButtonsToItems(node);
                         }
-                        injectHeaderActionButtons();
                     }
-                });
-                mutationObserver.observe(document.body, { childList: true, subtree: true });
-            }
-            main();
+                    injectHeaderActionButtons();
+                }
+            });
+            mutationObserver.observe(document.body, { childList: true, subtree: true });
         }
     };
 
@@ -2355,37 +2150,79 @@
                     display: flex;
                     align-items: center;
                 }
-                .novelia-collapse-icon.collapsed {
-                    transform: rotate(0deg);
-                }
-                .novelia-collapse-icon.expanded {
-                    transform: rotate(90deg);
-                }
+                .novelia-collapse-icon.collapsed { transform: rotate(0deg); }
+                .novelia-collapse-icon.expanded { transform: rotate(90deg); }
                 .novelia-collapse-replies-wrapper {
                     display: grid;
                     transition: grid-template-rows 0.3s ease-in-out;
                     overflow: hidden;
                 }
-                .novelia-collapse-replies-wrapper.collapsed {
-                    grid-template-rows: 0fr;
-                }
-                .novelia-collapse-replies-wrapper.expanded {
-                    grid-template-rows: 1fr;
-                }
+                .novelia-collapse-replies-wrapper.collapsed { grid-template-rows: 0fr; }
+                .novelia-collapse-replies-wrapper.expanded { grid-template-rows: 1fr; }
                 .novelia-collapse-replies-inner {
                     overflow: hidden;
                     display: flow-root;
                 }
             `);
+
             const LS_KEY = 'novelia_collapsed_comments';
             let collapsedStore = Utils.storage.get(LS_KEY, {});
+            function saveStore() { Utils.storage.set(LS_KEY, collapsedStore); }
 
-            function saveStore() { Utils.storage.set(LS_KEY, collapsedStore) }
+            const CollapseUI = {
+                createCollapseWrapper({ anchorCard, repliesArea, isCollapsedState, replyCount, onToggleState }) {
+                    const btnWrapper = document.createElement('div');
+                    btnWrapper.className = 'novelia-collapse-btn-wrapper';
 
-            const chevronSvg = Utils.svg.CHEVRON;
-            // Sub-module 1: Novel Comment Collapse
+                    const btn = document.createElement('button');
+                    btn.className = 'novelia-collapse-btn';
+                    btn.type = 'button';
+                    btn.innerHTML = `
+                        <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${Utils.svg.CHEVRON}</span>
+                        <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`;
+                    btnWrapper.appendChild(btn);
+                    anchorCard.after(btnWrapper);
+
+                    const wrapper = document.createElement('div');
+                    wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
+                    const inner = document.createElement('div');
+                    inner.className = 'novelia-collapse-replies-inner';
+
+                    repliesArea.parentNode.insertBefore(wrapper, repliesArea);
+                    inner.appendChild(repliesArea);
+                    wrapper.appendChild(inner);
+
+                    btn.addEventListener('click', () => {
+                        const currentlyCollapsed = wrapper.classList.contains('collapsed');
+                        const newCollapsed = !currentlyCollapsed;
+
+                        wrapper.classList.toggle('collapsed', newCollapsed);
+                        wrapper.classList.toggle('expanded', !newCollapsed);
+
+                        const icon = btn.querySelector('.novelia-collapse-icon');
+                        if (icon) {
+                            icon.classList.toggle('collapsed', newCollapsed);
+                            icon.classList.toggle('expanded', !newCollapsed);
+                        }
+
+                        const text = btn.querySelector('.novelia-collapse-btn-text');
+                        if (text) text.innerText = `${newCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
+
+                        onToggleState(newCollapsed);
+                    });
+                    btn.addEventListener('mouseup', () => btn.blur());
+
+                    const nativeReplyBtn = Array.from(anchorCard.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
+                    if (nativeReplyBtn) {
+                        nativeReplyBtn.addEventListener('click', () => {
+                            if (wrapper.classList.contains('collapsed')) btn.click();
+                        });
+                    }
+                }
+            };
+
             const NovelCommentCollapse = {
-                getContext: function() {
+                getContext() {
                     const path = Utils.route.getPath();
                     const matchNovel = path.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
                     if (matchNovel) return { provider: matchNovel[1], id: matchNovel[2] };
@@ -2395,12 +2232,12 @@
 
                     return null;
                 },
-                isCollapsed: function(ctx, hash) {
+                isCollapsed(ctx, hash) {
                     if (!hash || !ctx) return false;
                     const list = collapsedStore[ctx.provider]?.[ctx.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-                setCollapsed: function(ctx, hash, collapsedState) {
+                setCollapsed(ctx, hash, collapsedState) {
                     if (!hash || !ctx) return;
                     if (collapsedState) {
                         if (!collapsedStore[ctx.provider]) collapsedStore[ctx.provider] = {};
@@ -2418,14 +2255,14 @@
                     }
                     saveStore();
                 },
-                getReplyCount: function(repliesArea) {
+                getReplyCount(repliesArea) {
                     if (!repliesArea) return 0;
                     const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
                     if (subReplies.length > 0) return subReplies.length;
                     if (repliesArea.matches('div[style*="margin-left: 32px"]')) return 1;
                     return repliesArea.querySelectorAll('.n-flex').length;
                 },
-                processThread: function(commentHeader) {
+                processThread(commentHeader) {
                     try {
                         const headerFlex = commentHeader.closest('.n-flex');
                         if (!headerFlex) return;
@@ -2508,58 +2345,19 @@
                         const ctx = NovelCommentCollapse.getContext();
                         const isCollapsedState = NovelCommentCollapse.isCollapsed(ctx, commentId);
 
-                        const btnWrapper = document.createElement('div');
-                        btnWrapper.className = 'novelia-collapse-btn-wrapper';
-
-                        const btn = document.createElement('button');
-                        btn.className = 'novelia-collapse-btn';
-                        btn.innerHTML = `
-                            <span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
-                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`;
-                        btnWrapper.appendChild(btn);
-                        card.after(btnWrapper);
-
-                        const wrapper = document.createElement('div');
-                        wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
-                        const inner = document.createElement('div');
-                        inner.className = 'novelia-collapse-replies-inner';
-
-                        repliesArea.parentNode.insertBefore(wrapper, repliesArea);
-                        inner.appendChild(repliesArea);
-                        wrapper.appendChild(inner);
-
-                        btn.addEventListener('click', () => {
-                            const currentlyCollapsed = wrapper.classList.contains('collapsed');
-                            const currentReplyCount = NovelCommentCollapse.getReplyCount(repliesArea);
-
-                            if (currentlyCollapsed) {
-                                wrapper.classList.remove('collapsed');
-                                wrapper.classList.add('expanded');
-                                btn.querySelector('.novelia-collapse-icon').classList.replace('collapsed', 'expanded');
-                                btn.querySelector('.novelia-collapse-btn-text').innerText = `收起回覆 (${currentReplyCount})`;
-                                NovelCommentCollapse.setCollapsed(ctx, commentId, false);
-                            } else {
-                                wrapper.classList.remove('expanded');
-                                wrapper.classList.add('collapsed');
-                                btn.querySelector('.novelia-collapse-icon').classList.replace('expanded', 'collapsed');
-                                btn.querySelector('.novelia-collapse-btn-text').innerText = `展開回覆 (${currentReplyCount})`;
-                                NovelCommentCollapse.setCollapsed(ctx, commentId, true);
-                            }
+                        CollapseUI.createCollapseWrapper({
+                            anchorCard: card,
+                            repliesArea,
+                            isCollapsedState,
+                            replyCount,
+                            onToggleState: (newCollapsed) => NovelCommentCollapse.setCollapsed(ctx, commentId, newCollapsed)
                         });
-                        btn.addEventListener('mouseup', () => btn.blur());
-
-                        const nativeReplyBtn = Array.from(headerFlex.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
-                        if (nativeReplyBtn) {
-                            nativeReplyBtn.addEventListener('click', () => {
-                                if (wrapper.classList.contains('collapsed')) btn.click();
-                            });
-                        }
                     } catch (e) {
                         console.error('[Novelia Bundle] Error processing novel comment thread:', e);
                     }
                 },
-                scan: function() { document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread) },
-                init: function() {
+                scan() { document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread); },
+                init() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
                         clearTimeout(timer);
@@ -2571,20 +2369,20 @@
                     setTimeout(NovelCommentCollapse.scan, 500);
                 }
             };
-            // Sub-module 2: Forum Comment Collapse
+
             const ForumCommentCollapse = {
-                getContext: function() {
+                getContext() {
                     const path = Utils.route.getPath();
                     const match = path.match(/^\/p\/([^\/?#]+)/i);
                     if (match) return { id: match[1] };
                     return null;
                 },
-                isCollapsed: function(ctx, hash) {
+                isCollapsed(ctx, hash) {
                     if (!hash || !ctx) return false;
                     const list = collapsedStore[ctx.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-                setCollapsed: function(ctx, hash, collapsedState) {
+                setCollapsed(ctx, hash, collapsedState) {
                     if (!hash || !ctx) return;
                     if (collapsedState) {
                         if (!Array.isArray(collapsedStore[ctx.id])) collapsedStore[ctx.id] = []; 
@@ -2600,7 +2398,7 @@
                     }
                     saveStore();
                 },
-                processSection: function(section) {
+                processSection(section) {
                     try {
                         const rootArticle = section.querySelector('article');
                         if (!rootArticle) return;
@@ -2652,62 +2450,20 @@
                         }
                         const ctx = ForumCommentCollapse.getContext();
                         const isCollapsedState = ForumCommentCollapse.isCollapsed(ctx, commentId);
-                        const btnWrapper = document.createElement('div');
-                        btnWrapper.className = 'novelia-collapse-btn-wrapper';
-                        btnWrapper.style.margin = '4px 0 8px 0';
 
-                        const btn = document.createElement('button');
-                        btn.className = 'novelia-collapse-btn';
-                        btn.type = 'button';
-                        btn.innerHTML = `<span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${chevronSvg}</span>
-                            <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`;
-
-                        btnWrapper.appendChild(btn);
-                        rootArticle.after(btnWrapper);
-
-                        const wrapper = document.createElement('div');
-                        wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
-                        const inner = document.createElement('div');
-                        inner.className = 'novelia-collapse-replies-inner';
-
-                        repliesArea.parentNode.insertBefore(wrapper, repliesArea);
-                        inner.appendChild(repliesArea);
-                        wrapper.appendChild(inner);
-
-                        btn.addEventListener('click', () => {
-                            const currentlyCollapsed = wrapper.classList.contains('collapsed');
-                            const currentReplyCount = repliesArea.querySelectorAll('article').length;
-
-                            if (currentlyCollapsed) {
-                                wrapper.classList.remove('collapsed');
-                                wrapper.classList.add('expanded');
-                                btn.querySelector('.novelia-collapse-icon').classList.replace('collapsed', 'expanded');
-                                btn.querySelector('.novelia-collapse-btn-text').innerText = `收起回覆 (${currentReplyCount})`;
-                                ForumCommentCollapse.setCollapsed(ctx, commentId, false);
-                            } else {
-                                wrapper.classList.remove('expanded');
-                                wrapper.classList.add('collapsed');
-                                btn.querySelector('.novelia-collapse-icon').classList.replace('expanded', 'collapsed');
-                                btn.querySelector('.novelia-collapse-btn-text').innerText = `展開回覆 (${currentReplyCount})`;
-                                ForumCommentCollapse.setCollapsed(ctx, commentId, true);
-                            }
+                        CollapseUI.createCollapseWrapper({
+                            anchorCard: rootArticle,
+                            repliesArea,
+                            isCollapsedState,
+                            replyCount,
+                            onToggleState: (newCollapsed) => ForumCommentCollapse.setCollapsed(ctx, commentId, newCollapsed)
                         });
-                        btn.addEventListener('mouseup', () => btn.blur());
-
-                        const nativeReplyBtn = Array.from(rootArticle.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
-                        if (nativeReplyBtn) {
-                            nativeReplyBtn.addEventListener('click', () => {
-                                if (wrapper.classList.contains('collapsed')) btn.click();
-                            });
-                        }
                     } catch (e) {
                         console.error('[Novelia Bundle] Error processing forum section:', e);
                     }
                 },
-                scan: function() {
-                    document.querySelectorAll('section').forEach(ForumCommentCollapse.processSection);
-                },
-                init: function() {
+                scan() { document.querySelectorAll('section').forEach(ForumCommentCollapse.processSection); },
+                init() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
                         clearTimeout(timer);
@@ -2718,7 +2474,7 @@
                     setTimeout(ForumCommentCollapse.scan, 500);
                 }
             };
-            // Route initialization based on domain
+
             if (location.hostname.includes(DOMAINS.FORUM)) ForumCommentCollapse.init();
             else NovelCommentCollapse.init();
         }
@@ -2885,5 +2641,6 @@
             scheduleSortWithRetries();
         }
     };
+
     runModules();
 })();
