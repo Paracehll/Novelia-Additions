@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
-// @namespace    novelia-enhanced
+// @namespace    novelia-qol-bundle
 // @version      2.3.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -22,11 +22,6 @@
 (function() {
     'use strict';
 
-    const DOMAINS = {
-        HOST: 'n.novelia.cc',
-        FORUM: 'forum.novelia.cc'
-    };
-
     const FEATURES = [
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
 
@@ -42,6 +37,11 @@
         // { id: 'forum_search', name: '論壇搜尋增強', default: true },
         // { id: 'thread_footer', name: '編輯頁面固定頁尾', default: true },
     ];
+
+    const DOMAINS = {
+        HOST: 'n.novelia.cc',
+        FORUM: 'forum.novelia.cc'
+    };
 
     // Top-level central utilities
     const Utils = {
@@ -311,10 +311,10 @@
         FEATURES.forEach(feature => {
             if (config[feature.id] && Modules[feature.id]) {
                 try {
-                    console.log(`[Novelia Bundle] Initializing ${feature.name}...`);
+                    console.log(`[Novelia QOL] Initializing ${feature.name}...`);
                     Modules[feature.id].init();
                 } catch (error) { 
-                    console.error(`[Novelia Bundle] Failed to initialize ${feature.name}:`, error)
+                    console.error(`[Novelia QOL] Failed to initialize ${feature.name}:`, error)
                 }
             }
         });
