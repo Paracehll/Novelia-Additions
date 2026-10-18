@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      2.1.0
+// @version      2.2.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -107,6 +107,12 @@
                 if (Utils.dom.isNoveliaOwnNode(mutation.target)) return true;
                 const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
                 return nodes.length > 0 && nodes.every((node) => Utils.dom.isNoveliaOwnNode(node));
+            },
+            isMobile() {
+                if (typeof window === 'undefined') return false;
+                const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+                const screenMobile = window.innerWidth <= 768;
+                return userAgentMobile || screenMobile;
             }
         },
         route: {
@@ -177,6 +183,29 @@
             }
         },
         ui: {
+            createHeaderButton({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) {
+                const btn = document.createElement('button');
+                btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
+                btn.type = 'button';
+                if (title) {
+                    btn.title = title;
+                    btn.setAttribute('aria-label', title);
+                }
+                btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding: 6px;`;
+                if (marginRight) {
+                    btn.style.marginRight = marginRight;
+                }
+                btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: ${iconSize}px; display: inline-flex;">${iconSvg}</i></span>`;
+
+                if (typeof onClick === 'function') {
+                    btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onClick(e);
+                    });
+                }
+                return btn;
+            },
             createToastManager(className = 'novelia-toast') {
                 let toastEl = document.querySelector(`.${className}`);
                 let timer = null;
@@ -808,6 +837,9 @@
             if (IS_IFRAME_CONTEXT) {
                 if (window.top === window.self) return;
 
+                const HEADER_BTN_FST_GAP = '24px';
+                const HEADER_BTN_INNER_GAP = '8px';
+
                 function injectIframeStyles() {
                     Utils.gm.addStyle(`
                         /* Hide ONLY forum left sidebar, PRESERVE forum top header/navbar */
@@ -848,25 +880,105 @@
                     `, 'novelia-iframe-hide-sidebar-style');
                 }
 
-                function injectMobileDrawerButton() {
+                function injectMobileHeaderButtons() {
                     const forumHeader = document.querySelector('header, .forum-header, nav');
-                    if (!forumHeader || forumHeader.querySelector('.novelia-host-drawer-btn')) return;
+                    if (!forumHeader) return;
 
-                    const targetContainer = forumHeader.querySelector('.layout-toggle') || forumHeader.querySelector('button') || forumHeader.firstElementChild;
+                    let drawerBtn = forumHeader.querySelector('.novelia-host-drawer-btn');
+                    if (!drawerBtn) {
+                        const targetContainer = forumHeader.querySelector('.layout-toggle') || forumHeader.querySelector('button') || forumHeader.firstElementChild;
+                        if (!targetContainer) return;
+
+                        drawerBtn = Utils.ui.createHeaderButton({
+                            className: 'novelia-host-drawer-btn',
+                            title: '切換側邊欄',
+                            iconSize: 24,
+                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
+                            marginRight: HEADER_BTN_FST_GAP,
+                            iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path></svg>`,
+                            onClick: () => {
+                                window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*');
+                            }
+                        });
+
+                        targetContainer.before(drawerBtn);
+                    } else {
+                        drawerBtn.style.marginRight = HEADER_BTN_FST_GAP;
+                    }
+
+                    let popoutBtn = forumHeader.querySelector('.novelia-forum-popout-btn');
+                    if (!popoutBtn && drawerBtn) {
+                        popoutBtn = Utils.ui.createHeaderButton({
+                            className: 'novelia-forum-popout-btn',
+                            title: '前往論壇 (取代當前頁面)',
+                            iconSize: 20,
+                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
+                            iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z" fill="currentColor"></path></svg>`,
+                            onClick: () => {
+                                const targetUrl = location.href;
+                                if (window.parent && window.parent !== window) {
+                                    window.parent.postMessage({ type: 'NOVELIA_POPOUT_FORUM', url: targetUrl }, '*');
+                                } else {
+                                    window.location.href = targetUrl;
+                                }
+                            }
+                        });
+
+                        drawerBtn.after(popoutBtn);
+                    }
+
+                    let reloadBtn = forumHeader.querySelector('.novelia-forum-reload-btn');
+                    if (!reloadBtn) {
+                        const anchorEl = popoutBtn || drawerBtn;
+                        if (anchorEl) {
+                            reloadBtn = Utils.ui.createHeaderButton({
+                                className: 'novelia-forum-reload-btn',
+                                title: '重新載入',
+                                iconSize: 20,
+                                margin: `0px ${HEADER_BTN_INNER_GAP}`,
+                                iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"></path></svg>`,
+                                onClick: () => {
+                                    window.location.reload();
+                                }
+                            });
+
+                            anchorEl.after(reloadBtn);
+                        }
+                    }
+
+                    const mobile = Utils.dom.isMobile();
+                    if (popoutBtn) popoutBtn.style.display = mobile ? 'inline-flex' : 'none';
+                    if (reloadBtn) reloadBtn.style.display = mobile ? 'inline-flex' : 'none';
+                }
+
+                function injectFavoriteButton() {
+                    const forumHeader = document.querySelector('header, .forum-header, nav');
+                    if (!forumHeader || forumHeader.querySelector('.novelia-forum-fav-btn')) return;
+
+                    const themeBtn = forumHeader.querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"]');
+                    const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle') || forumHeader.querySelector('button') || forumHeader.firstElementChild);
                     if (!targetContainer) return;
 
-                    const btn = document.createElement('button');
-                    btn.className = '__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type novelia-host-drawer-btn';
-                    btn.type = 'button';
-                    btn.style.cssText = 'margin: 0px 8px; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center;';
-                    btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: 24px; display: inline-flex;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path></svg></i></span>`;
-
-                    btn.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*');
+                    const btn = Utils.ui.createHeaderButton({
+                        className: 'novelia-forum-fav-btn',
+                        title: '我的收藏',
+                        iconSize: 20,
+                        margin: `0px ${HEADER_BTN_INNER_GAP}`,
+                        iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="20" height="20"><path d="M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z" fill="currentColor"></path></svg>`,
+                        onClick: () => {
+                            if (window.parent !== window) {
+                                window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
+                            } else {
+                                window.location.href = 'https://n.novelia.cc/favorite/web';
+                            }
+                        }
                     });
-                    targetContainer.before(btn);
+
+                    if (themeBtn) {
+                        themeBtn.before(btn);
+                    } else {
+                        targetContainer.before(btn);
+                    }
                 }
 
                 function notifyHostUrlChange() {
@@ -901,9 +1013,17 @@
                 notifyHostUrlChange();
 
                 injectIframeStyles();
-                injectMobileDrawerButton();
+                injectMobileHeaderButtons();
+                injectFavoriteButton();
 
-                const iframeObserver = new MutationObserver(() => { injectMobileDrawerButton() });
+                window.addEventListener('resize', () => {
+                    injectMobileHeaderButtons();
+                });
+
+                const iframeObserver = new MutationObserver(() => {
+                    injectMobileHeaderButtons();
+                    injectFavoriteButton();
+                });
                 iframeObserver.observe(document.body, { childList: true, subtree: true });
 
                 window.addEventListener('message', function(e) {
@@ -1286,14 +1406,14 @@
                     const drawerBtn = document.querySelector('button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
                     if (drawerBtn) drawerBtn.click();
                 }
+                if (e.data.type === 'NOVELIA_POPOUT_FORUM') {
+                    const targetUrl = e.data.url || getIframeTargetUrl();
+                    window.location.assign(targetUrl);
+                }
                 if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
                     const targetPath = e.data.path || '/favorite/web';
-                    if (location.pathname !== targetPath) {
-                        history.pushState({}, '', targetPath);
-                        window.dispatchEvent(new Event("tm-locationchange"));
-                    }
-                    handleForumPage();
-                    updateSelectedSubmenuItem();
+                    const fullUrl = location.origin + (targetPath.startsWith('/') ? targetPath : '/' + targetPath);
+                    window.location.href = fullUrl;
                 }
                 if (e.data.type === 'NOVELIA_URL_CHANGE') {
                     const innerPath = e.data.path || '/';
