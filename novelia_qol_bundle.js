@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      2.2.0
+// @version      2.2.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -191,7 +191,7 @@
                     btn.title = title;
                     btn.setAttribute('aria-label', title);
                 }
-                btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding: 6px;`;
+                btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding-top: 6px;`;
                 if (marginRight) {
                     btn.style.marginRight = marginRight;
                 }
@@ -837,7 +837,7 @@
             if (IS_IFRAME_CONTEXT) {
                 if (window.top === window.self) return;
 
-                const HEADER_BTN_FST_GAP = '24px';
+                const HEADER_BTN_FST_GAP = '12px';
                 const HEADER_BTN_INNER_GAP = '8px';
 
                 function injectIframeStyles() {
