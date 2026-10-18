@@ -116,6 +116,29 @@
             }
         },
         route: {
+            _initDone: false,
+            init() {
+                if (this._initDone) return;
+                this._initDone = true;
+                const originalPushState = history.pushState;
+                const originalReplaceState = history.replaceState;
+
+                history.pushState = function(...args) {
+                    const result = originalPushState.apply(this, args);
+                    window.dispatchEvent(new Event("tm-locationchange"));
+                    return result;
+                };
+
+                history.replaceState = function(...args) {
+                    const result = originalReplaceState.apply(this, args);
+                    window.dispatchEvent(new Event("tm-locationchange"));
+                    return result;
+                };
+
+                window.addEventListener('popstate', () => {
+                    window.dispatchEvent(new Event("tm-locationchange"));
+                });
+            },
             getPath() { return window.__noveliaMockPath || location.pathname },
             matchNovelPath(pathname) {
                 const pathMatch = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
@@ -158,6 +181,12 @@
                 if (host === DOMAINS.HOST && /^\/wenku\/[^\/]+\/?$/i.test(path)) return true;
                 if ((host === DOMAINS.HOST && /^\/forum\/p\/[^\/]+\/?$/i.test(path)) || (host === DOMAINS.FORUM && /^\/p\/[^\/]+\/?$/i.test(path))) return true;
                 return false;
+            },
+            onChange(callback) {
+                this.init();
+                window.addEventListener('popstate', callback);
+                window.addEventListener('hashchange', callback);
+                window.addEventListener('tm-locationchange', callback);
             }
         },
         time: {
@@ -253,7 +282,11 @@
             BULK: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>',
             CLEAR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>',
             VIEW: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>',
-            CHEVRON: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path></svg>'
+            CHEVRON: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path></svg>',
+            DRAWER: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path></svg>',
+            POPOUT: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z" fill="currentColor"></path></svg>',
+            RELOAD_CIRCLE: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"></path></svg>',
+            STAR_OUTLINE: '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="20" height="20"><path d="M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z" fill="currentColor"></path></svg>'
         }
     };
 
@@ -348,27 +381,7 @@
     }
     injectGlobalStyles();
 
-    function setupRouterObserver() {
-        const originalPushState = history.pushState;
-        const originalReplaceState = history.replaceState;
-
-        history.pushState = function(...args) {
-            const result = originalPushState.apply(this, args);
-            window.dispatchEvent(new Event("tm-locationchange"));
-            return result;
-        };
-
-        history.replaceState = function(...args) {
-            const result = originalReplaceState.apply(this, args);
-            window.dispatchEvent(new Event("tm-locationchange"));
-            return result;
-        };
-
-        window.addEventListener('popstate', () => {
-            window.dispatchEvent(new Event("tm-locationchange"));
-        });
-    }
-    setupRouterObserver();
+    Utils.route.init();
 
     // ==========================================
     // 1. Web 評論數追蹤 (Modules.comment_count)
@@ -895,7 +908,7 @@
                             iconSize: 24,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             marginRight: HEADER_BTN_FST_GAP,
-                            iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z" fill="currentColor"></path></svg>`,
+                            iconSvg: Utils.svg.DRAWER,
                             onClick: () => {
                                 window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*');
                             }
@@ -913,7 +926,7 @@
                             title: '前往論壇 (取代當前頁面)',
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z" fill="currentColor"></path></svg>`,
+                            iconSvg: Utils.svg.POPOUT,
                             onClick: () => {
                                 const targetUrl = location.href;
                                 if (window.parent && window.parent !== window) {
@@ -936,7 +949,7 @@
                                 title: '重新載入',
                                 iconSize: 20,
                                 margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                                iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"></path></svg>`,
+                                iconSvg: Utils.svg.RELOAD_CIRCLE,
                                 onClick: () => {
                                     window.location.reload();
                                 }
@@ -964,7 +977,7 @@
                         title: '我的收藏',
                         iconSize: 20,
                         margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                        iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="20" height="20"><path d="M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z" fill="currentColor"></path></svg>`,
+                        iconSvg: Utils.svg.STAR_OUTLINE,
                         onClick: () => {
                             if (window.parent !== window) {
                                 window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
@@ -991,25 +1004,7 @@
                     }
                 }
 
-                const originalPushState = history.pushState;
-                const originalReplaceState = history.replaceState;
-
-                history.pushState = function(...args) {
-                    const result = originalPushState.apply(this, args);
-                    notifyHostUrlChange();
-                    return result;
-                };
-
-                history.replaceState = function(...args) {
-                    const result = originalReplaceState.apply(this, args);
-                    notifyHostUrlChange();
-                    return result;
-                };
-
-                window.addEventListener('popstate', notifyHostUrlChange);
-                window.addEventListener('hashchange', notifyHostUrlChange);
-                window.addEventListener('tm-locationchange', notifyHostUrlChange);
-
+                Utils.route.onChange(notifyHostUrlChange);
                 notifyHostUrlChange();
 
                 injectIframeStyles();
@@ -2860,24 +2855,7 @@
             }
 
             function setupSpaUrlObserver() {
-                const origPush = history.pushState;
-                const origReplace = history.replaceState;
-
-                history.pushState = function(...args) {
-                    const res = origPush.apply(this, args);
-                    onUrlChange();
-                    return res;
-                };
-
-                history.replaceState = function(...args) {
-                    const res = origReplace.apply(this, args);
-                    onUrlChange();
-                    return res;
-                };
-
-                window.addEventListener('popstate', onUrlChange);
-                window.addEventListener('hashchange', onUrlChange);
-                window.addEventListener('tm-locationchange', onUrlChange);
+                Utils.route.onChange(onUrlChange);
                 window.addEventListener('message', e => {
                     if (e.data && (e.data.type === 'NOVELIA_URL_CHANGE' || e.data.type === 'NOVELIA_NAVIGATE')) onUrlChange();
                 });
