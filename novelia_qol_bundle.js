@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      2.2.2
+// @version      2.3.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -522,300 +522,288 @@
 
             const taskLimiter = Utils.limiter.createConcurrencyLimiter(CONCURRENCY_LIMIT);
 
-            function parseNovelPath(anchorElement) {
-                try {
-                    return Utils.route.matchNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
-                } catch (error) {
-                    return null;
-                }
-            }
-
-            function ensureWrapper(targetElement) {
-                const existingWrapper = targetElement.closest('.novelia-comment-wrapper, .novelia-item-wrapper');
-                if (existingWrapper) return existingWrapper;
-                const wrapperElement = document.createElement('span');
-                wrapperElement.className = 'novelia-comment-wrapper';
-                wrapperElement.style.alignItems = BADGE_ALIGN_ITEMS;
-                wrapperElement.style.gap = '6px';
-                targetElement.replaceWith(wrapperElement);
-                wrapperElement.appendChild(targetElement);
-                return wrapperElement;
-            }
-
-            function renderBadge(targetElement, { count, diff, text, isError = false, force = false } = {}) {
-                const wrapperElement = ensureWrapper(targetElement);
-                let badgeElement = wrapperElement.querySelector(':scope > .novelia-comment-badge');
-
-                if (badgeElement && badgeElement.dataset.noveliaLocked === '1' && !force) return;
-
-                if (!badgeElement) {
-                    badgeElement = document.createElement('span');
-                    badgeElement.className = 'novelia-comment-badge';
-                    const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
-                    if (shareButton) shareButton.after(badgeElement);
-                    else wrapperElement.prepend(badgeElement);
-                }
-
-                if (text !== undefined) {
-                    badgeElement.textContent = text;
-                    badgeElement.style.color = isError ? '#e06c75' : '';
-                    delete badgeElement.dataset.noveliaRenderedText;
-                    return;
-                }
-
-                const key = `${count}|${diff}`;
-                if (badgeElement.dataset.noveliaRenderedText === key) return;
-
-                badgeElement.dataset.noveliaRenderedText = key;
-                badgeElement.dataset.noveliaLocked = '1';
-                badgeElement.textContent = `${COMMENT_ICON} ${count}`;
-                if (diff > 0) {
-                    const incrementSpan = document.createElement('span');
-                    incrementSpan.className = 'novelia-comment-diff';
-                    incrementSpan.style.color = INCREMENT_COLOR;
-                    incrementSpan.textContent = ` (+${diff})`;
-                    badgeElement.appendChild(incrementSpan);
-                }
-            }
-
-            function renderPlainBadge(targetElement, text, opts) { renderBadge(targetElement, { text, isError: opts?.isError }); }
-            function renderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff }); }
-            function forceRenderCountBadge(targetElement, count, diff) { renderBadge(targetElement, { count, diff, force: true }); }
-            function isAllowedPage() { return Utils.route.isCommentCountPage(); }
-
-            function getListTarget(anchorElement) {
-                const flexParent = anchorElement.closest('.n-flex') || anchorElement.closest('.n-grid > div');
-                if (!flexParent) return anchorElement;
-                const targets = flexParent.querySelectorAll(':scope > span, :scope > div.text-2line');
-                return targets[0] || targets[1] || anchorElement;
-            }
-
-            function collectPendingAnchors() {
-                const anchors = document.querySelectorAll(`a[href]:not([data-novelia-comment-tracked])`);
-                const groupsMap = new Map();
-                anchors.forEach((anchorElement) => {
-                    if (anchorElement.closest('.n-drawer')) return;
-                    const novelInfo = parseNovelPath(anchorElement);
-                    if (!novelInfo) return;
-                    anchorElement.dataset['noveliaCommentTracked'] = '1';
-                    const key = `${novelInfo.source}/${novelInfo.id}`;
-                    if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: [] });
-                    const targetElement = getListTarget(anchorElement);
-                    groupsMap.get(key).targets.push(targetElement);
-                    const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
-                    const result = CommentService.buildResultFromEntry(storedEntry);
-                    if (result) renderCountBadge(targetElement, result.count, result.diff);
-                    else renderPlainBadge(targetElement, `${COMMENT_ICON} …`);
-                });
-                return Array.from(groupsMap.values());
-            }
-
-            async function processGroup(novelGroup, { isInitial = false } = {}) {
-                if (!isAllowedPage()) return;
-                await taskLimiter(async () => {
+            const CommentUI = {
+                parseNovelPath(anchorElement) {
                     try {
-                        const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { isInitial });
-                        if (!result) return;
-                        novelGroup.targets.forEach((targetElement) => renderCountBadge(targetElement, result.count, result.diff));
+                        return Utils.route.matchNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
                     } catch (error) {
-                        novelGroup.targets.forEach((targetElement) => renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
-                        console.error('[novelia-comments] 處理失敗:', `${novelGroup.source}/${novelGroup.id}`, error);
+                        return null;
                     }
-                });
-            }
+                },
+                ensureWrapper(targetElement) {
+                    const existingWrapper = targetElement.closest('.novelia-comment-wrapper, .novelia-item-wrapper');
+                    if (existingWrapper) return existingWrapper;
+                    const wrapperElement = document.createElement('span');
+                    wrapperElement.className = 'novelia-comment-wrapper';
+                    wrapperElement.style.alignItems = BADGE_ALIGN_ITEMS;
+                    wrapperElement.style.gap = '6px';
+                    targetElement.replaceWith(wrapperElement);
+                    wrapperElement.appendChild(targetElement);
+                    return wrapperElement;
+                },
+                renderBadge(targetElement, { count, diff, text, isError = false, force = false } = {}) {
+                    const wrapperElement = this.ensureWrapper(targetElement);
+                    let badgeElement = wrapperElement.querySelector(':scope > .novelia-comment-badge');
 
-            function createH1Badge(novelKey) {
-                const badgeElement = document.createElement('span');
-                badgeElement.className = 'novelia-h1-comment-badge';
-                badgeElement.dataset.noveliaNovelKey = novelKey;
-                return badgeElement;
-            }
+                    if (badgeElement && badgeElement.dataset.noveliaLocked === '1' && !force) return;
 
-            function renderH1Badge(badgeElement, entry) {
-                const result = CommentService.buildResultFromEntry(entry);
-                const count = result ? result.count : '…';
-                const diff = result ? result.diff : 0;
-                const key = `${count}|${diff}`;
-
-                if (badgeElement.dataset.noveliaRenderedText === key) return;
-
-                badgeElement.dataset.noveliaRenderedText = key;
-                badgeElement.textContent = '';
-                badgeElement.appendChild(document.createTextNode(`${COMMENT_ICON} ${count}`));
-                if (diff > 0) {
-                    const incrementSpan = document.createElement('span');
-                    incrementSpan.style.color = INCREMENT_COLOR;
-                    incrementSpan.textContent = ` (+${diff})`;
-                    badgeElement.appendChild(incrementSpan);
-                }
-            }
-
-            function createUpdateButton(source, id, novelKey, badgeElement) {
-                const buttonElement = document.createElement('button');
-                buttonElement.className = 'novelia-bundle-btn novelia-update-button';
-                buttonElement.innerHTML = `${Utils.svg.REFRESH}<span>刷新</span>`;
-                buttonElement.dataset.noveliaNovelKey = novelKey;
-                buttonElement.title = '手動更新留言數';
-                buttonElement.addEventListener('click', async () => {
-                    if (buttonElement.disabled) return;
-                    buttonElement.disabled = true;
-                    const originalContent = buttonElement.innerHTML;
-                    buttonElement.innerHTML = `<span>⏳ 刷新中</span>`;
-                    try {
-                        const result = await CommentService.getCommentCount(source, id, { force: true });
-                        if (result) {
-                            delete badgeElement.dataset.noveliaRenderedText;
-                            renderH1Badge(badgeElement, result.entry);
-                            injectH2CommentCount();
-                            document.querySelectorAll('a[href][data-novelia-comment-tracked]').forEach((anchor) => {
-                                const novelInfo = parseNovelPath(anchor);
-                                if (novelInfo && novelInfo.source === source && novelInfo.id === id) {
-                                    forceRenderCountBadge(getListTarget(anchor), result.count, result.diff);
-                                }
-                            });
-                        }
-                        buttonElement.innerHTML = originalContent;
-                    } catch (error) {
-                        buttonElement.innerHTML = '<span>⚠️</span>';
-                        setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
-                    } finally {
-                        buttonElement.disabled = false;
-                    }
-                });
-                return buttonElement;
-            }
-
-            function injectUpdateButtonsForCurrentNovel() {
-                if (!isAllowedPage()) return;
-                const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
-                if (!novelInfo) return;
-                const h1Elements = document.querySelectorAll('h1');
-                if (!h1Elements.length) return;
-                const novelKey = `${novelInfo.source}/${novelInfo.id}`;
-                const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
-                h1Elements.forEach((h1Element) => {
-                    if (h1Element.closest('.n-drawer')) return;
-                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-                    let updateButton = h1Element.querySelector('.novelia-update-button');
-                    if (updateButton && updateButton.dataset.noveliaNovelKey !== novelKey) {
-                        const staleBadge = h1Element.querySelector('.novelia-h1-comment-badge');
-                        updateButton.remove();
-                        if (staleBadge) staleBadge.remove();
-                        updateButton = null;
-                    }
-                    let badgeElement = updateButton ? h1Element.querySelector('.novelia-h1-comment-badge') : null;
-                    if (!updateButton) {
-                        badgeElement = createH1Badge(novelKey);
-                        updateButton = createUpdateButton(novelInfo.source, novelInfo.id, novelKey, badgeElement);
-                        const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
-                        if (lastHeaderButton) { lastHeaderButton.after(updateButton); updateButton.after(badgeElement); }
-                        else { h1Element.prepend(badgeElement); h1Element.prepend(updateButton); }
-                    }
-                    if (badgeElement) renderH1Badge(badgeElement, storedEntry);
-                });
-            }
-
-            function injectH2CommentCount() {
-                if (!isAllowedPage()) return;
-                const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
-                if (!novelInfo) return;
-                const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => {
-                    const text = h2.textContent.trim();
-                    return text === '评论' || text === '評論' || text.startsWith('评论') || text.startsWith('評論');
-                });
-                if (!h2Elements.length) return;
-                const novelKey = `${novelInfo.source}/${novelInfo.id}`;
-                const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
-                h2Elements.forEach((h2Element) => {
-                    if (h2Element.closest('.n-drawer')) return;
-                    Object.assign(h2Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-                    let badgeElement = h2Element.querySelector('.novelia-h1-comment-badge');
                     if (!badgeElement) {
-                        badgeElement = createH1Badge(novelKey);
-                        h2Element.appendChild(badgeElement);
+                        badgeElement = document.createElement('span');
+                        badgeElement.className = 'novelia-comment-badge';
+                        const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
+                        if (shareButton) shareButton.after(badgeElement);
+                        else wrapperElement.prepend(badgeElement);
                     }
-                    if (badgeElement) renderH1Badge(badgeElement, storedEntry);
-                });
-            }
 
-            function createBulkUpdateButton() {
-                const buttonElement = document.createElement('button');
-                buttonElement.className = 'novelia-bundle-btn novelia-bulk-update-button';
-                buttonElement.innerHTML = `${Utils.svg.BULK}<span>${UPDATE_BUTTON_LABEL}</span>`;
-                buttonElement.title = '手動更新本頁所有留言數';
-                buttonElement.addEventListener('click', async () => {
-                    if (buttonElement.disabled) return;
-                    buttonElement.disabled = true;
-                    const originalContent = buttonElement.innerHTML;
-                    buttonElement.innerHTML = '<span>⏳ 批次更新中</span>';
-                    try {
-                        const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
-                        const groupsMap = new Map();
-                        anchors.forEach((anchorElement) => {
-                            const novelInfo = parseNovelPath(anchorElement);
-                            if (!novelInfo) return;
-                            const key = `${novelInfo.source}/${novelInfo.id}`;
-                            if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
-                            groupsMap.get(key).targets.add(getListTarget(anchorElement));
-                        });
-                        await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
-                            try {
-                                const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
-                                if (result) novelGroup.targets.forEach((targetElement) => forceRenderCountBadge(targetElement, result.count, result.diff));
-                            } catch (error) {
-                                novelGroup.targets.forEach((targetElement) => renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
+                    if (text !== undefined) {
+                        badgeElement.textContent = text;
+                        badgeElement.style.color = isError ? '#e06c75' : '';
+                        delete badgeElement.dataset.noveliaRenderedText;
+                        return;
+                    }
+
+                    const key = `${count}|${diff}`;
+                    if (badgeElement.dataset.noveliaRenderedText === key) return;
+
+                    badgeElement.dataset.noveliaRenderedText = key;
+                    badgeElement.dataset.noveliaLocked = '1';
+                    badgeElement.textContent = `${COMMENT_ICON} ${count}`;
+                    if (diff > 0) {
+                        const incrementSpan = document.createElement('span');
+                        incrementSpan.className = 'novelia-comment-diff';
+                        incrementSpan.style.color = INCREMENT_COLOR;
+                        incrementSpan.textContent = ` (+${diff})`;
+                        badgeElement.appendChild(incrementSpan);
+                    }
+                },
+                renderPlainBadge(targetElement, text, opts) { this.renderBadge(targetElement, { text, isError: opts?.isError }); },
+                renderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff }); },
+                forceRenderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff, force: true }); },
+                isAllowedPage() { return Utils.route.isCommentCountPage(); },
+                getListTarget(anchorElement) {
+                    const flexParent = anchorElement.closest('.n-flex') || anchorElement.closest('.n-grid > div');
+                    if (!flexParent) return anchorElement;
+                    const targets = flexParent.querySelectorAll(':scope > span, :scope > div.text-2line');
+                    return targets[0] || targets[1] || anchorElement;
+                },
+                collectPendingAnchors() {
+                    const anchors = document.querySelectorAll(`a[href]:not([data-novelia-comment-tracked])`);
+                    const groupsMap = new Map();
+                    anchors.forEach((anchorElement) => {
+                        if (anchorElement.closest('.n-drawer')) return;
+                        const novelInfo = this.parseNovelPath(anchorElement);
+                        if (!novelInfo) return;
+                        anchorElement.dataset['noveliaCommentTracked'] = '1';
+                        const key = `${novelInfo.source}/${novelInfo.id}`;
+                        if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: [] });
+                        const targetElement = this.getListTarget(anchorElement);
+                        groupsMap.get(key).targets.push(targetElement);
+                        const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
+                        const result = CommentService.buildResultFromEntry(storedEntry);
+                        if (result) this.renderCountBadge(targetElement, result.count, result.diff);
+                        else this.renderPlainBadge(targetElement, `${COMMENT_ICON} …`);
+                    });
+                    return Array.from(groupsMap.values());
+                },
+                async processGroup(novelGroup, { isInitial = false } = {}) {
+                    if (!this.isAllowedPage()) return;
+                    await taskLimiter(async () => {
+                        try {
+                            const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { isInitial });
+                            if (!result) return;
+                            novelGroup.targets.forEach((targetElement) => this.renderCountBadge(targetElement, result.count, result.diff));
+                        } catch (error) {
+                            novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
+                            console.error('[novelia-comments] 處理失敗:', `${novelGroup.source}/${novelGroup.id}`, error);
+                        }
+                    });
+                },
+                createH1Badge(novelKey) {
+                    const badgeElement = document.createElement('span');
+                    badgeElement.className = 'novelia-h1-comment-badge';
+                    badgeElement.dataset.noveliaNovelKey = novelKey;
+                    return badgeElement;
+                },
+                renderH1Badge(badgeElement, entry) {
+                    const result = CommentService.buildResultFromEntry(entry);
+                    const count = result ? result.count : '…';
+                    const diff = result ? result.diff : 0;
+                    const key = `${count}|${diff}`;
+
+                    if (badgeElement.dataset.noveliaRenderedText === key) return;
+
+                    badgeElement.dataset.noveliaRenderedText = key;
+                    badgeElement.textContent = '';
+                    badgeElement.appendChild(document.createTextNode(`${COMMENT_ICON} ${count}`));
+                    if (diff > 0) {
+                        const incrementSpan = document.createElement('span');
+                        incrementSpan.style.color = INCREMENT_COLOR;
+                        incrementSpan.textContent = ` (+${diff})`;
+                        badgeElement.appendChild(incrementSpan);
+                    }
+                },
+                createUpdateButton(source, id, novelKey, badgeElement) {
+                    const buttonElement = document.createElement('button');
+                    buttonElement.className = 'novelia-bundle-btn novelia-update-button';
+                    buttonElement.innerHTML = `${Utils.svg.REFRESH}<span>刷新</span>`;
+                    buttonElement.dataset.noveliaNovelKey = novelKey;
+                    buttonElement.title = '手動更新留言數';
+                    buttonElement.addEventListener('click', async () => {
+                        if (buttonElement.disabled) return;
+                        buttonElement.disabled = true;
+                        const originalContent = buttonElement.innerHTML;
+                        buttonElement.innerHTML = `<span>⏳ 刷新中</span>`;
+                        try {
+                            const result = await CommentService.getCommentCount(source, id, { force: true });
+                            if (result) {
+                                delete badgeElement.dataset.noveliaRenderedText;
+                                this.renderH1Badge(badgeElement, result.entry);
+                                this.injectH2CommentCount();
+                                document.querySelectorAll('a[href][data-novelia-comment-tracked]').forEach((anchor) => {
+                                    const novelInfo = this.parseNovelPath(anchor);
+                                    if (novelInfo && novelInfo.source === source && novelInfo.id === id) {
+                                        this.forceRenderCountBadge(this.getListTarget(anchor), result.count, result.diff);
+                                    }
+                                });
                             }
-                        })));
-                        buttonElement.innerHTML = originalContent;
-                    } catch (error) {
-                        buttonElement.innerHTML = '<span>⚠️ 失敗</span>';
-                        setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
-                    } finally {
-                        buttonElement.disabled = false;
-                    }
-                });
-                return buttonElement;
-            }
+                            buttonElement.innerHTML = originalContent;
+                        } catch (error) {
+                            buttonElement.innerHTML = '<span>⚠️</span>';
+                            setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
+                        } finally {
+                            buttonElement.disabled = false;
+                        }
+                    });
+                    return buttonElement;
+                },
+                injectUpdateButtonsForCurrentNovel() {
+                    if (!this.isAllowedPage()) return;
+                    const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
+                    if (!novelInfo) return;
+                    const h1Elements = document.querySelectorAll('h1');
+                    if (!h1Elements.length) return;
+                    const novelKey = `${novelInfo.source}/${novelInfo.id}`;
+                    const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
+                    h1Elements.forEach((h1Element) => {
+                        if (h1Element.closest('.n-drawer')) return;
+                        Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
+                        let updateButton = h1Element.querySelector('.novelia-update-button');
+                        if (updateButton && updateButton.dataset.noveliaNovelKey !== novelKey) {
+                            const staleBadge = h1Element.querySelector('.novelia-h1-comment-badge');
+                            updateButton.remove();
+                            if (staleBadge) staleBadge.remove();
+                            updateButton = null;
+                        }
+                        let badgeElement = updateButton ? h1Element.querySelector('.novelia-h1-comment-badge') : null;
+                        if (!updateButton) {
+                            badgeElement = this.createH1Badge(novelKey);
+                            updateButton = this.createUpdateButton(novelInfo.source, novelInfo.id, novelKey, badgeElement);
+                            const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
+                            if (lastHeaderButton) { lastHeaderButton.after(updateButton); updateButton.after(badgeElement); }
+                            else { h1Element.prepend(badgeElement); h1Element.prepend(updateButton); }
+                        }
+                        if (badgeElement) this.renderH1Badge(badgeElement, storedEntry);
+                    });
+                },
+                injectH2CommentCount() {
+                    if (!this.isAllowedPage()) return;
+                    const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
+                    if (!novelInfo) return;
+                    const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => {
+                        const text = h2.textContent.trim();
+                        return text === '评论' || text === '評論' || text.startsWith('评论') || text.startsWith('評論');
+                    });
+                    if (!h2Elements.length) return;
+                    const novelKey = `${novelInfo.source}/${novelInfo.id}`;
+                    const storedEntry = CommentService.getStoredEntry(novelInfo.source, novelInfo.id);
+                    h2Elements.forEach((h2Element) => {
+                        if (h2Element.closest('.n-drawer')) return;
+                        Object.assign(h2Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
+                        let badgeElement = h2Element.querySelector('.novelia-h1-comment-badge');
+                        if (!badgeElement) {
+                            badgeElement = this.createH1Badge(novelKey);
+                            h2Element.appendChild(badgeElement);
+                        }
+                        if (badgeElement) this.renderH1Badge(badgeElement, storedEntry);
+                    });
+                },
+                createBulkUpdateButton() {
+                    const buttonElement = document.createElement('button');
+                    buttonElement.className = 'novelia-bundle-btn novelia-bulk-update-button';
+                    buttonElement.innerHTML = `${Utils.svg.BULK}<span>${UPDATE_BUTTON_LABEL}</span>`;
+                    buttonElement.title = '手動更新本頁所有留言數';
+                    buttonElement.addEventListener('click', async () => {
+                        if (buttonElement.disabled) return;
+                        buttonElement.disabled = true;
+                        const originalContent = buttonElement.innerHTML;
+                        buttonElement.innerHTML = '<span>⏳ 批次更新中</span>';
+                        try {
+                            const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
+                            const groupsMap = new Map();
+                            anchors.forEach((anchorElement) => {
+                                const novelInfo = this.parseNovelPath(anchorElement);
+                                if (!novelInfo) return;
+                                const key = `${novelInfo.source}/${novelInfo.id}`;
+                                if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
+                                groupsMap.get(key).targets.add(this.getListTarget(anchorElement));
+                            });
+                            await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
+                                try {
+                                    const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
+                                    if (result) novelGroup.targets.forEach((targetElement) => this.forceRenderCountBadge(targetElement, result.count, result.diff));
+                                } catch (error) {
+                                    novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
+                                }
+                            })));
+                            buttonElement.innerHTML = originalContent;
+                        } catch (error) {
+                            buttonElement.innerHTML = '<span>⚠️ 失敗</span>';
+                            setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
+                        } finally {
+                            buttonElement.disabled = false;
+                        }
+                    });
+                    return buttonElement;
+                },
+                injectBulkUpdateButtons() {
+                    const h1Element = document.querySelector('h1');
+                    if (!h1Element || h1Element.closest('.n-drawer') || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
 
-            function injectBulkUpdateButtons() {
-                const h1Element = document.querySelector('h1');
-                if (!h1Element || h1Element.closest('.n-drawer') || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
-
-                Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-                const bulkButton = createBulkUpdateButton();
-                const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
-                if (lastHeaderButton) lastHeaderButton.after(bulkButton);
-                else h1Element.appendChild(bulkButton);
-            }
-
-            function scanPage({ isInitial = false } = {}) {
-                if (!isAllowedPage()) return;
-                const novelGroups = collectPendingAnchors();
-                novelGroups.forEach((group) => processGroup(group, { isInitial }));
-                injectUpdateButtonsForCurrentNovel();
-                injectH2CommentCount();
-                injectBulkUpdateButtons();
-            }
+                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
+                    const bulkButton = this.createBulkUpdateButton();
+                    const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
+                    if (lastHeaderButton) lastHeaderButton.after(bulkButton);
+                    else h1Element.appendChild(bulkButton);
+                },
+                scanPage({ isInitial = false } = {}) {
+                    if (!this.isAllowedPage()) return;
+                    const novelGroups = this.collectPendingAnchors();
+                    novelGroups.forEach((group) => this.processGroup(group, { isInitial }));
+                    this.injectUpdateButtonsForCurrentNovel();
+                    this.injectH2CommentCount();
+                    this.injectBulkUpdateButtons();
+                }
+            };
 
             let scanTimeoutTimer = null;
             function schedulePageScan({ isInitial = false } = {}) {
                 clearTimeout(scanTimeoutTimer);
-                scanTimeoutTimer = setTimeout(() => scanPage({ isInitial }), 200);
+                scanTimeoutTimer = setTimeout(() => CommentUI.scanPage({ isInitial }), 200);
             }
 
             function observeDomChanges() {
                 const observer = new MutationObserver((mutations) => {
-                    if (!isAllowedPage()) return;
+                    if (!CommentUI.isAllowedPage()) return;
                     if (mutations.some((mutation) => mutation.addedNodes && mutation.addedNodes.length > 0 && !Utils.dom.isSelfCausedMutation(mutation))) schedulePageScan({ isInitial: false });
                 });
                 observer.observe(document.body, { childList: true, subtree: true });
             }
 
-            scanPage({ isInitial: true });
+            CommentUI.scanPage({ isInitial: true });
             observeDomChanges();
             window.addEventListener("tm-locationchange", () => {
                 schedulePageScan({ isInitial: false });
-                setTimeout(() => scanPage({ isInitial: false }), 500);
+                setTimeout(() => CommentUI.scanPage({ isInitial: false }), 500);
             });
         }
     };
