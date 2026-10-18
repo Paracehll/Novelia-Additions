@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-enhanced
-// @version      2.0.1
+// @version      2.1.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -954,6 +954,7 @@
 
             const originalOpen = window.open;
             let isUpdatingDom = false;
+            let lastIsForum = false;
 
             function isForumPage() { return Utils.route.isForumPage() }
 
@@ -1282,7 +1283,7 @@
             window.addEventListener('message', function(e) {
                 if (!e.data) return;
                 if (e.data.type === 'NOVELIA_TOGGLE_HOST_SIDEBAR') {
-                    const drawerBtn = document.querySelector('header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
+                    const drawerBtn = document.querySelector('button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
                     if (drawerBtn) drawerBtn.click();
                 }
                 if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
@@ -1306,6 +1307,27 @@
                     }
                 }
             });
+
+            function autoCollapseSidebar() {
+                if (window.innerWidth <= 768) {
+                    const closeBtn = document.querySelector('button[aria-label*="关闭导航菜单"], button[aria-label*="關閉導航菜單"], button[aria-label*="关闭"], button[aria-label*="關閉"]');
+                    if (closeBtn) {
+                        closeBtn.click();
+                        return;
+                    }
+                    const drawerMask = document.querySelector('.n-drawer-mask');
+                    if (drawerMask) {
+                        drawerMask.click();
+                        return;
+                    }
+                    const openDrawer = document.querySelector('.n-drawer, [role="dialog"][class*="drawer"]');
+                    const openToggleBtn = document.querySelector('button.layout-toggle[aria-expanded="true"], button[aria-label*="导航菜单"][aria-expanded="true"], button[aria-label*="導航菜單"][aria-expanded="true"]');
+                    if (openDrawer || openToggleBtn) {
+                        const drawerBtn = openToggleBtn || document.querySelector('button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
+                        if (drawerBtn) drawerBtn.click();
+                    }
+                }
+            }
 
             function isSidebarCollapsed() {
                 const sider = document.querySelector('.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside');
@@ -1614,15 +1636,22 @@
             }
 
             function handleForumPage() {
-                if (!isForumPage()) {
+                const currentlyForum = isForumPage();
+                if (!currentlyForum) {
                     document.documentElement.classList.remove('novelia-forum-active');
                     document.body.classList.remove('novelia-forum-active');
                     document.querySelectorAll('.novelia-forum-hide').forEach(el => { el.classList.remove('novelia-forum-hide') });
 
                     const existing = document.getElementById('novelia-forum-inline-container');
                     if (existing) existing.remove();
+                    lastIsForum = false;
                     return;
                 }
+
+                if (!lastIsForum) {
+                    autoCollapseSidebar();
+                }
+                lastIsForum = true;
 
                 injectInlineStyles();
                 document.documentElement.classList.add('novelia-forum-active');
