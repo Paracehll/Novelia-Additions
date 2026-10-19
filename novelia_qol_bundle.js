@@ -785,16 +785,16 @@
 
                 function injectIframeStyles() {
                     Utils.gm.addStyle(`
-                        aside, aside[class*="sidebar"], .web-kit-sidebar, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="章節導航"], nav[aria-label="章节导航"], div[data-v-491796e2] { display: none !important; }
+                        aside, aside[class*="sidebar"], .web-kit-sidebar { display: none !important; }
                         .layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"] { display: none !important; }
-                        header, .forum-header { display: flex !important; }
+                        header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"] { display: flex !important; }
                         main, body, #app { width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; padding-bottom: 32px !important; }
                         @media (max-width: 768px) { main, body, #app { padding-bottom: 96px !important; } }
                     `, 'novelia-iframe-hide-sidebar-style');
                 }
 
                 function injectMobileHeaderButtons() {
-                    const forumHeader = document.querySelector('header, .forum-header, nav');
+                    const forumHeader = document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav');
                     if (!forumHeader) return;
 
                     let drawerBtn = forumHeader.querySelector('.novelia-host-drawer-btn');
@@ -858,7 +858,7 @@
                 }
 
                 function injectFavoriteButton() {
-                    const forumHeader = document.querySelector('header, .forum-header, nav');
+                    const forumHeader = document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav');
                     if (!forumHeader || forumHeader.querySelector('.novelia-forum-fav-btn')) return;
 
                     const themeBtn = forumHeader.querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"]');
@@ -965,10 +965,10 @@
 
             function injectInlineStyles() {
                 Utils.gm.addStyle(`
-                    html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header { display: none !important; }
+                    html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header, html.novelia-forum-active .web-kit-header { display: none !important; }
                     html.novelia-forum-active .n-layout-sider, html.novelia-forum-active .n-layout-sidebar, html.novelia-forum-active aside.n-layout-sider, html.novelia-forum-active aside.web-kit-sidebar, html.novelia-forum-active .sidebar-shell { display: flex !important; height: 100vh !important; top: 0 !important; }
                     html.novelia-forum-active, html.novelia-forum-active body, html.novelia-forum-active #app, html.novelia-forum-active .web-kit-layout, html.novelia-forum-active .n-layout-scroll-container, html.novelia-forum-active .n-layout { height: 100vh !important; overflow: hidden !important; }
-                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content, html.novelia-forum-active .n-layout-content .n-layout-scroll-container, html.novelia-forum-active .n-layout-content .layout-content { max-width: 100% !important; width: 100% !important; height: 100% !important; padding: 0 !important; margin: 0 !important; display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
+                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content, html.novelia-forum-active .n-layout-content .n-layout-scroll-container, html.novelia-forum-active .n-layout-content .layout-content, html.novelia-forum-active .web-kit-main { max-width: 100% !important; width: 100% !important; height: 100% !important; padding: 0 !important; margin: 0 !important; top: 0 !important; display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
                     .novelia-forum-hide { display: none !important; }
                     #novelia-forum-inline-container { width: 100% !important; height: 100% !important; min-height: 100% !important; max-width: 100% !important; display: flex !important; flex-direction: column !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; overflow: hidden !important; position: relative !important; flex: 1 1 auto !important; }
                     #novelia-forum-inline-container iframe { width: 100% !important; height: 100% !important; min-height: 100% !important; border: none !important; display: block !important; opacity: 0; transition: opacity 0.3s ease-in-out; }
@@ -1468,6 +1468,10 @@
                 document.documentElement.classList.add('novelia-forum-active');
                 document.body.classList.add('novelia-forum-active');
 
+                window.scrollTo(0, 0);
+                document.documentElement.scrollTop = 0;
+                document.body.scrollTop = 0;
+
                 let wrapper = document.getElementById('novelia-forum-inline-container');
                 const scrollContainer = document.querySelector('main') ||
                                         document.querySelector('.n-layout-scroll-container') ||
@@ -1475,6 +1479,7 @@
                                         document.querySelector('.layout-content');
 
                 if (!scrollContainer) return;
+                scrollContainer.scrollTop = 0;
                 if (!wrapper) {
                     wrapper = document.createElement('div');
                     wrapper.id = 'novelia-forum-inline-container';
