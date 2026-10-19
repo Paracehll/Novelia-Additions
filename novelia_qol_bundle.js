@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.4.0
+// @version      2.5.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2509,23 +2509,99 @@
             const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';
             const IMG_FIT = 'cover';
             const IMG_POSITION = '50% 50%';
+            const IMG_SCROLLING = true;
+            const IMG_SCROLL_SPD = 20;
 
             function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
             function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
             function getObjectPosition() { return Utils.gm.getValue('banner_object_position', IMG_POSITION); }
+            function getScrolling() { return Utils.gm.getValue('banner_scrolling', IMG_SCROLLING); }
+            function getScrollSpd() { return Number(Utils.gm.getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
+
+            let offsetY = 0;
+            let lastTime = 0;
+            let rafId = 0;
+            let activeLayer = null;
+
+            function tick(now) {
+                rafId = 0;
+                if (!activeLayer || !activeLayer.isConnected) { activeLayer = null; return; }
+                if (!lastTime) lastTime = now;
+                const dt = Math.min((now - lastTime) / 1000, 0.1);
+                lastTime = now;
+                offsetY -= getScrollSpd() * dt;
+
+                if (Math.abs(offsetY) > 1e6) offsetY = 0;
+                const x = activeLayer.dataset.posX || '50%';
+                activeLayer.style.backgroundPosition = `${x} ${offsetY}px`;
+                rafId = requestAnimationFrame(tick);
+            }
+
+            function startScroll(layer) {
+                activeLayer = layer;
+                if (!rafId) { lastTime = 0; rafId = requestAnimationFrame(tick); }
+            }
+
+            function stopScroll() {
+                activeLayer = null;
+                if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+            }
 
             function replaceBanner() {
-                if (Utils.route.getPath() !== '/') return;
+                if (Utils.route.getPath() !== '/') { stopScroll(); return; }
+
+                const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
+                if (!bannerImg) return;
+
+                const container = bannerImg.parentElement;
+                if (!container) return;
 
                 const targetUrl = getBannerUrl();
                 const targetFit = getObjectFit();
                 const targetPosition = getObjectPosition();
+                const scrolling = getScrolling();
 
-                const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
-                if (!bannerImg) return;
-                if (bannerImg.getAttribute('src') !== targetUrl) { bannerImg.src = targetUrl; }
-                if (targetFit && bannerImg.style.objectFit !== targetFit) { bannerImg.style.objectFit = targetFit; }
-                if (targetPosition && bannerImg.style.objectPosition !== targetPosition) { bannerImg.style.objectPosition = targetPosition; }
+                if (!container.dataset.bannerLocked) {
+                    const rect = container.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        container.style.aspectRatio = `${rect.width} / ${rect.height}`;
+                        container.style.height = 'auto';
+                        container.style.width = '100%';
+                        container.dataset.bannerLocked = '1';
+                    } else {
+                        return;
+                    }
+                }
+                Object.assign(container.style, { position: 'relative', overflow: 'hidden', overflowAnchor: 'none' });
+                Object.assign(bannerImg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%'});
+
+                if (!scrolling) {
+                    const layer = container.querySelector(':scope > .banner-scroll-layer');
+                    if (layer) layer.remove();
+                    stopScroll();
+                    bannerImg.style.visibility = '';
+                    if (bannerImg.getAttribute('src') !== targetUrl) bannerImg.src = targetUrl;
+                    if (bannerImg.style.objectFit !== targetFit) bannerImg.style.objectFit = targetFit;
+                    if (bannerImg.style.objectPosition !== targetPosition) bannerImg.style.objectPosition = targetPosition;
+                    return;
+                }
+                bannerImg.style.visibility = 'hidden';
+
+                let layer = container.querySelector(':scope > .banner-scroll-layer');
+                if (!layer) {
+                    layer = document.createElement('div');
+                    layer.className = 'banner-scroll-layer';
+                    Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', backgroundRepeat: 'repeat-y', willChange: 'background-position', });
+                    container.appendChild(layer);
+                }
+
+                const cssUrl = `url("${targetUrl}")`;
+                if (layer.style.backgroundImage !== cssUrl) layer.style.backgroundImage = cssUrl;
+
+                layer.style.backgroundSize = '100% auto';
+                layer.dataset.posX = (targetPosition || '50% 50%').split(/\s+/)[0];
+
+                if (activeLayer !== layer) startScroll(layer);
             }
             replaceBanner();
 
