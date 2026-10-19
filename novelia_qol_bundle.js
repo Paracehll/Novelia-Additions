@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.7.1
+// @version      2.7.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -139,7 +139,7 @@
                     window.dispatchEvent(new Event("tm-locationchange"));
                 });
             },
-            getPath() { return window.__noveliaMockPath || location.pathname },
+            getPath() { return window.__noveliaMockPath || (location.pathname + location.search + location.hash) },
             matchNovelPath(pathname) {
                 const pathMatch = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
                 if (pathMatch) return { source: pathMatch[1], id: pathMatch[2] };
@@ -149,7 +149,7 @@
             },
             isForumPage() {
                 const path = Utils.route.getPath();
-                return path === '/forum' || path.startsWith('/forum/');
+                return path === '/forum' || path.startsWith('/forum/') || path.startsWith('/forum?');
             },
             isForumUrl(href) {
                 if (!href) return false;
@@ -164,22 +164,22 @@
                 return false;
             },
             isSharePage() {
-                const path = Utils.route.getPath();
-                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
-                if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(path)) return false;
-                return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite') || path.startsWith('/wenku') || path.startsWith('/search') || path.startsWith('/read-history');
+                const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(cleanPath)) return false;
+                if (/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(cleanPath)) return false;
+                return cleanPath === '/' || cleanPath.startsWith('/novel') || cleanPath.startsWith('/favorite') || cleanPath.startsWith('/wenku') || cleanPath.startsWith('/search') || cleanPath.startsWith('/read-history');
             },
             isCommentCountPage() {
-                const path = Utils.route.getPath();
-                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(path)) return false;
-                return path === '/' || path.startsWith('/novel') || path.startsWith('/favorite') || path.startsWith('/wenku') || path.startsWith('/read-history');
+                const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
+                if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(cleanPath)) return false;
+                return cleanPath === '/' || cleanPath.startsWith('/novel') || cleanPath.startsWith('/favorite') || cleanPath.startsWith('/wenku') || cleanPath.startsWith('/search') || cleanPath.startsWith('/read-history');
             },
             isCommentNotifyPage() {
-                const path = Utils.route.getPath();
+                const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
                 const host = location.hostname;
-                if (host === DOMAINS.HOST && /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(path)) return true;
-                if (host === DOMAINS.HOST && /^\/wenku\/[^\/]+\/?$/i.test(path)) return true;
-                if ((host === DOMAINS.HOST && /^\/forum\/p\/[^\/]+\/?$/i.test(path)) || (host === DOMAINS.FORUM && /^\/p\/[^\/]+\/?$/i.test(path))) return true;
+                if (host === DOMAINS.HOST && /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(cleanPath)) return true;
+                if (host === DOMAINS.HOST && /^\/wenku\/[^\/]+\/?$/i.test(cleanPath)) return true;
+                if ((host === DOMAINS.HOST && /^\/forum\/p\/[^\/]+\/?$/i.test(cleanPath)) || (host === DOMAINS.FORUM && /^\/p\/[^\/]+\/?$/i.test(cleanPath))) return true;
                 return false;
             },
             onChange(callback) {
@@ -1050,7 +1050,9 @@
                     if (e.data.type === 'NOVELIA_NAVIGATE') {
                         const targetPath = e.data.path || '/';
                         const currentPath = location.pathname + location.search + location.hash;
-                        if (currentPath !== targetPath && location.pathname !== targetPath) {
+                        const currentCleanPath = location.pathname;
+                        const targetCleanPath = targetPath.split('?')[0].split('#')[0];
+                        if (currentPath !== targetPath && currentCleanPath !== targetCleanPath) {
                             history.pushState({}, '', targetPath);
                             window.dispatchEvent(new Event('popstate'));
                             window.dispatchEvent(new Event('tm-locationchange'));
@@ -1644,6 +1646,7 @@
                         sendThemeToIframe();
                         const currentPath = Utils.route.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
+                        iframe.dataset.lastSentPath = innerPath;
                         iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
                     });
                     wrapper.appendChild(loader);
@@ -1653,7 +1656,10 @@
                     if (iframe && iframe.contentWindow) {
                         const currentPath = Utils.route.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
-                        iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
+                        if (iframe.dataset.lastSentPath !== innerPath) {
+                            iframe.dataset.lastSentPath = innerPath;
+                            iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
+                        }
                     }
                 }
 
@@ -1808,6 +1814,17 @@
 
             const RECORD_LIMIT = 10;
 
+            function isForumContext() {
+                const hostName = location.hostname;
+                if (hostName === DOMAINS.FORUM) return true;
+                if (hostName === DOMAINS.HOST) {
+                    const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
+                    if (cleanPath === '/' || !Utils.route.isForumPage()) return false;
+                    return true;
+                }
+                return false;
+            }
+
             function loadSearchHistory() { return Utils.storage.get('novelia_forum_search_history', []) }
             function saveSearchHistory(historyList) { Utils.storage.set('novelia_forum_search_history', historyList); }
             function clearSearchHistory() { saveSearchHistory([]) }
@@ -1844,13 +1861,16 @@
                 }
             }
             function checkAndRecordCurrentUrl() {
+                if (!isForumContext()) return;
+
                 const currentPathname = Utils.route.getPath();
                 const currentSearch = location.search;
 
-                const boardMatch = currentPathname.match(/^\/c\/([^\/]+)/i) || currentPathname.match(/^\/forum\/c\/([^\/]+)/i);
+                const boardMatch = currentPathname.match(/^\/c\/([^\/?#]+)/i) || currentPathname.match(/^\/forum\/c\/([^\/?#]+)/i);
                 if (!boardMatch) return;
 
-                const boardName = decodeURIComponent(boardMatch[1]);
+                const rawBoard = boardMatch[1].split('?')[0].split('#')[0];
+                const boardName = decodeURIComponent(rawBoard);
                 const urlParams = new URLSearchParams(currentSearch);
                 const queryContent = urlParams.get('q');
 
@@ -1907,6 +1927,7 @@
             }
             function renderDropdown(inputElement) {
                 closeDropdown();
+                if (!isForumContext()) return;
 
                 const historyList = loadSearchHistory();
                 if (!Array.isArray(historyList) || historyList.length === 0) return;
@@ -1928,7 +1949,7 @@
 
                     const boardSpan = document.createElement('span');
                     boardSpan.className = 'novelia-shistory-item-board';
-                    boardSpan.textContent = entryItem.board;
+                    boardSpan.textContent = (entryItem.board || '').split('?')[0].split('#')[0];
 
                     const deleteBtn = document.createElement('button');
                     deleteBtn.type = 'button';
@@ -1949,8 +1970,9 @@
                         if (event.target === deleteBtn) return;
                         event.preventDefault();
                         inputElement.value = entryItem.query;
+                        inputElement.dispatchEvent(new Event('input', { bubbles: true }));
                         closeDropdown();
-                        if (entryItem.url) { location.href = entryItem.url }
+                        inputElement.focus();
                     });
                     dropdownElement.appendChild(itemElement);
                 });
@@ -1970,19 +1992,34 @@
             }
 
             function setupSearchInputHandlers(inputElement) {
+                if (!isForumContext()) return;
                 if (inputElement.dataset.noveliaShistoryAttached) return;
                 inputElement.dataset.noveliaShistoryAttached = '1';
 
                 ensureInputWrapper(inputElement);
 
-                inputElement.addEventListener('focus', () => { renderDropdown(inputElement) });
+                inputElement.addEventListener('focus', () => {
+                    if (!isForumContext()) {
+                        closeDropdown();
+                        return;
+                    }
+                    renderDropdown(inputElement);
+                });
                 inputElement.addEventListener('click', () => {
+                    if (!isForumContext()) {
+                        closeDropdown();
+                        return;
+                    }
                     if (!activeDropdownElement) { renderDropdown(inputElement) }
                 });
                 inputElement.addEventListener('blur', () => {
                     setTimeout(() => { closeDropdown(true) }, 180);
                 });
                 inputElement.addEventListener('keydown', (event) => {
+                    if (!isForumContext()) {
+                        closeDropdown();
+                        return;
+                    }
                     if (event.key === 'Enter') {
                         if (activeDropdownElement) {
                             const items = activeDropdownElement.querySelectorAll('.novelia-shistory-item');
@@ -1993,9 +2030,9 @@
                                 const selectedEntry = historyList[activeHighlightedIndex];
                                 if (selectedEntry) {
                                     inputElement.value = selectedEntry.query;
+                                    inputElement.dispatchEvent(new Event('input', { bubbles: true }));
                                     closeDropdown();
-                                    inputElement.blur();
-                                    if (selectedEntry.url) { location.href = selectedEntry.url }
+                                    inputElement.focus();
                                     return;
                                 }
                             }
@@ -2026,6 +2063,7 @@
             }
 
             function findAndAttachInputs() {
+                if (!isForumContext()) return;
                 const inputs = document.querySelectorAll('input[type="search"], input[enterkeyhint="search"], input[placeholder*="搜索"], input[placeholder*="搜尋"]');
                 inputs.forEach(setupSearchInputHandlers);
             }
@@ -2033,7 +2071,9 @@
             checkAndRecordCurrentUrl();
             findAndAttachInputs();
 
-            const observer = new MutationObserver(() => { findAndAttachInputs() });
+            const observer = new MutationObserver(() => {
+                if (isForumContext()) { findAndAttachInputs() }
+            });
             observer.observe(document.body, { childList: true, subtree: true });
 
             Utils.route.onChange(() => {
@@ -2041,7 +2081,10 @@
                 if (document.activeElement && typeof document.activeElement.blur === 'function') {
                     document.activeElement.blur();
                 }
-                setTimeout(checkAndRecordCurrentUrl, 200);
+                if (isForumContext()) {
+                    setTimeout(checkAndRecordCurrentUrl, 200);
+                    setTimeout(findAndAttachInputs, 200);
+                }
             });
         }
     };
@@ -2886,7 +2929,8 @@
             }
 
             function replaceBanner() {
-                if (Utils.route.getPath() !== '/') { stopScroll(); return; }
+                const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
+                if (cleanPath !== '/') { stopScroll(); return; }
 
                 const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
                 if (!bannerImg) return;
