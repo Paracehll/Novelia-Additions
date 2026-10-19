@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.7.0
+// @version      2.7.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -392,6 +392,30 @@
                 return (task) => new Promise((resolve, reject) => { taskQueue.push({ task, resolve, reject }); runNextTask(); });
             }
         },
+        mascot: {
+            url: `https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp`,
+            _blobUrl: null,
+            _promise: null,
+            async getUrl() {
+                if (this._blobUrl) return this._blobUrl;
+                if (!this._promise) {
+                    this._promise = (async () => {
+                        try {
+                            const response = await fetch(this.url, { headers: { 'Cache-Control': 'max-age=3600' } });
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            const blob = await response.blob();
+                            this._blobUrl = URL.createObjectURL(blob);
+                            return this._blobUrl;
+                        } catch (error) {
+                            console.error('[Utils.mascot] Failed to fetch mascot image:', error);
+                            return this.url;
+                        }
+                    })();
+                }
+                return this._promise;
+            },
+            getSyncUrl() { return this._blobUrl || this.url }
+        },
         svg: {
             REFRESH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
             BULK: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>',
@@ -448,6 +472,8 @@
             .novelia-bundle-btn svg { width: 14px; height: 14px; fill: currentColor; }
             @media (prefers-color-scheme: dark) { .novelia-bundle-btn { border-color: rgba(255, 255, 255, 0.24); color: rgba(255, 255, 255, 0.82); } }
             body.dark .novelia-bundle-btn, .n-config-provider .novelia-bundle-btn { border-color: rgba(255, 255, 255, 0.24); color: rgba(255, 255, 255, 0.82); }
+            .novelia-mascot { width: 80px; height: 80px; object-fit: contain; animation: novelia-float 2s ease-in-out infinite; }
+            @keyframes novelia-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
         `;
         document.head.appendChild(styleElement);
     }
@@ -1600,7 +1626,12 @@
 
                     const loader = document.createElement('div');
                     loader.className = 'novelia-forum-spinner-wrapper';
-                    loader.innerHTML = `<img src="https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>`;
+                    loader.innerHTML = `<img src="${Utils.mascot.getSyncUrl()}" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>`;
+
+                    Utils.mascot.getUrl().then(mascotUrl => {
+                        const mascotImg = loader.querySelector('.novelia-forum-mascot');
+                        if (mascotImg) mascotImg.src = mascotUrl;
+                    });
 
                     const iframe = document.createElement('iframe');
                     iframe.className = 'novelia-forum-iframe';
@@ -3004,6 +3035,7 @@
                     .dark .novelia-inspect-panel .n-tag, [data-theme="dark"] .novelia-inspect-panel .n-tag, body.dark .novelia-inspect-panel .n-tag { background-color: rgba(99, 226, 183, 0.15); color: #63e2b7; }
                     .novelia-inspect-panel .n-tag b { font-weight: 600; }
                     .novelia-inspect-loading { color: #888888; font-style: italic; }
+                    .novelia-inspect-mascot-wrapper { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 16px 0; }
                 `, 'novelia-inspect-styles');
             }
             function getOrCreatePanel() {
@@ -3131,9 +3163,7 @@
                 });
             }
             async function fetchInspectData(targetInfo) {
-                if (cache.has(targetInfo.cacheKey)) {
-                    return cache.get(targetInfo.cacheKey);
-                }
+                if (cache.has(targetInfo.cacheKey)) return cache.get(targetInfo.cacheKey);
 
                 let data = await getIndexedDbCache(targetInfo.cacheKey);
                 if (data) {
@@ -3198,11 +3228,8 @@
             function renderPanelWrapper(innerHtml) {
                 return `
                     <div role="none" class="n-flex" style="display: flex; flex-flow: row; justify-content: start; gap: 20px;">
-                        <div style="flex: 1 1 auto; overflow: auto;">
-                            ${innerHtml}
-                        </div>
-                    </div>
-                `;
+                        <div style="flex: 1 1 auto; overflow: auto;">${innerHtml}</div>
+                    </div>`;
             }
             function formatInspectContent(targetInfo, data) {
                 const titleZh = data.titleZh || data.title || '';
@@ -3299,7 +3326,16 @@
 
                 currentAnchorElement = anchorElement;
                 const panel = getOrCreatePanel();
-                panel.innerHTML = renderPanelWrapper('<div class="novelia-inspect-loading">載入作品資訊中...</div>');
+                panel.innerHTML = renderPanelWrapper(`
+                    <div class="novelia-inspect-mascot-wrapper">
+                        <img src="${Utils.mascot.getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
+                    </div>
+                `);
+                Utils.mascot.getUrl().then(mascotUrl => {
+                    const mascotImg = panel.querySelector('.novelia-mascot');
+                    if (mascotImg) mascotImg.src = mascotUrl;
+                });
                 panel.classList.add('show');
                 updatePosition(event.clientX, event.clientY);
 
@@ -3322,11 +3358,8 @@
             function handleMouseOut(event) {
                 if (!currentAnchorElement) return;
                 const anchorElement = event.target.closest('a');
-                if (anchorElement && anchorElement === currentAnchorElement) {
-                    hidePanel();
-                }
+                if (anchorElement && anchorElement === currentAnchorElement) hidePanel();
             }
-
             injectStyles();
             setupHostFetchListener();
             setupIframeResponseListener();
