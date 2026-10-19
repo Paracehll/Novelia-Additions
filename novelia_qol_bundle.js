@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.3.0
+// @version      2.3.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -327,55 +327,12 @@
         const styleElement = document.createElement('style');
         styleElement.id = 'novelia-bundle-global-styles';
         styleElement.textContent = `
-            .novelia-bundle-btn {
-                font-weight: 400;
-                line-height: 1;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                user-select: none;
-                cursor: pointer;
-                text-align: center;
-                border-radius: 3px;
-                padding: 0 10px;
-                height: 28px;
-                font-size: 13px;
-                transition: color .3s, background-color .3s, border-color .3s, opacity .3s;
-                white-space: nowrap;
-                vertical-align: middle;
-                box-sizing: border-box;
-                background-color: transparent;
-                border: 1px solid rgba(0, 0, 0, 0.2);
-                color: #333;
-                gap: 6px;
-                margin-left: 10px;
-            }
-            .novelia-bundle-btn:hover {
-                background-color: rgba(99, 226, 183, 0.1);
-                border-color: #63e2b7;
-                color: #63e2b7;
-            }
-            .novelia-bundle-btn:disabled {
-                cursor: not-allowed;
-                opacity: 0.5;
-            }
-            .novelia-bundle-btn svg {
-                width: 14px;
-                height: 14px;
-                fill: currentColor;
-            }
-            @media (prefers-color-scheme: dark) {
-                .novelia-bundle-btn {
-                    border-color: rgba(255, 255, 255, 0.24);
-                    color: rgba(255, 255, 255, 0.82);
-                }
-            }
-            /* Dark mode override for the site if it uses a specific class on body/html */
-            body.dark .novelia-bundle-btn,
-            .n-config-provider .novelia-bundle-btn {
-                border-color: rgba(255, 255, 255, 0.24);
-                color: rgba(255, 255, 255, 0.82);
-            }
+            .novelia-bundle-btn { font-weight: 400; line-height: 1; display: inline-flex; align-items: center; justify-content: center; user-select: none; cursor: pointer; text-align: center; border-radius: 3px; padding: 0 10px; height: 28px; font-size: 13px; transition: color .3s, background-color .3s, border-color .3s, opacity .3s; white-space: nowrap; vertical-align: middle; box-sizing: border-box; background-color: transparent; border: 1px solid rgba(0, 0, 0, 0.2); color: #333; gap: 6px; margin-left: 10px; }
+            .novelia-bundle-btn:hover { background-color: rgba(99, 226, 183, 0.1); border-color: #63e2b7; color: #63e2b7; }
+            .novelia-bundle-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+            .novelia-bundle-btn svg { width: 14px; height: 14px; fill: currentColor; }
+            @media (prefers-color-scheme: dark) { .novelia-bundle-btn { border-color: rgba(255, 255, 255, 0.24); color: rgba(255, 255, 255, 0.82); } }
+            body.dark .novelia-bundle-btn, .n-config-provider .novelia-bundle-btn { border-color: rgba(255, 255, 255, 0.24); color: rgba(255, 255, 255, 0.82); }
         `;
         document.head.appendChild(styleElement);
     }
@@ -827,23 +784,11 @@
 
                 function injectIframeStyles() {
                     Utils.gm.addStyle(`
-                        aside, aside[class*="sidebar"], .web-kit-sidebar,
-                        nav[aria-label="站点导航"], nav[aria-label="站點導航"],
-                        nav[aria-label="章節導航"], nav[aria-label="章节导航"], div[data-v-491796e2] {
-                            display: none !important;
-                        }
-                        .layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"] {
-                            display: none !important;
-                        }
+                        aside, aside[class*="sidebar"], .web-kit-sidebar, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="章節導航"], nav[aria-label="章节导航"], div[data-v-491796e2] { display: none !important; }
+                        .layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"] { display: none !important; }
                         header, .forum-header { display: flex !important; }
-                        main, body, #app {
-                            width: 100% !important; max-width: 100% !important;
-                            margin-left: 0 !important; padding-left: 0 !important;
-                            padding-bottom: 32px !important;
-                        }
-                        @media (max-width: 768px) {
-                            main, body, #app { padding-bottom: 96px !important; }
-                        }
+                        main, body, #app { width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; padding-bottom: 32px !important; }
+                        @media (max-width: 768px) { main, body, #app { padding-bottom: 96px !important; } }
                     `, 'novelia-iframe-hide-sidebar-style');
                 }
 
@@ -1019,72 +964,28 @@
 
             function injectInlineStyles() {
                 Utils.gm.addStyle(`
-                    html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header {
-                        display: none !important;
-                    }
-                    html.novelia-forum-active .n-layout-sider, html.novelia-forum-active .n-layout-sidebar,
-                    html.novelia-forum-active aside.n-layout-sider, html.novelia-forum-active aside.web-kit-sidebar,
-                    html.novelia-forum-active .sidebar-shell {
-                        display: flex !important; height: 100vh !important; top: 0 !important;
-                    }
-                    html.novelia-forum-active, html.novelia-forum-active body, html.novelia-forum-active #app,
-                    html.novelia-forum-active .web-kit-layout, html.novelia-forum-active .n-layout-scroll-container,
-                    html.novelia-forum-active .n-layout {
-                        height: 100vh !important; overflow: hidden !important;
-                    }
-                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content,
-                    html.novelia-forum-active .n-layout-content .n-layout-scroll-container,
-                    html.novelia-forum-active .n-layout-content .layout-content {
-                        max-width: 100% !important; width: 100% !important; height: 100% !important;
-                        padding: 0 !important; margin: 0 !important; display: flex !important;
-                        flex-direction: column !important; flex: 1 1 auto !important;
-                    }
+                    html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header { display: none !important; }
+                    html.novelia-forum-active .n-layout-sider, html.novelia-forum-active .n-layout-sidebar, html.novelia-forum-active aside.n-layout-sider, html.novelia-forum-active aside.web-kit-sidebar, html.novelia-forum-active .sidebar-shell { display: flex !important; height: 100vh !important; top: 0 !important; }
+                    html.novelia-forum-active, html.novelia-forum-active body, html.novelia-forum-active #app, html.novelia-forum-active .web-kit-layout, html.novelia-forum-active .n-layout-scroll-container, html.novelia-forum-active .n-layout { height: 100vh !important; overflow: hidden !important; }
+                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content, html.novelia-forum-active .n-layout-content .n-layout-scroll-container, html.novelia-forum-active .n-layout-content .layout-content { max-width: 100% !important; width: 100% !important; height: 100% !important; padding: 0 !important; margin: 0 !important; display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
                     .novelia-forum-hide { display: none !important; }
-                    #novelia-forum-inline-container {
-                        width: 100% !important; height: 100% !important; min-height: 100% !important;
-                        max-width: 100% !important; display: flex !important; flex-direction: column !important;
-                        margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
-                        overflow: hidden !important; position: relative !important; flex: 1 1 auto !important;
-                    }
-                    #novelia-forum-inline-container iframe {
-                        width: 100% !important; height: 100% !important; min-height: 100% !important;
-                        border: none !important; display: block !important; opacity: 0;
-                        transition: opacity 0.3s ease-in-out;
-                    }
+                    #novelia-forum-inline-container { width: 100% !important; height: 100% !important; min-height: 100% !important; max-width: 100% !important; display: flex !important; flex-direction: column !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; overflow: hidden !important; position: relative !important; flex: 1 1 auto !important; }
+                    #novelia-forum-inline-container iframe { width: 100% !important; height: 100% !important; min-height: 100% !important; border: none !important; display: block !important; opacity: 0; transition: opacity 0.3s ease-in-out; }
                     #novelia-forum-inline-container iframe.novelia-iframe-loaded { opacity: 1 !important; }
-                    .novelia-forum-spinner-wrapper {
-                        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                        display: flex; flex-direction: column; align-items: center; gap: 12px;
-                        color: var(--n-text-color, #666); transition: opacity 0.3s ease-in-out;
-                        pointer-events: none; z-index: 10;
-                    }
+                    .novelia-forum-spinner-wrapper { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--n-text-color, #666); transition: opacity 0.3s ease-in-out; pointer-events: none; z-index: 10; }
                     .novelia-forum-spinner-wrapper.novelia-spinner-hidden { opacity: 0 !important; }
                     .novelia-forum-mascot { width: 128px; height: 128px; object-fit: contain; animation: novelia-float 2s ease-in-out infinite; }
-                    @keyframes novelia-float {
-                        0%, 100% { transform: translateY(0); }
-                        50% { transform: translateY(-16px); }
-                    }
-                    .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-sider-toggle-bar,
-                    .n-layout-toggle-button, .sidebar-collapse { display: flex !important; z-index: 1000 !important; }
-                    .n-menu--collapsed .n-menu-item-content-header, .n-layout-sider--collapsed .n-menu-item-content-header,
-                    .n-menu--collapsed .n-submenu-children, .n-layout-sider--collapsed .n-submenu-children,
-                    .n-menu--collapsed .n-menu-item-content__arrow, .n-layout-sider--collapsed .n-menu-item-content__arrow { display: none !important; }
+                    @keyframes novelia-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-16px); } }
+                    .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-sider-toggle-bar, .n-layout-toggle-button, .sidebar-collapse { display: flex !important; z-index: 1000 !important; }
+                    .n-menu--collapsed .n-menu-item-content-header, .n-layout-sider--collapsed .n-menu-item-content-header, .n-menu--collapsed .n-submenu-children, .n-layout-sider--collapsed .n-submenu-children, .n-menu--collapsed .n-menu-item-content__arrow, .n-layout-sider--collapsed .n-menu-item-content__arrow { display: none !important; }
                     .n-submenu-children.collapsed { display: none !important; }
                     .n-submenu-children.expanded { display: block !important; }
                     .n-menu-item-content-header { flex: 1 1 0%; }
                     .n-menu-item-content-header a { color: inherit; text-decoration: none; display: block; width: 100%; }
                     .novelia-forum-submenu .n-menu-item-content__arrow { margin-left: auto !important; }
                     .sidebar-submenu .web-kit-sidebar-item { padding-left: 36px !important; }
-                    .novelia-forum-dropdown-popover {
-                        position: fixed; z-index: 9999; background-color: rgb(72, 72, 78) !important;
-                        border: 1px solid rgb(72, 72, 78) !important; border-radius: 4px;
-                        box-shadow: 0 3px 6px -4px rgba(0, 0, 0, .12), 0 6px 16px 0 rgba(0, 0, 0, .08), 0 9px 28px 8px rgba(0, 0, 0, .05);
-                        padding: 6px 0; min-width: 160px; display: none; flex-direction: column;
-                    }
-                    .novelia-forum-dropdown-item {
-                        padding: 8px 16px; cursor: pointer; color: #ffffff !important; font-size: 14px;
-                        display: flex; align-items: center; gap: 10px; transition: background-color 0.2s, color 0.2s;
-                    }
+                    .novelia-forum-dropdown-popover { position: fixed; z-index: 9999; background-color: rgb(72, 72, 78) !important; border: 1px solid rgb(72, 72, 78) !important; border-radius: 4px; box-shadow: 0 3px 6px -4px rgba(0, 0, 0, .12), 0 6px 16px 0 rgba(0, 0, 0, .08), 0 9px 28px 8px rgba(0, 0, 0, .05); padding: 6px 0; min-width: 160px; display: none; flex-direction: column; }
+                    .novelia-forum-dropdown-item { padding: 8px 16px; cursor: pointer; color: #ffffff !important; font-size: 14px; display: flex; align-items: center; gap: 10px; transition: background-color 0.2s, color 0.2s; }
                     .novelia-forum-dropdown-item:hover { background-color: rgba(255, 255, 255, 0.15) !important; color: #63e2b7 !important; }
                     .novelia-forum-dropdown-item svg { width: 18px; height: 18px; fill: currentColor; }
                 `, 'novelia-forum-inline-styles');
@@ -1771,14 +1672,14 @@
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             Utils.gm.addStyle(`
-                .${COPY_BUTTON_CLASS}{position:relative;overflow:hidden;margin-right:6px;padding:1px 0;width:${BUTTON_WIDTH};font-size:12px;cursor:pointer;background:transparent;border:1px solid #aaa;border-radius:4px;vertical-align:middle;opacity:.6;text-align:center;flex-shrink:0;line-height:1.4;transition:opacity .15s,background .15s,border-color .15s}
-                .${COPY_BUTTON_CLASS}:hover{opacity:1;background:#eee}
-                .${COPY_BUTTON_CLASS}.flashing::after{content:'';position:absolute;top:50%;left:50%;width:10px;height:10px;background:rgba(40,167,69,.4);border-radius:50%;transform:translate(-50%,-50%);animation:novelia-ripple .4s ease-out}
-                @keyframes novelia-ripple{0%{width:0;height:0;opacity:1}100%{width:120px;height:120px;opacity:0}}
-                .novelia-toast{position:fixed;top:-50px;left:50%;transform:translateX(-50%);background:rgba(51,51,51,.95);color:#fff;padding:14px 24px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.25);transition:top .3s,opacity .3s;white-space:pre-wrap;max-width:90vw;font-family:monospace;line-height:1.5}
-                .novelia-toast.show{top:30px;opacity:1}
-                .${LIST_WRAPPER_CLASS}{display:inline-flex;align-items:center;width:auto;flex-flow:row;margin-bottom:2px;}
-                .novelia-grid-wrapper{display:inline-flex;align-items:flex-start;width:100%}
+                .${COPY_BUTTON_CLASS} { position: relative; overflow: hidden; margin-right: 6px; padding: 1px 0; width: ${BUTTON_WIDTH}; font-size: 12px; cursor: pointer; background: transparent; border: 1px solid #aaa; border-radius: 4px; vertical-align: middle; opacity: .6; text-align: center; flex-shrink: 0; line-height: 1.4; transition: opacity .15s, background .15s, border-color .15s; }
+                .${COPY_BUTTON_CLASS}:hover { opacity: 1; background: #eee; }
+                .${COPY_BUTTON_CLASS}.flashing::after { content: ''; position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; background: rgba(40, 167, 69, .4); border-radius: 50%; transform: translate(-50%, -50%); animation: novelia-ripple .4s ease-out; }
+                @keyframes novelia-ripple { 0% { width: 0; height: 0; opacity: 1; } 100% { width: 120px; height: 120px; opacity: 0; } }
+                .novelia-toast { position: fixed; top: -50px; left: 50%; transform: translateX(-50%); background: rgba(51, 51, 51, .95); color: #fff; padding: 14px 24px; border-radius: 8px; font-size: 14px; z-index: 99999; opacity: 0; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, .25); transition: top .3s, opacity .3s; white-space: pre-wrap; max-width: 90vw; font-family: monospace; line-height: 1.5; }
+                .novelia-toast.show { top: 30px; opacity: 1; }
+                .${LIST_WRAPPER_CLASS} { display: inline-flex; align-items: center; width: auto; flex-flow: row; margin-bottom: 2px; }
+                .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
             `);
 
             const toast = Utils.ui.createToastManager('novelia-toast');
@@ -2107,50 +2008,17 @@
             if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
 
             Utils.gm.addStyle(`
-                .novelia-collapse-btn-wrapper {
-                    margin-top: 8px;
-                    display: flex;
-                    align-items: center;
-                }
-                .novelia-collapse-btn {
-                    background: transparent;
-                    border: none;
-                    cursor: pointer;
-                    padding: 0 6px 0 0;
-                    font-size: 12px;
-                    display: flex;
-                    align-items: center;
-                    color: var(--n-text-color);
-                    opacity: 0.8;
-                    transition: opacity 0.2s, background-color 0.2s;
-                    border-radius: 2px;
-                }
-                .novelia-collapse-btn:hover {
-                    opacity: 1;
-                    background-color: rgba(0, 0, 0, 0.05);
-                }
-                .dark .novelia-collapse-btn:hover {
-                    background-color: rgba(255, 255, 255, 0.1);
-                }
-                .novelia-collapse-icon {
-                    transition: transform 0.3s ease;
-                    margin-right: 4px;
-                    display: flex;
-                    align-items: center;
-                }
+                .novelia-collapse-btn-wrapper { margin-top: 8px; display: flex; align-items: center; }
+                .novelia-collapse-btn { background: transparent; border: none; cursor: pointer; padding: 0 6px 0 0; font-size: 12px; display: flex; align-items: center; color: var(--n-text-color); opacity: 0.8; transition: opacity 0.2s, background-color 0.2s; border-radius: 2px; }
+                .novelia-collapse-btn:hover { opacity: 1; background-color: rgba(0, 0, 0, 0.05); }
+                .dark .novelia-collapse-btn:hover { background-color: rgba(255, 255, 255, 0.1); }
+                .novelia-collapse-icon { transition: transform 0.3s ease; margin-right: 4px; display: flex; align-items: center; }
                 .novelia-collapse-icon.collapsed { transform: rotate(0deg); }
                 .novelia-collapse-icon.expanded { transform: rotate(90deg); }
-                .novelia-collapse-replies-wrapper {
-                    display: grid;
-                    transition: grid-template-rows 0.3s ease-in-out;
-                    overflow: hidden;
-                }
+                .novelia-collapse-replies-wrapper { display: grid; transition: grid-template-rows 0.3s ease-in-out; overflow: hidden; }
                 .novelia-collapse-replies-wrapper.collapsed { grid-template-rows: 0fr; }
                 .novelia-collapse-replies-wrapper.expanded { grid-template-rows: 1fr; }
-                .novelia-collapse-replies-inner {
-                    overflow: hidden;
-                    display: flow-root;
-                }
+                .novelia-collapse-replies-inner { overflow: hidden; display: flow-root; }
             `);
 
             const LS_KEY = 'novelia_collapsed_comments';
