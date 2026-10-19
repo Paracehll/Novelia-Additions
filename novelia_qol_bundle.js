@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.6.1
+// @version      2.7.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -16,6 +16,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -34,6 +35,7 @@
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
 
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
+        { id: 'novel_inspect', name: '懸浮作品 Preview', default: true },
     ];
 
     const DOMAINS = {
@@ -2913,6 +2915,425 @@
             const observer = new MutationObserver(() => { replaceBanner() });
             observer.observe(document.body, { childList: true, subtree: true });
             Utils.route.onChange(replaceBanner);
+        }
+    };
+
+    // ==========================================
+    // 9. 懸浮 Preview (Modules.novel_inspect)
+    // ==========================================
+    Modules.novel_inspect = {
+        init: function() {
+            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+
+            const cache = new Map();
+            let panelElement = null;
+            let currentAnchorElement = null;
+
+            const DB_NAME = 'novelia_inspect_db';
+            const DB_VERSION = 1;
+            const STORE_NAME = 'novel_cache';
+            const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+            function openDatabase() {
+                return new Promise((resolve, reject) => {
+                    if (typeof indexedDB === 'undefined') {
+                        return reject(new Error('IndexedDB not supported'));
+                    }
+                    const request = indexedDB.open(DB_NAME, DB_VERSION);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains(STORE_NAME)) {
+                            db.createObjectStore(STORE_NAME, { keyPath: 'cacheKey' });
+                        }
+                    };
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+            async function getIndexedDbCache(cacheKey) {
+                try {
+                    const db = await openDatabase();
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(STORE_NAME, 'readonly');
+                        const store = tx.objectStore(STORE_NAME);
+                        const request = store.get(cacheKey);
+                        request.onsuccess = () => {
+                            const record = request.result;
+                            if (record && (Date.now() - record.timestamp < CACHE_TTL_MS)) {
+                                resolve(record.data);
+                            } else {
+                                resolve(null);
+                            }
+                        };
+                        request.onerror = () => resolve(null);
+                    });
+                } catch (error) {
+                    return null;
+                }
+            }
+            async function setIndexedDbCache(cacheKey, data) {
+                try {
+                    const db = await openDatabase();
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(STORE_NAME, 'readwrite');
+                        const store = tx.objectStore(STORE_NAME);
+                        const request = store.put({ cacheKey, data, timestamp: Date.now() });
+                        request.onsuccess = () => resolve(true);
+                        request.onerror = () => resolve(false);
+                    });
+                } catch (error) {
+                    return false;
+                }
+            }
+            function injectStyles() {
+                Utils.gm.addStyle(`
+                    .novelia-inspect-panel { position: fixed; z-index: 99999; width: 360px; max-width: 90vw; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); padding: 12px 14px; font-size: 13px; line-height: 1.5; pointer-events: none; transition: opacity 0.05s ease-out; opacity: 0; box-sizing: border-box; }
+                    .dark .novelia-inspect-panel, [data-theme="dark"] .novelia-inspect-panel, body.dark .novelia-inspect-panel { background-color: #1e1e22; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+                    .novelia-inspect-panel.show { opacity: 1; }
+                    .novelia-inspect-panel .n-h, .novelia-inspect-panel .n-h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px 0; color: #111111; word-break: break-word; line-height: 1.4; }
+                    .dark .novelia-inspect-panel .n-h, .dark .novelia-inspect-panel .n-h3, [data-theme="dark"] .novelia-inspect-panel .n-h, body.dark .novelia-inspect-panel .n-h { color: #ffffff; }
+                    .novelia-inspect-panel .n-a { color: inherit; text-decoration: none; }
+                    .novelia-inspect-panel .n-a:hover { text-decoration: underline; color: #63e2b7; }
+                    .novelia-inspect-panel .n-divider { margin: 8px 0; border: none; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+                    .dark .novelia-inspect-panel .n-divider, [data-theme="dark"] .novelia-inspect-panel .n-divider, body.dark .novelia-inspect-panel .n-divider { border-top-color: rgba(255, 255, 255, 0.12); }
+                    .novelia-inspect-panel .metadata-stat { font-size: 12px; color: #666666; margin-bottom: 8px; }
+                    .dark .novelia-inspect-panel .metadata-stat, [data-theme="dark"] .novelia-inspect-panel .metadata-stat, body.dark .novelia-inspect-panel .metadata-stat { color: #aaaaaa; }
+                    .novelia-inspect-panel .n-p { font-size: 12px; color: #444444; line-height: 1.5; margin-top: 12px; white-space: pre-wrap; }
+                    .dark .novelia-inspect-panel .n-p, [data-theme="dark"] .novelia-inspect-panel .n-p, body.dark .novelia-inspect-panel .n-p { color: #bbbbbb; }
+                    .novelia-inspect-panel .n-tag { display: inline-flex; align-items: center; font-size: 11px; padding: 2px 6px; border-radius: 3px; background-color: rgba(0, 0, 0, 0.06); color: #333333; line-height: 1.2; text-decoration: none; }
+                    .dark .novelia-inspect-panel .n-tag, [data-theme="dark"] .novelia-inspect-panel .n-tag, body.dark .novelia-inspect-panel .n-tag { background-color: rgba(99, 226, 183, 0.15); color: #63e2b7; }
+                    .novelia-inspect-panel .n-tag b { font-weight: 600; }
+                    .novelia-inspect-loading { color: #888888; font-style: italic; }
+                `, 'novelia-inspect-styles');
+            }
+            function getOrCreatePanel() {
+                if (!panelElement) {
+                    panelElement = document.createElement('div');
+                    panelElement.className = 'novelia-inspect-panel';
+                    document.body.appendChild(panelElement);
+                }
+                return panelElement;
+            }
+            function updatePosition(clientX, clientY) {
+                if (!panelElement) return;
+                const offsetDistance = 15;
+                const panelWidth = panelElement.offsetWidth || 340;
+                const panelHeight = panelElement.offsetHeight || 150;
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+
+                let leftPos = clientX + offsetDistance;
+                let topPos = clientY + offsetDistance;
+
+                if (leftPos + panelWidth > viewportWidth - 10) {
+                    leftPos = clientX - panelWidth - offsetDistance;
+                    if (leftPos < 10) leftPos = 10;
+                }
+                if (topPos + panelHeight > viewportHeight - 10) {
+                    topPos = clientY - panelHeight - offsetDistance;
+                    if (topPos < 10) topPos = 10;
+                }
+                panelElement.style.left = `${leftPos}px`;
+                panelElement.style.top = `${topPos}px`;
+            }
+
+            function hidePanel() {
+                if (panelElement) panelElement.classList.remove('show');
+                currentAnchorElement = null;
+            }
+
+            function parseTargetUrl(href) {
+                if (!href) return null;
+                try {
+                    const parsedUrl = new URL(href, location.origin);
+                    if (parsedUrl.hostname !== DOMAINS.HOST && parsedUrl.hostname !== location.hostname) return null;
+
+                    const novelMatch = parsedUrl.pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
+                    if (novelMatch) {
+                        return { type: 'novel', provider: novelMatch[1], id: novelMatch[2], cacheKey: `novel/${novelMatch[1]}/${novelMatch[2]}` };
+                    }
+
+                    const wenkuMatch = parsedUrl.pathname.match(/^\/wenku\/([^\/?#]+)/i);
+                    if (wenkuMatch) {
+                        return { type: 'wenku', id: wenkuMatch[1], cacheKey: `wenku/${wenkuMatch[1]}` };
+                    }
+                } catch (error) {}
+                return null;
+            }
+
+            const pendingFetchCallbacks = new Map();
+            let requestIdCounter = 0;
+
+            function getApiUrl(targetInfo) {
+                if (targetInfo.type === 'novel') {
+                    return `https://${DOMAINS.HOST}/api/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
+                }
+                return `https://${DOMAINS.HOST}/api/wenku/${encodeURIComponent(targetInfo.id)}`;
+            }
+
+            async function requestApi(apiUrl) {
+                if (typeof GM_xmlhttpRequest === 'function') {
+                    return new Promise((resolve, reject) => {
+                        GM_xmlhttpRequest({
+                            method: 'GET',
+                            url: apiUrl,
+                            onload: (res) => {
+                                if (res.status >= 200 && res.status < 300) {
+                                    try { resolve(JSON.parse(res.responseText)); } catch (error) { reject(error); }
+                                } else {
+                                    reject(new Error(`HTTP ${res.status}`));
+                                }
+                            },
+                            onerror: (err) => reject(err)
+                        });
+                    });
+                }
+                const response = await fetch(apiUrl, { credentials: 'same-origin' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            }
+
+            function setupHostFetchListener() {
+                if (location.hostname !== DOMAINS.HOST || window.top !== window.self) return;
+
+                window.addEventListener('message', async (event) => {
+                    if (!event.data || event.data.type !== 'NOVELIA_INSPECT_FETCH') return;
+
+                    const { requestId, targetInfo } = event.data;
+                    if (!requestId || !targetInfo) return;
+
+                    try {
+                        let data = await getIndexedDbCache(targetInfo.cacheKey);
+                        if (!data) {
+                            data = await requestApi(getApiUrl(targetInfo));
+                            await setIndexedDbCache(targetInfo.cacheKey, data);
+                        }
+                        if (event.source && typeof event.source.postMessage === 'function') {
+                            event.source.postMessage({ type: 'NOVELIA_INSPECT_RESPONSE', requestId, success: true, data }, '*');
+                        }
+                    } catch (error) {
+                        if (event.source && typeof event.source.postMessage === 'function') {
+                            event.source.postMessage({ type: 'NOVELIA_INSPECT_RESPONSE', requestId, success: false, error: error.message }, '*');
+                        }
+                    }
+                });
+            }
+            function setupIframeResponseListener() {
+                window.addEventListener('message', (event) => {
+                    if (!event.data || event.data.type !== 'NOVELIA_INSPECT_RESPONSE') return;
+                    const { requestId, success, data, error } = event.data;
+                    const callbacks = pendingFetchCallbacks.get(requestId);
+                    if (callbacks) {
+                        pendingFetchCallbacks.delete(requestId);
+                        if (success) callbacks.resolve(data);
+                        else callbacks.reject(new Error(error || 'Fetch failed'));
+                    }
+                });
+            }
+            async function fetchInspectData(targetInfo) {
+                if (cache.has(targetInfo.cacheKey)) {
+                    return cache.get(targetInfo.cacheKey);
+                }
+
+                let data = await getIndexedDbCache(targetInfo.cacheKey);
+                if (data) {
+                    cache.set(targetInfo.cacheKey, data);
+                    return data;
+                }
+
+                if (window.top !== window.self) {
+                    data = await new Promise((resolve, reject) => {
+                        const requestId = `req_${Date.now()}_${++requestIdCounter}`;
+                        pendingFetchCallbacks.set(requestId, { resolve, reject });
+                        window.parent.postMessage({ type: 'NOVELIA_INSPECT_FETCH', requestId, targetInfo }, '*');
+
+                        setTimeout(() => {
+                            if (pendingFetchCallbacks.has(requestId)) {
+                                pendingFetchCallbacks.delete(requestId);
+                                reject(new Error('Fetch timeout'));
+                            }
+                        }, 10000);
+                    });
+                } else {
+                    data = await requestApi(getApiUrl(targetInfo));
+                    await setIndexedDbCache(targetInfo.cacheKey, data);
+                }
+                cache.set(targetInfo.cacheKey, data);
+                return data;
+            }
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+            function getNovelUrl(targetInfo, data) {
+                if (data && data.sourceUrl) return data.sourceUrl;
+                if (targetInfo && targetInfo.type === 'novel') {
+                    if (targetInfo.provider === 'hameln') return `https://syosetu.org/novel/${targetInfo.id}`;
+                    if (targetInfo.provider === 'syosetu' || targetInfo.provider === 'ncode') return `https://ncode.syosetu.com/${targetInfo.id}`;
+                    return `https://${DOMAINS.HOST}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
+                } else if (targetInfo && targetInfo.type === 'wenku') {
+                    return `https://${DOMAINS.HOST}/wenku/${encodeURIComponent(targetInfo.id)}`;
+                }
+                return '#';
+            }
+            function formatRelativeTime(timestamp) {
+                if (!timestamp) return '';
+                let timestampInMs = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+                if (isNaN(timestampInMs)) return '';
+                if (timestampInMs < 1e11) timestampInMs *= 1000;
+
+                const diffSeconds = Math.floor((Date.now() - timestampInMs) / 1000);
+                if (diffSeconds < 0 || diffSeconds < 60) return '刚刚';
+                if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} 分钟前`;
+                if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)} 小时前`;
+                if (diffSeconds < 2592000) return `${Math.floor(diffSeconds / 86400)} 天前`;
+                if (diffSeconds < 31536000) return `${Math.floor(diffSeconds / 2592000)} 个月前`;
+                return `${Math.floor(diffSeconds / 31536000)} 年前`;
+            }
+            function renderPanelWrapper(innerHtml) {
+                return `
+                    <div role="none" class="n-flex" style="display: flex; flex-flow: row; justify-content: start; gap: 20px;">
+                        <div style="flex: 1 1 auto; overflow: auto;">
+                            ${innerHtml}
+                        </div>
+                    </div>
+                `;
+            }
+            function formatInspectContent(targetInfo, data) {
+                const titleZh = data.titleZh || data.title || '';
+                const titleJp = data.titleJp || '';
+                const displayTitle = titleZh || titleJp || '未知作品';
+                const novelUrl = getNovelUrl(targetInfo, data);
+
+                let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escapeHtml(novelUrl)}">${escapeHtml(displayTitle)}</a></h3>`;
+                if (titleJp && titleJp !== displayTitle) {
+                    titleHtml += `<span class="n-text __text-dark-1ynum3r-d3" style="display: block; font-size: 14px; line-height: 1.6;">${escapeHtml(titleJp)}</span>`;
+                }
+
+                const statItems = [];
+                if (data.type) {
+                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escapeHtml(data.type)}</span>`);
+                }
+                if (typeof data.totalCharacters === 'number') {
+                    const totalChars = data.totalCharacters;
+                    const wordsFormatted = totalChars >= 10000 ? `${(totalChars / 10000).toFixed(1)} 万字` : `${totalChars.toLocaleString()} 字`;
+                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escapeHtml(wordsFormatted)}</span>`);
+                }
+                const rawTimestamp = data.syncAt || data.updateAt || data.createAt;
+                if (rawTimestamp) {
+                    const timeFormatted = formatRelativeTime(rawTimestamp);
+                    if (timeFormatted) {
+                        statItems.push(`<time>${escapeHtml(timeFormatted)}</time>`);
+                    }
+                }
+                if (typeof data.visited === 'number') {
+                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${data.visited.toLocaleString()} 次浏览</span>`);
+                }
+
+                const metadataHtml = statItems.length > 0
+                    ? `<div role="none" class="n-flex metadata-stat" style="display: flex; flex-flow: wrap; justify-content: start; align-items: center; gap: 8px;">${statItems.join('<span>/</span>')}</div>`
+                    : '';
+
+                const introText = data.introductionZh || data.introductionJp || data.introduction || '無簡介';
+                const introHtml = `<p class="n-p __p-dark-1ynum3r" style="word-break: break-all; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 16px;">${escapeHtml(introText)}</p>`;
+
+                const tagElements = [];
+                if (data.points !== undefined && data.points !== null) {
+                    tagElements.push(`<div class="n-tag __tag-dark-1ynum3r-ss" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(String(data.points))} PT</b></span></div>`);
+                }
+                if (Array.isArray(data.attentions)) {
+                    data.attentions.forEach((attentionItem) => {
+                        if (attentionItem) {
+                            tagElements.push(`<a href="/novel?query=${encodeURIComponent(attentionItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(attentionItem)}</b></span></div></a>`);
+                        }
+                    });
+                }
+                if (Array.isArray(data.keywords)) {
+                    data.keywords.forEach((keywordItem) => {
+                        if (keywordItem) {
+                            tagElements.push(`<a href="/novel?query=${encodeURIComponent(keywordItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content">${escapeHtml(keywordItem)}</span></div></a>`);
+                        }
+                    });
+                }
+
+                const tagsContainerHtml = tagElements.length > 0
+                    ? `<div role="none" class="n-flex" style="display: flex; flex-flow: wrap; justify-content: start; gap: 4px; margin-top: 12px;">${tagElements.join('')}</div>`
+                    : '';
+
+                return renderPanelWrapper(`
+                    <div style="margin: 18px 0px;">
+                        ${titleHtml}
+                    </div>
+                    <div role="separator" class="n-divider __divider-dark-1ynum3r n-divider--no-title"><div class="n-divider__line n-divider__line--left"></div></div>
+                    ${metadataHtml}
+                    ${introHtml}
+                    ${tagsContainerHtml}
+                `);
+            }
+
+            function isAllowedHostPage() {
+                if (location.hostname !== DOMAINS.HOST) return true;
+                const currentPath = Utils.route.getPath();
+                return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/');
+            }
+
+            function isTargetContainer(anchorElement) {
+                if (!anchorElement) return false;
+                if (!isAllowedHostPage()) return false;
+                return !!anchorElement.closest('article, .prose, .markdown-body, #comments, .n-tab-pane, [class*="comment"], .comment-card, .topic-detail, .post-content');
+            }
+
+            function handleMouseOver(event) {
+                const anchorElement = event.target.closest('a');
+                if (!anchorElement) return;
+
+                if (!isTargetContainer(anchorElement)) return;
+
+                const targetInfo = parseTargetUrl(anchorElement.getAttribute('href') || anchorElement.href);
+                if (!targetInfo) return;
+
+                currentAnchorElement = anchorElement;
+                const panel = getOrCreatePanel();
+                panel.innerHTML = renderPanelWrapper('<div class="novelia-inspect-loading">載入作品資訊中...</div>');
+                panel.classList.add('show');
+                updatePosition(event.clientX, event.clientY);
+
+                fetchInspectData(targetInfo).then(data => {
+                    if (currentAnchorElement === anchorElement && panel) {
+                        panel.innerHTML = formatInspectContent(targetInfo, data);
+                        updatePosition(event.clientX, event.clientY);
+                    }
+                }).catch(error => {
+                    if (currentAnchorElement === anchorElement && panel) {
+                        panel.innerHTML = renderPanelWrapper('<div class="novelia-inspect-loading">⚠️ 無法載入作品資訊</div>');
+                    }
+                });
+            }
+            function handleMouseMove(event) {
+                if (currentAnchorElement && panelElement && panelElement.classList.contains('show')) {
+                    updatePosition(event.clientX, event.clientY);
+                }
+            }
+            function handleMouseOut(event) {
+                if (!currentAnchorElement) return;
+                const anchorElement = event.target.closest('a');
+                if (anchorElement && anchorElement === currentAnchorElement) {
+                    hidePanel();
+                }
+            }
+
+            injectStyles();
+            setupHostFetchListener();
+            setupIframeResponseListener();
+            document.addEventListener('mouseover', handleMouseOver, true);
+            document.addEventListener('mousemove', handleMouseMove, true);
+            document.addEventListener('mouseout', handleMouseOut, true);
+            Utils.route.onChange(hidePanel);
         }
     };
 
