@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.5.0
+// @version      2.5.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -26,7 +26,7 @@
         { id: 'banner_replace', name: '替換首頁橫幅', default: true },
         { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
 
-        { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
+        { id: 'comment_collapse', name: '摺疊評論區回覆', default: true },
         { id: 'comment_notify', name: '評論區更新排序', default: true },     
 
         { id: 'share_btn', name: '小說分享按鈕', default: true },
@@ -252,6 +252,121 @@
                         timer = setTimeout(() => toastEl.classList.remove('show'), duration);
                     }
                 };
+            }
+        },
+        comments: {
+            getNovelCommentPane() {
+                const activeTab = document.querySelector('.n-tabs-tab--active, .n-tabs-tab[aria-selected="true"]');
+                const activeTabIsComment = activeTab && (activeTab.textContent.includes('评论') || activeTab.textContent.includes('評論'));
+
+                let paneElement = null;
+                const h2Elements = document.querySelectorAll('h2');
+                for (const h2Element of h2Elements) {
+                    const text = h2Element.textContent.trim();
+                    if (text.startsWith('评论') || text.startsWith('評論')) {
+                        paneElement = h2Element.closest('.n-tab-pane') || h2Element.closest('div[role="none"]')?.parentElement || h2Element.parentElement?.parentElement;
+                        if (paneElement) break;
+                    }
+                }
+                if (!paneElement && activeTabIsComment) paneElement = document.querySelector('.n-tab-pane');
+                return paneElement;
+            },
+            getNovelCommentFloors(paneElement = null) {
+                const pane = paneElement || Utils.comments.getNovelCommentPane();
+                if (!pane) return [];
+
+                const allHeaders = Array.from(pane.querySelectorAll('.n-flex')).filter(flex => {
+                    return flex.querySelector('b') && !flex.closest('div[style*="margin-left: 32px"]');
+                });
+                if (allHeaders.length === 0) return [];
+
+                const commonParent = allHeaders[0].parentElement;
+                if (!commonParent) return [];
+
+                const floors = [];
+                for (let index = 0; index < allHeaders.length; index++) {
+                    const headerFlex = allHeaders[index];
+                    if (headerFlex.parentElement !== commonParent) continue;
+
+                    const commentHeader = headerFlex.querySelector('b');
+                    const card = headerFlex.nextElementSibling && headerFlex.nextElementSibling.classList.contains('n-card') ? headerFlex.nextElementSibling : null;
+
+                    const nodes = [headerFlex];
+                    let curr = headerFlex.nextElementSibling;
+                    let repliesArea = null;
+
+                    while (curr) {
+                        if (curr.classList.contains('n-pagination') || curr.querySelector('.n-pagination')) break;
+                        if (allHeaders.includes(curr)) break;
+                        nodes.push(curr);
+
+                        if (!repliesArea && curr !== card) {
+                            if (curr.matches('div[style*="margin-left: 32px"]')) {
+                                const replySiblings = [curr];
+                                let next = curr.nextElementSibling;
+                                while (next && next.matches('div[style*="margin-left: 32px"]')) {
+                                    replySiblings.push(next);
+                                    next = next.nextElementSibling;
+                                }
+                                if (replySiblings.length > 1) {
+                                    const container = document.createElement('div');
+                                    curr.parentNode.insertBefore(container, curr);
+                                    replySiblings.forEach(sibling => container.appendChild(sibling));
+                                    repliesArea = container;
+                                } else {
+                                    repliesArea = curr;
+                                }
+                            } else if (curr.querySelector && curr.querySelector('div[style*="margin-left: 32px"]')) {
+                                repliesArea = curr;
+                            }
+                        }
+
+                        if (curr.classList.contains('n-divider')) break;
+                        curr = curr.nextElementSibling;
+                    }
+
+                    floors.push({
+                        originalIndex: index,
+                        headerFlex,
+                        commentHeader,
+                        card,
+                        commonParent,
+                        nodes,
+                        repliesArea
+                    });
+                }
+                return floors;
+            },
+            getForumCommentFloors() {
+                const commentsEl = document.getElementById('comments') || document.querySelector('[id="comments"]');
+                if (!commentsEl) return { floorContainer: null, candidateFloors: [], floors: [] };
+
+                const floorContainer = commentsEl.querySelector('.divide-y') || commentsEl.querySelector('.contents') || commentsEl;
+                const candidateFloors = Array.from(floorContainer.children).filter(child => {
+                    if (child.tagName === 'HEADER' || child.classList.contains('comments-title')) return false;
+                    return child.querySelector('article, time, .comment-card') !== null;
+                });
+
+                const floors = candidateFloors.map((element, index) => {
+                    const rootArticle = element.querySelector('article');
+                    let repliesArea = null;
+                    if (rootArticle) {
+                        let sibling = rootArticle.nextElementSibling;
+                        while (sibling && !sibling.querySelector('article')) {
+                            sibling = sibling.nextElementSibling;
+                        }
+                        repliesArea = sibling;
+                    }
+                    return {
+                        originalIndex: index,
+                        element,
+                        section: element,
+                        rootArticle,
+                        repliesArea
+                    };
+                });
+
+                return { floorContainer, candidateFloors, floors };
             }
         },
         hash: {
@@ -2002,9 +2117,9 @@
     };
 
     // ==========================================
-    // 6. 摺疊評論區回覆 (Modules.collapse_replies)
+    // 6. 摺疊評論區回覆 (Modules.comment_collapse)
     // ==========================================
-    Modules.collapse_replies = {
+    Modules.comment_collapse = {
         init: function() {
             if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
 
@@ -2089,25 +2204,25 @@
 
                     return null;
                 },
-                isCollapsed(ctx, hash) {
-                    if (!hash || !ctx) return false;
-                    const list = collapsedStore[ctx.provider]?.[ctx.id];
+                isCollapsed(context, hash) {
+                    if (!hash || !context) return false;
+                    const list = collapsedStore[context.provider]?.[context.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-                setCollapsed(ctx, hash, collapsedState) {
-                    if (!hash || !ctx) return;
+                setCollapsed(context, hash, collapsedState) {
+                    if (!hash || !context) return;
                     if (collapsedState) {
-                        if (!collapsedStore[ctx.provider]) collapsedStore[ctx.provider] = {};
-                        if (!Array.isArray(collapsedStore[ctx.provider][ctx.id])) { collapsedStore[ctx.provider][ctx.id] = []; }
-                        const list = collapsedStore[ctx.provider][ctx.id];
+                        if (!collapsedStore[context.provider]) collapsedStore[context.provider] = {};
+                        if (!Array.isArray(collapsedStore[context.provider][context.id])) { collapsedStore[context.provider][context.id] = []; }
+                        const list = collapsedStore[context.provider][context.id];
                         if (!list.includes(hash)) list.push(hash);
                     } else {
-                        if (collapsedStore[ctx.provider] && Array.isArray(collapsedStore[ctx.provider][ctx.id])) {
-                            const list = collapsedStore[ctx.provider][ctx.id];
-                            const idx = list.indexOf(hash);
-                            if (idx !== -1) list.splice(idx, 1);
-                            if (list.length === 0) delete collapsedStore[ctx.provider][ctx.id];
-                            if (Object.keys(collapsedStore[ctx.provider]).length === 0) delete collapsedStore[ctx.provider];
+                        if (collapsedStore[context.provider] && Array.isArray(collapsedStore[context.provider][context.id])) {
+                            const list = collapsedStore[context.provider][context.id];
+                            const index = list.indexOf(hash);
+                            if (index !== -1) list.splice(index, 1);
+                            if (list.length === 0) delete collapsedStore[context.provider][context.id];
+                            if (Object.keys(collapsedStore[context.provider]).length === 0) delete collapsedStore[context.provider];
                         }
                     }
                     saveStore();
@@ -2119,16 +2234,13 @@
                     if (repliesArea.matches('div[style*="margin-left: 32px"]')) return 1;
                     return repliesArea.querySelectorAll('.n-flex').length;
                 },
-                processThread(commentHeader) {
+                processFloor(floor) {
                     try {
-                        const headerFlex = commentHeader.closest('.n-flex');
-                        if (!headerFlex) return;
-
-                        const isRoot = !headerFlex.parentElement.closest('div[style*="margin-left: 32px"]');
-                        if (!isRoot) return;
-
-                        const card = headerFlex.nextElementSibling;
-                        if (!card || !card.classList.contains('n-card')) return;
+                        const headerFlex = floor.headerFlex;
+                        const commentHeader = floor.commentHeader;
+                        const card = floor.card;
+                        const repliesArea = floor.repliesArea;
+                        if (!headerFlex || !commentHeader || !card) return;
 
                         if (headerFlex.dataset.noveliaCollapseProcessed) {
                             const btnWrapper = card.nextElementSibling;
@@ -2138,12 +2250,12 @@
                             if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
 
                             const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
-                            const repliesArea = inner ? inner.firstElementChild : null;
-                            if (!repliesArea) return;
+                            const currentRepliesArea = inner ? inner.firstElementChild : null;
+                            if (!currentRepliesArea) return;
 
-                            const replyCount = NovelCommentCollapse.getReplyCount(repliesArea);
+                            const replyCount = NovelCommentCollapse.getReplyCount(currentRepliesArea);
                             if (replyCount === 0) {
-                                wrapper.parentNode.insertBefore(repliesArea, wrapper);
+                                wrapper.parentNode.insertBefore(currentRepliesArea, wrapper);
                                 btnWrapper.remove();
                                 wrapper.remove();
                                 delete headerFlex.dataset.noveliaCollapseProcessed;
@@ -2158,35 +2270,6 @@
                             return;
                         }
 
-                        let repliesArea = null;
-                        let curr = card.nextElementSibling;
-                        while (curr) {
-                            if (curr.classList.contains('n-divider')) break;
-                            if (curr.classList.contains('n-flex') && curr.querySelector('b')) break;
-
-                            if (curr.matches('div[style*="margin-left: 32px"]')) {
-                                const replySiblings = [curr];
-                                let next = curr.nextElementSibling;
-                                while (next && next.matches('div[style*="margin-left: 32px"]')) {
-                                    replySiblings.push(next);
-                                    next = next.nextElementSibling;
-                                }
-                                if (replySiblings.length > 1) {
-                                    const container = document.createElement('div');
-                                    curr.parentNode.insertBefore(container, curr);
-                                    replySiblings.forEach(s => container.appendChild(s));
-                                    repliesArea = container;
-                                } else {
-                                    repliesArea = curr;
-                                }
-                                break;
-                            } else if (curr.querySelector && curr.querySelector('div[style*="margin-left: 32px"]')) {
-                                repliesArea = curr;
-                                break;
-                            }
-                            curr = curr.nextElementSibling;
-                        }
-
                         if (!repliesArea) return;
 
                         const replyCount = NovelCommentCollapse.getReplyCount(repliesArea);
@@ -2199,21 +2282,24 @@
                         const rawId = author + time;
                         const commentId = Utils.hash.hashString(rawId);
 
-                        const ctx = NovelCommentCollapse.getContext();
-                        const isCollapsedState = NovelCommentCollapse.isCollapsed(ctx, commentId);
+                        const context = NovelCommentCollapse.getContext();
+                        const isCollapsedState = NovelCommentCollapse.isCollapsed(context, commentId);
 
                         CollapseUI.createCollapseWrapper({
                             anchorCard: card,
                             repliesArea,
                             isCollapsedState,
                             replyCount,
-                            onToggleState: (newCollapsed) => NovelCommentCollapse.setCollapsed(ctx, commentId, newCollapsed)
+                            onToggleState: (newCollapsed) => NovelCommentCollapse.setCollapsed(context, commentId, newCollapsed)
                         });
-                    } catch (e) {
-                        console.error('[Novelia Bundle] Error processing novel comment thread:', e);
+                    } catch (error) {
+                        console.error('[Novelia Bundle] Error processing novel comment thread:', error);
                     }
                 },
-                scan() { document.querySelectorAll('.n-flex b').forEach(NovelCommentCollapse.processThread); },
+                scan() {
+                    const floors = Utils.comments.getNovelCommentFloors();
+                    floors.forEach(NovelCommentCollapse.processFloor);
+                },
                 init() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
@@ -2234,30 +2320,30 @@
                     if (match) return { id: match[1] };
                     return null;
                 },
-                isCollapsed(ctx, hash) {
-                    if (!hash || !ctx) return false;
-                    const list = collapsedStore[ctx.id];
+                isCollapsed(context, hash) {
+                    if (!hash || !context) return false;
+                    const list = collapsedStore[context.id];
                     return Array.isArray(list) && list.includes(hash);
                 },
-                setCollapsed(ctx, hash, collapsedState) {
-                    if (!hash || !ctx) return;
+                setCollapsed(context, hash, collapsedState) {
+                    if (!hash || !context) return;
                     if (collapsedState) {
-                        if (!Array.isArray(collapsedStore[ctx.id])) collapsedStore[ctx.id] = []; 
-                        const list = collapsedStore[ctx.id];
+                        if (!Array.isArray(collapsedStore[context.id])) collapsedStore[context.id] = [];
+                        const list = collapsedStore[context.id];
                         if (!list.includes(hash)) list.push(hash);
                     } else {
-                        if (Array.isArray(collapsedStore[ctx.id])) {
-                            const list = collapsedStore[ctx.id];
-                            const idx = list.indexOf(hash);
-                            if (idx !== -1) list.splice(idx, 1);
-                            if (list.length === 0) delete collapsedStore[ctx.id];
+                        if (Array.isArray(collapsedStore[context.id])) {
+                            const list = collapsedStore[context.id];
+                            const index = list.indexOf(hash);
+                            if (index !== -1) list.splice(index, 1);
+                            if (list.length === 0) delete collapsedStore[context.id];
                         }
                     }
                     saveStore();
                 },
-                processSection(section) {
+                processFloor(floor) {
                     try {
-                        const rootArticle = section.querySelector('article');
+                        const rootArticle = floor.rootArticle;
                         if (!rootArticle) return;
                         if (rootArticle.classList.contains('ml-6') || rootArticle.className.includes('ml-')) return;
                         if (rootArticle.dataset.noveliaCollapseProcessed) {
@@ -2268,12 +2354,12 @@
                             if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
 
                             const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
-                            const repliesArea = inner ? inner.firstElementChild : null;
-                            if (!repliesArea) return;
+                            const currentRepliesArea = inner ? inner.firstElementChild : null;
+                            if (!currentRepliesArea) return;
 
-                            const replyCount = repliesArea.querySelectorAll('article').length;
+                            const replyCount = currentRepliesArea.querySelectorAll('article').length;
                             if (replyCount === 0) {
-                                wrapper.parentNode.insertBefore(repliesArea, wrapper);
+                                wrapper.parentNode.insertBefore(currentRepliesArea, wrapper);
                                 btnWrapper.remove();
                                 wrapper.remove();
                                 delete rootArticle.dataset.noveliaCollapseProcessed;
@@ -2288,10 +2374,7 @@
                             return;
                         }
 
-                        let repliesArea = rootArticle.nextElementSibling;
-                        while (repliesArea && !repliesArea.querySelector('article')) {
-                            repliesArea = repliesArea.nextElementSibling;
-                        }
+                        const repliesArea = floor.repliesArea;
                         if (!repliesArea) return;
 
                         const replyCount = repliesArea.querySelectorAll('article').length;
@@ -2305,21 +2388,24 @@
                             const rawId = author + time;
                             commentId = Utils.hash.hashString(rawId);
                         }
-                        const ctx = ForumCommentCollapse.getContext();
-                        const isCollapsedState = ForumCommentCollapse.isCollapsed(ctx, commentId);
+                        const context = ForumCommentCollapse.getContext();
+                        const isCollapsedState = ForumCommentCollapse.isCollapsed(context, commentId);
 
                         CollapseUI.createCollapseWrapper({
                             anchorCard: rootArticle,
                             repliesArea,
                             isCollapsedState,
                             replyCount,
-                            onToggleState: (newCollapsed) => ForumCommentCollapse.setCollapsed(ctx, commentId, newCollapsed)
+                            onToggleState: (newCollapsed) => ForumCommentCollapse.setCollapsed(context, commentId, newCollapsed)
                         });
-                    } catch (e) {
-                        console.error('[Novelia Bundle] Error processing forum section:', e);
+                    } catch (error) {
+                        console.error('[Novelia Bundle] Error processing forum section:', error);
                     }
                 },
-                scan() { document.querySelectorAll('section').forEach(ForumCommentCollapse.processSection); },
+                scan() {
+                    const { floors } = Utils.comments.getForumCommentFloors();
+                    floors.forEach(ForumCommentCollapse.processFloor);
+                },
                 init() {
                     let timer = null;
                     const observer = new MutationObserver(() => {
@@ -2352,21 +2438,36 @@
                 nodes.forEach(node => {
                     const times = Array.from(node.querySelectorAll('time'));
                     if (node.tagName === 'TIME') times.push(node);
-                    times.forEach(t => {
-                        const sec = Utils.time.parseToSecondsAgo(t.textContent);
+                    times.forEach(timeElement => {
+                        const sec = Utils.time.parseToSecondsAgo(timeElement.textContent);
                         if (sec < min) min = sec;
                     });
                 });
                 return min;
             }
 
+            function clearCurrentComments() {
+                isUpdatingDom = true;
+                try {
+                    const novelFloors = Utils.comments.getNovelCommentFloors();
+                    novelFloors.forEach(floor => {
+                        floor.nodes.forEach(node => node.remove());
+                    });
+
+                    const { candidateFloors } = Utils.comments.getForumCommentFloors();
+                    candidateFloors.forEach(floor => floor.remove());
+                } finally {
+                    isUpdatingDom = false;
+                }
+            }
+
             function reorderFloorList(container, floors, refNode) {
                 if (floors.length <= 1) return;
-                const sorted = [...floors].sort((a, b) => {
-                    if (a.minSeconds !== b.minSeconds) return a.minSeconds - b.minSeconds;
-                    return a.originalIndex - b.originalIndex;
+                const sorted = [...floors].sort((floorA, floorB) => {
+                    if (floorA.minSeconds !== floorB.minSeconds) return floorA.minSeconds - floorB.minSeconds;
+                    return floorA.originalIndex - floorB.originalIndex;
                 });
-                if (!floors.some((f, idx) => f !== sorted[idx])) return;
+                if (!floors.some((floor, index) => floor !== sorted[index])) return;
 
                 isUpdatingDom = true;
                 try {
@@ -2383,74 +2484,28 @@
             }
 
             function processNovelComments() {
-                const activeTab = document.querySelector('.n-tabs-tab--active, .n-tabs-tab[aria-selected="true"]');
-                const activeTabIsComment = activeTab && (activeTab.textContent.includes('评论') || activeTab.textContent.includes('評論'));
+                const floors = Utils.comments.getNovelCommentFloors();
+                if (floors.length <= 1) return;
 
-                let pane = null;
-                const h2s = document.querySelectorAll('h2');
-                for (const h2 of h2s) {
-                    const text = h2.textContent.trim();
-                    if (text.startsWith('评论') || text.startsWith('評論')) {
-                        pane = h2.closest('.n-tab-pane') || h2.closest('div[role="none"]')?.parentElement || h2.parentElement?.parentElement;
-                        if (pane) break;
-                    }
-                }
-                if (!pane && !activeTabIsComment) return;
-                if (!pane) pane = document.querySelector('.n-tab-pane');
-                if (!pane) return;
-
-                const allHeaders = Array.from(pane.querySelectorAll('.n-flex')).filter(flex => {
-                    return flex.querySelector('b') && !flex.closest('div[style*="margin-left: 32px"]');
-                });
-                if (allHeaders.length <= 1) return;
-
-                const commonParent = allHeaders[0].parentElement;
+                const commonParent = floors[0].commonParent;
                 if (!commonParent) return;
 
-                const floors = [];
-                for (let i = 0; i < allHeaders.length; i++) {
-                    const headerFlex = allHeaders[i];
-                    if (headerFlex.parentElement !== commonParent) continue;
+                floors.forEach(floor => {
+                    floor.minSeconds = extractMinAge(floor.nodes);
+                });
 
-                    const nodes = [headerFlex];
-                    let curr = headerFlex.nextElementSibling;
-                    while (curr) {
-                        if (curr.classList.contains('n-pagination') || curr.querySelector('.n-pagination')) break;
-                        if (allHeaders.includes(curr)) break;
-                        nodes.push(curr);
-                        if (curr.classList.contains('n-divider')) break;
-                        curr = curr.nextElementSibling;
-                    }
-
-                    floors.push({
-                        originalIndex: i,
-                        nodes,
-                        minSeconds: extractMinAge(nodes)
-                    });
-                }
-
-                if (floors.length <= 1) return;
                 const lastFloor = floors[floors.length - 1];
                 const lastNode = lastFloor.nodes[lastFloor.nodes.length - 1];
                 reorderFloorList(commonParent, floors, lastNode ? lastNode.nextElementSibling : null);
             }
 
             function processForumComments() {
-                const commentsEl = document.getElementById('comments') || document.querySelector('[id="comments"]');
-                if (!commentsEl) return;
+                const { floorContainer, candidateFloors, floors } = Utils.comments.getForumCommentFloors();
+                if (!floorContainer || candidateFloors.length <= 1) return;
 
-                const floorContainer = commentsEl.querySelector('.divide-y') || commentsEl.querySelector('.contents') || commentsEl;
-                const candidateFloors = Array.from(floorContainer.children).filter(child => {
-                    if (child.tagName === 'HEADER' || child.classList.contains('comments-title')) return false;
-                    return child.querySelector('article, time, .comment-card') !== null;
+                floors.forEach(floor => {
+                    floor.minSeconds = extractMinAge([floor.element]);
                 });
-                if (candidateFloors.length <= 1) return;
-
-                const floors = candidateFloors.map((el, i) => ({
-                    originalIndex: i,
-                    element: el,
-                    minSeconds: extractMinAge([el])
-                }));
 
                 reorderFloorList(floorContainer, floors, candidateFloors[candidateFloors.length - 1].nextElementSibling);
             }
@@ -2469,11 +2524,15 @@
 
             function setupSpaUrlObserver() {
                 Utils.route.onChange(onUrlChange);
-                window.addEventListener('message', e => {
-                    if (e.data && (e.data.type === 'NOVELIA_URL_CHANGE' || e.data.type === 'NOVELIA_NAVIGATE')) onUrlChange();
+                window.addEventListener('message', event => {
+                    if (event.data && (event.data.type === 'NOVELIA_URL_CHANGE' || event.data.type === 'NOVELIA_NAVIGATE')) onUrlChange();
                 });
-                window.addEventListener('click', e => {
-                    if (e.target.closest && e.target.closest('.n-tabs-tab, [class*="tab"]')) scheduleSortWithRetries();
+                window.addEventListener('click', event => {
+                    if (event.target.closest && event.target.closest('.n-tabs-tab, [class*="tab"]')) scheduleSortWithRetries();
+                    if (event.target.closest && event.target.closest('.n-pagination, [class*="pagination"]')) {
+                        clearCurrentComments();
+                        scheduleSortWithRetries();
+                    }
                 }, true);
 
                 setInterval(() => { if (location.href !== lastUrl) onUrlChange(); }, 300);
