@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.3.1
+// @version      2.4.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -23,15 +23,16 @@
     'use strict';
 
     const FEATURES = [
-        { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
+        { id: 'banner_replace', name: '替換首頁橫幅', default: true },
+        { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
+
+        { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
+        { id: 'comment_notify', name: '評論區更新排序', default: true },     
 
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
 
-        { id: 'collapse_replies', name: '摺疊評論區回覆', default: true },
-        { id: 'comment_notify', name: '評論區更新排序', default: true },
-
-        { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
+        { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
 
         // { id: 'collapse_images', name: '預設摺疊圖片', default: true },
         // { id: 'forum_search', name: '論壇搜尋增強', default: true },
@@ -2495,6 +2496,42 @@
 
             setupSpaUrlObserver();
             scheduleSortWithRetries();
+        }
+    };
+
+    // ==========================================
+    // 8 替換首頁橫幅 (Modules.banner_replace)
+    // ==========================================
+    Modules.banner_replace = {
+        init: function() {
+            if (location.hostname !== DOMAINS.HOST) return;
+
+            const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';
+            const IMG_FIT = 'cover';
+            const IMG_POSITION = '50% 50%';
+
+            function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
+            function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
+            function getObjectPosition() { return Utils.gm.getValue('banner_object_position', IMG_POSITION); }
+
+            function replaceBanner() {
+                if (Utils.route.getPath() !== '/') return;
+
+                const targetUrl = getBannerUrl();
+                const targetFit = getObjectFit();
+                const targetPosition = getObjectPosition();
+
+                const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
+                if (!bannerImg) return;
+                if (bannerImg.getAttribute('src') !== targetUrl) { bannerImg.src = targetUrl; }
+                if (targetFit && bannerImg.style.objectFit !== targetFit) { bannerImg.style.objectFit = targetFit; }
+                if (targetPosition && bannerImg.style.objectPosition !== targetPosition) { bannerImg.style.objectPosition = targetPosition; }
+            }
+            replaceBanner();
+
+            const observer = new MutationObserver(() => { replaceBanner() });
+            observer.observe(document.body, { childList: true, subtree: true });
+            Utils.route.onChange(replaceBanner);
         }
     };
 
