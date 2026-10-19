@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.7.2
+// @version      2.8.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -396,21 +396,38 @@
             url: `https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp`,
             _blobUrl: null,
             _promise: null,
-            async getUrl() {
-                if (this._blobUrl) return this._blobUrl;
+            getUrl() {
+                if (this._blobUrl) return Promise.resolve(this._blobUrl);
                 if (!this._promise) {
-                    this._promise = (async () => {
-                        try {
-                            const response = await fetch(this.url, { headers: { 'Cache-Control': 'max-age=3600' } });
-                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                            const blob = await response.blob();
-                            this._blobUrl = URL.createObjectURL(blob);
-                            return this._blobUrl;
-                        } catch (error) {
-                            console.error('[Utils.mascot] Failed to fetch mascot image:', error);
-                            return this.url;
-                        }
-                    })();
+                    this._promise = new Promise((resolve) => {
+                        GM_xmlhttpRequest({
+                            method: 'GET',
+                            url: this.url,
+                            responseType: 'blob',
+                            headers: { 'Cache-Control': 'max-age=3600' },
+                            onload: (response) => {
+                                if (response.status >= 200 && response.status < 300 && response.response) {
+                                    this._blobUrl = URL.createObjectURL(response.response);
+                                    resolve(this._blobUrl);
+                                } else {
+                                    console.error('[Utils.mascot] Failed to fetch mascot image:', `HTTP ${response.status}`);
+                                    this._promise = null;
+                                    resolve(this.url);
+                                }
+                            },
+                            onerror: (error) => {
+                                console.error('[Utils.mascot] Failed to fetch mascot image:', error);
+                                this._promise = null;
+                                resolve(this.url);
+                            },
+                            ontimeout: () => {
+                                console.error('[Utils.mascot] Request timed out');
+                                this._promise = null;
+                                resolve(this.url);
+                            },
+                            timeout: 15000
+                        });
+                    });
                 }
                 return this._promise;
             },
@@ -3002,6 +3019,7 @@
 
             const cache = new Map();
             let panelElement = null;
+            let backdropElement = null;
             let currentAnchorElement = null;
 
             const DB_NAME = 'novelia_inspect_db';
@@ -3062,9 +3080,21 @@
             }
             function injectStyles() {
                 Utils.gm.addStyle(`
-                    .novelia-inspect-panel { position: fixed; z-index: 99999; width: 360px; max-width: 90vw; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); padding: 12px 14px; font-size: 13px; line-height: 1.5; pointer-events: none; transition: opacity 0.05s ease-out; opacity: 0; box-sizing: border-box; }
+                    .novelia-inspect-panel { position: fixed; z-index: 99999; width: 360px; max-width: 90vw; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); padding: 12px 14px; font-size: 13px; line-height: 1.5; pointer-events: auto; transition: opacity 0.05s ease-out; opacity: 0; box-sizing: border-box; }
                     .dark .novelia-inspect-panel, [data-theme="dark"] .novelia-inspect-panel, body.dark .novelia-inspect-panel { background-color: #1e1e22; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
                     .novelia-inspect-panel.show { opacity: 1; }
+                    .novelia-inspect-panel.mobile-mode { position: fixed; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: 88vw !important; max-width: 380px !important; max-height: 85vh !important; overflow-y: auto !important; z-index: 100000 !important; }
+                    .novelia-inspect-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.4); z-index: 99999; display: none; }
+                    .novelia-inspect-backdrop.show { display: block; }
+                    .novelia-inspect-close-btn { position: absolute; top: 8px; right: 10px; background: transparent; border: none; font-size: 20px; line-height: 1; color: #888888; cursor: pointer; padding: 4px; z-index: 10; }
+                    .dark .novelia-inspect-close-btn, [data-theme="dark"] .novelia-inspect-close-btn, body.dark .novelia-inspect-close-btn { color: #aaaaaa; }
+                    .novelia-inspect-action-bar { display: flex; gap: 8px; margin-top: 14px; width: 100%; box-sizing: border-box; }
+                    .novelia-inspect-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 1; padding: 8px 12px; font-weight: 600; font-size: 13px; border-radius: 6px; text-decoration: none !important; box-sizing: border-box; text-align: center; transition: background-color 0.2s, opacity 0.2s; cursor: pointer; }
+                    .novelia-inspect-open-btn { background-color: rgba(0, 0, 0, 0.08); color: #333333 !important; }
+                    .dark .novelia-inspect-open-btn, [data-theme="dark"] .novelia-inspect-open-btn, body.dark .novelia-inspect-open-btn { background-color: rgba(255, 255, 255, 0.12); color: #ffffff !important; }
+                    .novelia-inspect-goto-btn { background-color: #63e2b7; color: #18181c !important; }
+                    .novelia-inspect-goto-btn:hover, .novelia-inspect-goto-btn:active { background-color: #7fe7c4; opacity: 0.9; }
+                    .dark .novelia-inspect-goto-btn, [data-theme="dark"] .novelia-inspect-goto-btn, body.dark .novelia-inspect-goto-btn { background-color: #63e2b7; color: #18181c !important; }
                     .novelia-inspect-panel .n-h, .novelia-inspect-panel .n-h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px 0; color: #111111; word-break: break-word; line-height: 1.4; }
                     .dark .novelia-inspect-panel .n-h, .dark .novelia-inspect-panel .n-h3, [data-theme="dark"] .novelia-inspect-panel .n-h, body.dark .novelia-inspect-panel .n-h { color: #ffffff; }
                     .novelia-inspect-panel .n-a { color: inherit; text-decoration: none; }
@@ -3081,6 +3111,15 @@
                     .novelia-inspect-loading { color: #888888; font-style: italic; }
                     .novelia-inspect-mascot-wrapper { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 16px 0; }
                 `, 'novelia-inspect-styles');
+            }
+            function getOrCreateBackdrop() {
+                if (!backdropElement) {
+                    backdropElement = document.createElement('div');
+                    backdropElement.className = 'novelia-inspect-backdrop';
+                    backdropElement.addEventListener('click', hidePanel);
+                    document.body.appendChild(backdropElement);
+                }
+                return backdropElement;
             }
             function getOrCreatePanel() {
                 if (!panelElement) {
@@ -3114,7 +3153,13 @@
             }
 
             function hidePanel() {
-                if (panelElement) panelElement.classList.remove('show');
+                if (panelElement) {
+                    panelElement.classList.remove('show');
+                    panelElement.classList.remove('mobile-mode');
+                }
+                if (backdropElement) {
+                    backdropElement.classList.remove('show');
+                }
                 currentAnchorElement = null;
             }
 
@@ -3275,13 +3320,15 @@
                         <div style="flex: 1 1 auto; overflow: auto;">${innerHtml}</div>
                     </div>`;
             }
-            function formatInspectContent(targetInfo, data) {
+            function formatInspectContent(targetInfo, data, originalHref) {
                 const titleZh = data.titleZh || data.title || '';
                 const titleJp = data.titleJp || '';
                 const displayTitle = titleZh || titleJp || '未知作品';
-                const novelUrl = getNovelUrl(targetInfo, data);
 
-                let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escapeHtml(novelUrl)}">${escapeHtml(displayTitle)}</a></h3>`;
+                const openUrl = originalHref || (targetInfo.type === 'novel' ? `https://${DOMAINS.HOST}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}` : `https://${DOMAINS.HOST}/wenku/${encodeURIComponent(targetInfo.id)}`);
+                const sourceUrl = (data && data.sourceUrl) ? data.sourceUrl : getNovelUrl(targetInfo, data);
+
+                let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escapeHtml(openUrl)}">${escapeHtml(displayTitle)}</a></h3>`;
                 if (titleJp && titleJp !== displayTitle) {
                     titleHtml += `<span class="n-text __text-dark-1ynum3r-d3" style="display: block; font-size: 14px; line-height: 1.6;">${escapeHtml(titleJp)}</span>`;
                 }
@@ -3319,23 +3366,24 @@
                 }
                 if (Array.isArray(data.attentions)) {
                     data.attentions.forEach((attentionItem) => {
-                        if (attentionItem) {
-                            tagElements.push(`<a href="/novel?query=${encodeURIComponent(attentionItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(attentionItem)}</b></span></div></a>`);
-                        }
+                        if (attentionItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(attentionItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(attentionItem)}</b></span></div></a>`);
                     });
                 }
                 if (Array.isArray(data.keywords)) {
                     data.keywords.forEach((keywordItem) => {
-                        if (keywordItem) {
-                            tagElements.push(`<a href="/novel?query=${encodeURIComponent(keywordItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content">${escapeHtml(keywordItem)}</span></div></a>`);
-                        }
+                        if (keywordItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(keywordItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content">${escapeHtml(keywordItem)}</span></div></a>`);
                     });
                 }
-
                 const tagsContainerHtml = tagElements.length > 0
                     ? `<div role="none" class="n-flex" style="display: flex; flex-flow: wrap; justify-content: start; gap: 4px; margin-top: 12px;">${tagElements.join('')}</div>`
                     : '';
-
+                const buildActionBar = () => `
+                    <div class="novelia-inspect-action-bar">
+                        <a href="${escapeHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
+                        <a href="${escapeHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
+                    </div>
+                `;
+                const actionBarHtml = Utils.dom.isMobile() === false ? '' : buildActionBar();
                 return renderPanelWrapper(`
                     <div style="margin: 18px 0px;">
                         ${titleHtml}
@@ -3344,19 +3392,94 @@
                     ${metadataHtml}
                     ${introHtml}
                     ${tagsContainerHtml}
+                    ${actionBarHtml}
                 `);
             }
-
             function isAllowedHostPage() {
                 if (location.hostname !== DOMAINS.HOST) return true;
                 const currentPath = Utils.route.getPath();
-                return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/');
+                return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/') || currentPath.startsWith('/forum');
             }
-
             function isTargetContainer(anchorElement) {
                 if (!anchorElement) return false;
                 if (!isAllowedHostPage()) return false;
                 return !!anchorElement.closest('article, .prose, .markdown-body, #comments, .n-tab-pane, [class*="comment"], .comment-card, .topic-detail, .post-content');
+            }
+            function showMobilePanel(btnElement, originalHref, targetInfo) {
+                currentAnchorElement = btnElement;
+                const backdrop = getOrCreateBackdrop();
+                backdrop.classList.add('show');
+
+                const panel = getOrCreatePanel();
+                panel.classList.add('mobile-mode');
+
+                panel.innerHTML = renderPanelWrapper(`
+                    <button type="button" class="novelia-inspect-close-btn" aria-label="Close">&times;</button>
+                    <div class="novelia-inspect-mascot-wrapper">
+                        <img src="${Utils.mascot.getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
+                    </div>`);
+                const closeBtnInPanel = panel.querySelector('.novelia-inspect-close-btn');
+                if (closeBtnInPanel) closeBtnInPanel.addEventListener('click', hidePanel);
+
+                Utils.mascot.getUrl().then(mascotUrl => {
+                    const mascotImg = panel.querySelector('.novelia-mascot');
+                    if (mascotImg) mascotImg.src = mascotUrl;
+                });
+                panel.classList.add('show');
+
+                fetchInspectData(targetInfo).then(data => {
+                    if (currentAnchorElement === btnElement && panel) {
+                        panel.innerHTML = renderPanelWrapper(`
+                            <button type="button" class="novelia-inspect-close-btn" aria-label="Close">&times;</button>
+                            ${formatInspectContent(targetInfo, data, originalHref)}
+                        `);
+                        const cb = panel.querySelector('.novelia-inspect-close-btn');
+                        if (cb) cb.addEventListener('click', hidePanel);
+                    }
+                }).catch(error => {
+                    if (currentAnchorElement === btnElement && panel) {
+                        panel.innerHTML = renderPanelWrapper(`
+                            <button type="button" class="novelia-inspect-close-btn" aria-label="Close">&times;</button>
+                            <div class="novelia-inspect-loading">⚠️ 無法載入作品資訊</div>
+                        `);
+                        const cb = panel.querySelector('.novelia-inspect-close-btn');
+                        if (cb) cb.addEventListener('click', hidePanel);
+                    }
+                });
+            }
+            function processMobileLinks() {
+                if (!Utils.dom.isMobile()) return;
+                const containers = document.querySelectorAll('article, .prose, .markdown-body, #comments, .n-tab-pane, [class*="comment"], .comment-card, .topic-detail, .post-content');
+                containers.forEach(container => {
+                    const links = container.querySelectorAll('a[href]:not([data-novelia-preview-processed])');
+                    links.forEach(a => {
+                        const href = a.getAttribute('href') || a.href;
+                        const targetInfo = parseTargetUrl(href);
+                        if (!targetInfo) return;
+
+                        a.dataset.noveliaPreviewProcessed = 'true';
+
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = a.className;
+                        if (a.getAttribute('style')) {
+                            btn.setAttribute('style', a.getAttribute('style'));
+                        }
+                        btn.innerHTML = a.innerHTML;
+                        btn.dataset.originalHref = href;
+                        btn.dataset.noveliaPreviewBtn = 'true';
+
+                        Object.assign(btn.style, { background: 'transparent', border: 'none', padding: '0', font: 'inherit', color: 'var(--color-primary)', textDecoration: 'underline', cursor: 'pointer', textAlign: 'inherit', display: 'inline' });
+
+                        btn.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            showMobilePanel(btn, href, targetInfo);
+                        });
+                        if (a.parentNode) a.parentNode.replaceChild(btn, a);
+                    });
+                });
             }
 
             function handleMouseOver(event) {
@@ -3385,7 +3508,7 @@
 
                 fetchInspectData(targetInfo).then(data => {
                     if (currentAnchorElement === anchorElement && panel) {
-                        panel.innerHTML = formatInspectContent(targetInfo, data);
+                        panel.innerHTML = formatInspectContent(targetInfo, data, anchorElement.getAttribute('href') || anchorElement.href);
                         updatePosition(event.clientX, event.clientY);
                     }
                 }).catch(error => {
@@ -3407,10 +3530,26 @@
             injectStyles();
             setupHostFetchListener();
             setupIframeResponseListener();
-            document.addEventListener('mouseover', handleMouseOver, true);
-            document.addEventListener('mousemove', handleMouseMove, true);
-            document.addEventListener('mouseout', handleMouseOut, true);
-            Utils.route.onChange(hidePanel);
+
+            if (Utils.dom.isMobile()) {
+                processMobileLinks();
+                let scanTimeout = null;
+                const observer = new MutationObserver(() => {
+                    if (scanTimeout) clearTimeout(scanTimeout);
+                    scanTimeout = setTimeout(processMobileLinks, 150);
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            } else {
+                document.addEventListener('mouseover', handleMouseOver, true);
+                document.addEventListener('mousemove', handleMouseMove, true);
+                document.addEventListener('mouseout', handleMouseOut, true);
+            }
+            Utils.route.onChange(() => {
+                hidePanel();
+                if (Utils.dom.isMobile()) {
+                    setTimeout(processMobileLinks, 100);
+                }
+            });
         }
     };
 
