@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.0.0
+// @version      1.0.1
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -161,12 +161,14 @@
             }
         },
         idb: {
-            openDatabase(dbName = 'novelia_cache_db', version = 1, storeNames = ['cache_store'], keyPath = 'key') {
+            openDatabase(dbName = 'novelia_qol_db', version = 1, storeNames = ['cache_store', 'preview_cache', 'network_cache'], keyPath = 'key') {
                 return new Promise((resolve, reject) => {
                     if (typeof indexedDB === 'undefined') {
                         return reject(new Error('IndexedDB not supported'));
                     }
-                    const stores = Array.isArray(storeNames) ? storeNames : [storeNames];
+                    const defaultStores = ['cache_store', 'preview_cache', 'network_cache'];
+                    const requestedStores = Array.isArray(storeNames) ? storeNames : [storeNames];
+                    const stores = Array.from(new Set([...defaultStores, ...requestedStores]));
                     const request = indexedDB.open(dbName, version);
                     request.onupgradeneeded = (e) => {
                         const db = e.target.result;
@@ -180,7 +182,7 @@
                     request.onerror = () => reject(request.error);
                 });
             },
-            async get(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async get(key, { dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -194,7 +196,7 @@
                     return null;
                 }
             },
-            async set(record, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async set(record, { dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -208,7 +210,7 @@
                     return false;
                 }
             },
-            async delete(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async delete(key, { dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -222,7 +224,7 @@
                     return false;
                 }
             },
-            async clear({ dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async clear({ dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -236,7 +238,7 @@
                     return false;
                 }
             },
-            async getAll({ dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async getAll({ dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -250,7 +252,7 @@
                     return [];
                 }
             },
-            async checkIDbExpire(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', ttlMs = 24 * 60 * 60 * 1000, keyPath = 'key' } = {}) {
+            async checkIDbExpire(key, { dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', ttlMs = 24 * 60 * 60 * 1000, keyPath = 'key' } = {}) {
                 try {
                     const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
@@ -300,7 +302,7 @@
             async getIDB(key, opts = {}) {
                 return await Utils.idb.checkIDbExpireAndGet(key, opts);
             },
-            async setIDB(key, data, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+            async setIDB(key, data, { dbName = 'novelia_qol_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 return await Utils.idb.set({ [keyPath]: key, data, timestamp: Date.now() }, { dbName, version, storeName, keyPath });
             },
             async removeIDB(key, opts = {}) {
@@ -313,7 +315,7 @@
         network: {
             _intercepted: false,
             _rules: [],
-            DB_NAME: 'novelia_network_cache_db',
+            DB_NAME: 'novelia_qol_db',
             DB_VERSION: 1,
             STORE_NAME: 'network_cache',
             TTL_MS: 24 * 60 * 60 * 1000,
