@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.8.1
+// @version      3.0.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -138,6 +138,62 @@
                 window.addEventListener('popstate', () => {
                     window.dispatchEvent(new Event("tm-locationchange"));
                 });
+            },
+            getRouter() {
+                try {
+                    const appEl = document.querySelector('#app') || document.querySelector('[data-v-app]');
+                    if (appEl) {
+                        if (appEl.__vue_app__?.config?.globalProperties?.$router) return appEl.__vue_app__.config.globalProperties.$router;
+                        if (appEl._vnode?.component?.proxy?.$router) return appEl._vnode.component.proxy.$router;
+                        if (appEl.__vue_app__?._instance?.proxy?.$router) return appEl.__vue_app__._instance.proxy.$router;
+                        if (appEl.__vue_app__?._context?.provides) {
+                            const provides = appEl.__vue_app__._context.provides;
+                            const keys = [...Object.getOwnPropertySymbols(provides), ...Object.keys(provides)];
+                            for (const key of keys) {
+                                const val = provides[key];
+                                if (val && typeof val.push === 'function' && (val.currentRoute || val.options)) {
+                                    return val;
+                                }
+                            }
+                        }
+                    }
+                    if (window.__vue_app__?.config?.globalProperties?.$router) return window.__vue_app__.config.globalProperties.$router;
+                    if (window.router && typeof window.router.push === 'function') return window.router;
+                } catch (e) {}
+                return null;
+            },
+            push(path) {
+                if (!path) return;
+                const isCurrentlyForum = Utils.route.isForumPage();
+                const isTargetForum = Utils.route.isForumUrl(path);
+
+                if (isCurrentlyForum && isTargetForum) {
+                    if (Utils.route.getPath() !== path) history.pushState({}, '', path);
+                    window.dispatchEvent(new Event('tm-locationchange'));
+                    return;
+                }
+
+                const router = this.getRouter();
+                if (router && typeof router.push === 'function') {
+                    try {
+                        const res = router.push(path);
+                        if (res && typeof res.catch === 'function') {
+                            res.catch(() => {
+                                if (Utils.route.getPath() !== path) {
+                                    history.pushState({}, '', path);
+                                    window.dispatchEvent(new Event('popstate'));
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        history.pushState({}, '', path);
+                        window.dispatchEvent(new Event('popstate'));
+                    }
+                } else {
+                    history.pushState({}, '', path);
+                    window.dispatchEvent(new Event('popstate'));
+                }
+                window.dispatchEvent(new Event('tm-locationchange'));
             },
             getPath() { return window.__noveliaMockPath || (location.pathname + location.search + location.hash) },
             matchNovelPath(pathname) {
@@ -1040,14 +1096,15 @@
                     if (themeBtn) themeBtn.before(btn);
                     else targetContainer.before(btn);
                 }
+                let isNavigatingFromHost = false;
 
                 function notifyHostUrlChange() {
+                    if (isNavigatingFromHost) return;
                     if (window.parent !== window) {
                         const path = location.pathname + location.search + location.hash;
                         window.parent.postMessage({ type: 'NOVELIA_URL_CHANGE', path }, '*');
                     }
                 }
-
                 Utils.route.onChange(notifyHostUrlChange);
                 notifyHostUrlChange();
 
@@ -1070,9 +1127,12 @@
                         const currentCleanPath = location.pathname;
                         const targetCleanPath = targetPath.split('?')[0].split('#')[0];
                         if (currentPath !== targetPath && currentCleanPath !== targetCleanPath) {
-                            history.pushState({}, '', targetPath);
-                            window.dispatchEvent(new Event('popstate'));
-                            window.dispatchEvent(new Event('tm-locationchange'));
+                            isNavigatingFromHost = true;
+                            try {
+                                Utils.route.push(targetPath);
+                            } finally {
+                                setTimeout(() => { isNavigatingFromHost = false; }, 100);
+                            }
                         }
                         return;
                     }
@@ -1288,6 +1348,8 @@
                     const innerPath = e.data.path || '/';
                     const targetHostPath = (innerPath === '/' || innerPath === '') ? '/forum' : '/forum' + (innerPath.startsWith('/') ? innerPath : '/' + innerPath);
                     const currentHostPath = Utils.route.getPath();
+                    const iframe = document.querySelector('iframe.novelia-forum-iframe');
+                    if (iframe) iframe.dataset.lastSentPath = innerPath;
                     if (currentHostPath !== targetHostPath && Utils.route.isForumPage()) {
                         if (window.__noveliaMockPath) window.__noveliaMockPath = targetHostPath;
                         else history.replaceState({}, '', targetHostPath);
@@ -1379,17 +1441,13 @@
                         e.stopPropagation();
                         popover.style.display = 'none';
 
-                        if (location.pathname !== item.path) {
-                            history.pushState({}, '', item.path);
-                            window.dispatchEvent(new Event("tm-locationchange"));
-                        }
+                        if (location.pathname !== item.path) Utils.route.push(item.path);
+
                         handleForumPage();
                         updateSelectedSubmenuItem();
                     });
-
                     popover.appendChild(itemDiv);
                 });
-
                 document.body.appendChild(popover);
                 return popover;
             }
@@ -1543,10 +1601,8 @@
                         link.addEventListener('click', (e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            if (location.pathname !== item.path) {
-                                history.pushState({}, '', item.path);
-                                window.dispatchEvent(new Event("tm-locationchange"));
-                            }
+                            if (location.pathname !== item.path) Utils.route.push(item.path);
+
                             handleForumPage();
                             updateSelectedSubmenuItem();
                         });
@@ -1708,10 +1764,7 @@
                             } catch (err) {}
 
                             setTimeout(() => {
-                                if (location.pathname !== targetPath) {
-                                    history.pushState({}, '', targetPath);
-                                    window.dispatchEvent(new Event("tm-locationchange"));
-                                }
+                                if (location.pathname !== targetPath) Utils.route.push(targetPath);
                                 handleForumPage();
                                 updateSelectedSubmenuItem();
                             }, 0);
@@ -1745,8 +1798,7 @@
                         }
 
                         if (location.pathname !== targetPath) {
-                            history.pushState({}, '', targetPath);
-                            window.dispatchEvent(new Event("tm-locationchange"));
+                            Utils.route.push(targetPath);
                         }
                         handleForumPage();
                         updateSelectedSubmenuItem();
@@ -1771,10 +1823,8 @@
                     } catch (err) {
                         if (url.startsWith('/forum')) targetPath = url;
                     }
-                    if (location.pathname !== targetPath) {
-                        history.pushState({}, '', targetPath);
-                        window.dispatchEvent(new Event("tm-locationchange"));
-                    }
+                    if (location.pathname !== targetPath) Utils.route.push(targetPath);
+                    
                     handleForumPage();
                     updateSelectedSubmenuItem();
                     return null;
