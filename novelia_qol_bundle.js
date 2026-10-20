@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.1.0
+// @version      3.1.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -223,7 +223,7 @@
                     if (!cached) return this.updateCommentCount(source, id);
                     const updatedAt = cached.update ?? cached.updated_at ?? 0;
                     const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
-                    const isNewInstall = !localStorage.getItem('novelia_comment_count');
+                    const isNewInstall = !Utils.storage.has('novelia_comment_count');
                     if ((isInitial || isNewInstall) && isStale) return this.updateCommentCount(source, id);
                     return this.buildResultFromEntry(cached);
                 }
@@ -1043,7 +1043,7 @@
                 if (!menuItemDiv || menuItemDiv.dataset.noveliaSubmenuProcessed) return;
 
                 menuItemDiv.dataset.noveliaSubmenuProcessed = '1';
-                let isExpanded = localStorage.getItem('novelia_forum_submenu_expanded') === 'true';
+                let isExpanded = Utils.storage.getRaw('novelia_forum_submenu_expanded') === 'true';
 
                 const subItems = [
                     {
@@ -1174,7 +1174,7 @@
                         if (isSidebarCollapsed()) return;
 
                         isExpanded = !isExpanded;
-                        localStorage.setItem('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
+                        Utils.storage.setRaw('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 
                         if (isExpanded) {
@@ -2615,56 +2615,21 @@
             const STORE_NAME = 'novel_cache';
             const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-            function openDatabase() {
-                return new Promise((resolve, reject) => {
-                    if (typeof indexedDB === 'undefined') {
-                        return reject(new Error('IndexedDB not supported'));
-                    }
-                    const request = indexedDB.open(DB_NAME, DB_VERSION);
-                    request.onupgradeneeded = (e) => {
-                        const db = e.target.result;
-                        if (!db.objectStoreNames.contains(STORE_NAME)) {
-                            db.createObjectStore(STORE_NAME, { keyPath: 'cacheKey' });
-                        }
-                    };
-                    request.onsuccess = () => resolve(request.result);
-                    request.onerror = () => reject(request.error);
+            async function getIndexedDbCache(cacheKey) {
+                return await Utils.cache.getIDB(cacheKey, {
+                    dbName: DB_NAME,
+                    version: DB_VERSION,
+                    storeName: STORE_NAME,
+                    ttlMs: CACHE_TTL_MS
                 });
             }
-            async function getIndexedDbCache(cacheKey) {
-                try {
-                    const db = await openDatabase();
-                    return await new Promise((resolve) => {
-                        const tx = db.transaction(STORE_NAME, 'readonly');
-                        const store = tx.objectStore(STORE_NAME);
-                        const request = store.get(cacheKey);
-                        request.onsuccess = () => {
-                            const record = request.result;
-                            if (record && (Date.now() - record.timestamp < CACHE_TTL_MS)) {
-                                resolve(record.data);
-                            } else {
-                                resolve(null);
-                            }
-                        };
-                        request.onerror = () => resolve(null);
-                    });
-                } catch (error) {
-                    return null;
-                }
-            }
             async function setIndexedDbCache(cacheKey, data) {
-                try {
-                    const db = await openDatabase();
-                    return await new Promise((resolve) => {
-                        const tx = db.transaction(STORE_NAME, 'readwrite');
-                        const store = tx.objectStore(STORE_NAME);
-                        const request = store.put({ cacheKey, data, timestamp: Date.now() });
-                        request.onsuccess = () => resolve(true);
-                        request.onerror = () => resolve(false);
-                    });
-                } catch (error) {
-                    return false;
-                }
+                return await Utils.cache.setIDB(cacheKey, data, {
+                    dbName: DB_NAME,
+                    version: DB_VERSION,
+                    storeName: STORE_NAME,
+                    keyPath: 'cacheKey'
+                });
             }
             function injectStyles() {
                 Utils.gm.addStyle(`
@@ -2868,15 +2833,7 @@
                 cache.set(targetInfo.cacheKey, data);
                 return data;
             }
-            function escapeHtml(str) {
-                if (!str) return '';
-                return String(str)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-            }
+            const escapeHtml = Utils.escapeHtml;
             function getNovelUrl(targetInfo, data) {
                 if (data && data.sourceUrl) return data.sourceUrl;
                 if (targetInfo && targetInfo.type === 'novel') {
@@ -2888,20 +2845,7 @@
                 }
                 return '#';
             }
-            function formatRelativeTime(timestamp) {
-                if (!timestamp) return '';
-                let timestampInMs = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
-                if (isNaN(timestampInMs)) return '';
-                if (timestampInMs < 1e11) timestampInMs *= 1000;
-
-                const diffSeconds = Math.floor((Date.now() - timestampInMs) / 1000);
-                if (diffSeconds < 0 || diffSeconds < 60) return '刚刚';
-                if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} 分钟前`;
-                if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)} 小时前`;
-                if (diffSeconds < 2592000) return `${Math.floor(diffSeconds / 86400)} 天前`;
-                if (diffSeconds < 31536000) return `${Math.floor(diffSeconds / 2592000)} 个月前`;
-                return `${Math.floor(diffSeconds / 31536000)} 年前`;
-            }
+            const formatRelativeTime = Utils.time.formatRelativeTime;
             function renderPanelWrapper(innerHtml) {
                 return `
                     <div role="none" class="n-flex" style="display: flex; flex-flow: row; justify-content: start; gap: 20px;">

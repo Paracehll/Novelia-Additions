@@ -52,6 +52,38 @@
                 return Promise.resolve(false);
             }
         },
+        str: {
+            escapeHtml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#039;');
+            },
+            escapeXml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&apos;');
+            },
+            truncate(str, length, suffix = '...') {
+                if (!str) return '';
+                const stringVal = String(str);
+                if (stringVal.length <= length) return stringVal;
+                return stringVal.slice(0, length) + suffix;
+            }
+        },
+        escapeHtml(str) {
+            return Utils.str.escapeHtml(str);
+        },
+        escapeXml(str) {
+            return Utils.str.escapeXml(str);
+        },
         storage: {
             get(key, defaultValue = {}) {
                 try {
@@ -69,10 +101,67 @@
                     console.error(`[Utils.storage] Failed to set ${key}:`, e);
                     return false;
                 }
+            },
+            getRaw(key, defaultValue = null) {
+                try {
+                    const raw = localStorage.getItem(key);
+                    return raw !== null ? raw : defaultValue;
+                } catch (e) {
+                    return defaultValue;
+                }
+            },
+            setRaw(key, value) {
+                try {
+                    localStorage.setItem(key, String(value));
+                    return true;
+                } catch (e) {
+                    console.error(`[Utils.storage] Failed to setRaw ${key}:`, e);
+                    return false;
+                }
+            },
+            remove(key) {
+                try {
+                    localStorage.removeItem(key);
+                    return true;
+                } catch (e) {
+                    console.error(`[Utils.storage] Failed to remove ${key}:`, e);
+                    return false;
+                }
+            },
+            clear() {
+                try {
+                    localStorage.clear();
+                    return true;
+                } catch (e) {
+                    console.error(`[Utils.storage] Failed to clear storage:`, e);
+                    return false;
+                }
+            },
+            has(key) {
+                try {
+                    return localStorage.getItem(key) !== null;
+                } catch (e) {
+                    return false;
+                }
+            },
+            keys() {
+                try {
+                    if (typeof localStorage !== 'undefined' && typeof localStorage.key === 'function') {
+                        const keysArr = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const k = localStorage.key(i);
+                            if (k !== null) keysArr.push(k);
+                        }
+                        return keysArr;
+                    }
+                    return Object.keys(localStorage);
+                } catch (e) {
+                    return [];
+                }
             }
         },
         idb: {
-            openDatabase(dbName = 'novelia_cache_db', version = 1, storeNames = ['cache_store']) {
+            openDatabase(dbName = 'novelia_cache_db', version = 1, storeNames = ['cache_store'], keyPath = 'key') {
                 return new Promise((resolve, reject) => {
                     if (typeof indexedDB === 'undefined') {
                         return reject(new Error('IndexedDB not supported'));
@@ -83,7 +172,7 @@
                         const db = e.target.result;
                         stores.forEach((storeName) => {
                             if (!db.objectStoreNames.contains(storeName)) {
-                                db.createObjectStore(storeName, { keyPath: 'key' });
+                                db.createObjectStore(storeName, { keyPath });
                             }
                         });
                     };
@@ -91,9 +180,79 @@
                     request.onerror = () => reject(request.error);
                 });
             },
-            async checkIDbExpire(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', ttlMs = 24 * 60 * 60 * 1000 } = {}) {
+            async get(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
                 try {
-                    const db = await Utils.idb.openDatabase(dbName, version, [storeName]);
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(storeName, 'readonly');
+                        const store = tx.objectStore(storeName);
+                        const req = store.get(key);
+                        req.onsuccess = () => resolve(req.result || null);
+                        req.onerror = () => resolve(null);
+                    });
+                } catch (e) {
+                    return null;
+                }
+            },
+            async set(record, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+                try {
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(storeName, 'readwrite');
+                        const store = tx.objectStore(storeName);
+                        const req = store.put(record);
+                        req.onsuccess = () => resolve(true);
+                        req.onerror = () => resolve(false);
+                    });
+                } catch (e) {
+                    return false;
+                }
+            },
+            async delete(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+                try {
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(storeName, 'readwrite');
+                        const store = tx.objectStore(storeName);
+                        const req = store.delete(key);
+                        req.onsuccess = () => resolve(true);
+                        req.onerror = () => resolve(false);
+                    });
+                } catch (e) {
+                    return false;
+                }
+            },
+            async clear({ dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+                try {
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(storeName, 'readwrite');
+                        const store = tx.objectStore(storeName);
+                        const req = store.clear();
+                        req.onsuccess = () => resolve(true);
+                        req.onerror = () => resolve(false);
+                    });
+                } catch (e) {
+                    return false;
+                }
+            },
+            async getAll({ dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+                try {
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
+                    return await new Promise((resolve) => {
+                        const tx = db.transaction(storeName, 'readonly');
+                        const store = tx.objectStore(storeName);
+                        const req = store.getAll();
+                        req.onsuccess = () => resolve(req.result || []);
+                        req.onerror = () => resolve([]);
+                    });
+                } catch (e) {
+                    return [];
+                }
+            },
+            async checkIDbExpire(key, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', ttlMs = 24 * 60 * 60 * 1000, keyPath = 'key' } = {}) {
+                try {
+                    const db = await Utils.idb.openDatabase(dbName, version, [storeName], keyPath);
                     return await new Promise((resolve) => {
                         const tx = db.transaction(storeName, 'readwrite');
                         const store = tx.objectStore(storeName);
@@ -123,6 +282,32 @@
                 const result = await Utils.idb.checkIDbExpire(key, opts);
                 if (result.expired || !result.record) return null;
                 return result.record.data !== undefined ? result.record.data : result.record;
+            }
+        },
+        cache: {
+            get(key, defaultValue = null) {
+                return Utils.storage.get(key, defaultValue);
+            },
+            set(key, value) {
+                return Utils.storage.set(key, value);
+            },
+            remove(key) {
+                return Utils.storage.remove(key);
+            },
+            clear() {
+                return Utils.storage.clear();
+            },
+            async getIDB(key, opts = {}) {
+                return await Utils.idb.checkIDbExpireAndGet(key, opts);
+            },
+            async setIDB(key, data, { dbName = 'novelia_cache_db', version = 1, storeName = 'cache_store', keyPath = 'key' } = {}) {
+                return await Utils.idb.set({ [keyPath]: key, data, timestamp: Date.now() }, { dbName, version, storeName, keyPath });
+            },
+            async removeIDB(key, opts = {}) {
+                return await Utils.idb.delete(key, opts);
+            },
+            async clearIDB(opts = {}) {
+                return await Utils.idb.clear(opts);
             }
         },
         network: {
@@ -490,6 +675,21 @@
                 }
                 const parsedDate = Date.parse(str);
                 return !isNaN(parsedDate) ? Math.max(0, (Date.now() - parsedDate) / 1000) : Infinity;
+            },
+            formatRelativeTime(timestamp) {
+                if (!timestamp) return '';
+                let timestampInMs = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+                if (isNaN(timestampInMs)) return '';
+                if (timestampInMs < 1e11) timestampInMs *= 1000;
+
+                const date = new Date(timestampInMs);
+                const now = new Date();
+                const diffSec = Math.floor((now - date) / 1000);
+                if (diffSec < 0 || diffSec < 60) return '剛剛';
+                if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分鐘前`;
+                if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小時前`;
+                if (diffSec < 2592000) return `${Math.floor(diffSec / 86400)} 天前`;
+                return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
             }
         },
         ui: {
