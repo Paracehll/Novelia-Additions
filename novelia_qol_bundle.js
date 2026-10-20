@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      2.8.0
+// @version      2.8.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -3398,7 +3398,7 @@
             function isAllowedHostPage() {
                 if (location.hostname !== DOMAINS.HOST) return true;
                 const currentPath = Utils.route.getPath();
-                return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/') || currentPath.startsWith('/forum');
+                return currentPath.startsWith('/novel') || currentPath.startsWith('/wenku') || currentPath.startsWith('/forum');
             }
             function isTargetContainer(anchorElement) {
                 if (!anchorElement) return false;
@@ -3449,8 +3449,9 @@
                 });
             }
             function processMobileLinks() {
-                if (!Utils.dom.isMobile()) return;
-                const containers = document.querySelectorAll('article, .prose, .markdown-body, #comments, .n-tab-pane, [class*="comment"], .comment-card, .topic-detail, .post-content');
+                if (!Utils.dom.isMobile() || !isAllowedHostPage()) return;
+                
+                const containers  = document.querySelectorAll('article, .prose, .markdown-body, #comments, .n-tab-pane, [class*="comment"], .comment-card, .topic-detail, .post-content');
                 containers.forEach(container => {
                     const links = container.querySelectorAll('a[href]:not([data-novelia-preview-processed])');
                     links.forEach(a => {
