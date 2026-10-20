@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.1.1
+// @version      3.1.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2602,17 +2602,23 @@
     // 9. 懸浮 Preview (Modules.novel_inspect)
     // ==========================================
     Modules.novel_inspect = {
+        _initialized: false,
+        _hostListenerSet: false,
+        _iframeListenerSet: false,
         init: function() {
+            if (this._initialized) return;
             if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+            this._initialized = true;
 
+            const self = this;
             const cache = new Map();
             let panelElement = null;
             let backdropElement = null;
             let currentAnchorElement = null;
 
-            const DB_NAME = 'novelia_inspect_db';
+            const DB_NAME = 'novelia_qol_db';
             const DB_VERSION = 1;
-            const STORE_NAME = 'novel_cache';
+            const STORE_NAME = 'preview_cache';
             const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
             async function getIndexedDbCache(cacheKey) {
@@ -2628,7 +2634,7 @@
                     dbName: DB_NAME,
                     version: DB_VERSION,
                     storeName: STORE_NAME,
-                    keyPath: 'cacheKey'
+                    keyPath: 'key'
                 });
             }
             function injectStyles() {
@@ -2667,18 +2673,24 @@
             }
             function getOrCreateBackdrop() {
                 if (!backdropElement) {
-                    backdropElement = document.createElement('div');
-                    backdropElement.className = 'novelia-inspect-backdrop';
+                    backdropElement = document.querySelector('.novelia-inspect-backdrop');
+                    if (!backdropElement) {
+                        backdropElement = document.createElement('div');
+                        backdropElement.className = 'novelia-inspect-backdrop';
+                        document.body.appendChild(backdropElement);
+                    }
                     backdropElement.addEventListener('click', hidePanel);
-                    document.body.appendChild(backdropElement);
                 }
                 return backdropElement;
             }
             function getOrCreatePanel() {
                 if (!panelElement) {
-                    panelElement = document.createElement('div');
-                    panelElement.className = 'novelia-inspect-panel';
-                    document.body.appendChild(panelElement);
+                    panelElement = document.querySelector('.novelia-inspect-panel');
+                    if (!panelElement) {
+                        panelElement = document.createElement('div');
+                        panelElement.className = 'novelia-inspect-panel';
+                        document.body.appendChild(panelElement);
+                    }
                 }
                 return panelElement;
             }
@@ -2768,7 +2780,8 @@
             }
 
             function setupHostFetchListener() {
-                if (location.hostname !== DOMAINS.HOST || window.top !== window.self) return;
+                if (location.hostname !== DOMAINS.HOST || window.top !== window.self || self._hostListenerSet) return;
+                self._hostListenerSet = true;
 
                 window.addEventListener('message', async (event) => {
                     if (!event.data || event.data.type !== 'NOVELIA_INSPECT_FETCH') return;
@@ -2793,6 +2806,9 @@
                 });
             }
             function setupIframeResponseListener() {
+                if (self._iframeListenerSet) return;
+                self._iframeListenerSet = true;
+
                 window.addEventListener('message', (event) => {
                     if (!event.data || event.data.type !== 'NOVELIA_INSPECT_RESPONSE') return;
                     const { requestId, success, data, error } = event.data;
