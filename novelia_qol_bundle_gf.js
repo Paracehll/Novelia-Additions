@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.1.3
+// @version      3.1.4
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1072,6 +1072,7 @@
                     popoutBtn.setAttribute('aria-label', '前往論壇');
 
                     popoutBtn.addEventListener('click', (e) => {
+                        if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0)) return;
                         e.preventDefault();
                         e.stopPropagation();
                         window.location.assign(getIframeTargetUrl());
@@ -1102,6 +1103,7 @@
                         link.appendChild(subLabel);
 
                         link.addEventListener('click', (e) => {
+                            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0)) return;
                             e.preventDefault();
                             e.stopPropagation();
                             if (location.pathname !== item.path) Utils.route.push(item.path);
@@ -1237,6 +1239,7 @@
             }
             // Intercept click on links targeting forum or non-forum host navigation
             window.addEventListener('click', function(e) {
+                if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0)) return;
                 if (e.target.closest('[data-novelia-popout="1"], .novelia-forum-popout-btn')) return;
                 const menuItem = e.target.closest('.n-menu-item, .n-menu-item-content, .web-kit-sidebar-item');
                 if (menuItem && !menuItem.closest('.novelia-forum-submenu')) {
