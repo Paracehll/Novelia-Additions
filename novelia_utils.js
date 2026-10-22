@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.5.0
+// @version      1.6.0
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -515,6 +515,206 @@
                 const userAgentMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
                 const screenMobile = window.innerWidth <= 768;
                 return userAgentMobile || screenMobile;
+            },
+        },
+        collapse: {
+            isSidebarCollapsed(sider = null) {
+                const sidebarEl = sider || Utils.sidebar.get();
+                if (sidebarEl) {
+                    if (sidebarEl.classList.contains('n-layout-sider--collapsed') || sidebarEl.offsetWidth < 120) return true;
+                    const collapseBtn = document.querySelector('.sidebar-collapse');
+                    if (collapseBtn && (collapseBtn.getAttribute('aria-expanded') === 'false' || collapseBtn.getAttribute('aria-label')?.includes('展开') || collapseBtn.getAttribute('title')?.includes('展开'))) {
+                        return true;
+                    }
+                }
+                const menu = document.querySelector('.n-menu');
+                if (menu && menu.classList.contains('n-menu--collapsed')) return true;
+                return false;
+            },
+            autoCollapseSidebar() {
+                if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+                    const closeBtn = document.querySelector('button[aria-label*="关闭导航菜单"], button[aria-label*="關閉導航菜單"], button[aria-label*="关闭"], button[aria-label*="關閉"]');
+                    if (closeBtn) { closeBtn.click(); return; }
+                    const drawerMask = document.querySelector('.n-drawer-mask');
+                    if (drawerMask) { drawerMask.click(); return; }
+                    const openDrawer = document.querySelector('.n-drawer, [role="dialog"][class*="drawer"]');
+                    const openToggleBtn = document.querySelector('button.layout-toggle[aria-expanded="true"], button[aria-label*="导航菜单"][aria-expanded="true"], button[aria-label*="導航菜單"][aria-expanded="true"]');
+                    if (openDrawer || openToggleBtn) {
+                        const drawerBtn = openToggleBtn || document.querySelector('button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
+                        if (drawerBtn) drawerBtn.click();
+                    }
+                }
+            },
+            syncSidebarCollapsedState(submenuDiv = null) {
+                const targetSubmenu = submenuDiv || document.querySelector('.novelia-forum-submenu');
+                if (!targetSubmenu) return;
+
+                const collapsed = this.isSidebarCollapsed();
+                if (targetSubmenu.classList.contains('n-submenu')) {
+                    const contentDiv = targetSubmenu.querySelector('.n-menu-item-content');
+                    const childrenDiv = targetSubmenu.querySelector('.n-submenu-children');
+                    if (contentDiv) contentDiv.style.paddingLeft = collapsed ? '21px' : '32px';
+                    if (collapsed && childrenDiv) {
+                        childrenDiv.classList.remove('expanded');
+                        childrenDiv.classList.add('collapsed');
+                        targetSubmenu.setAttribute('aria-expanded', 'false');
+                        const arrow = contentDiv ? contentDiv.querySelector('.n-menu-item-content__arrow') : null;
+                        if (arrow) arrow.style.transform = 'rotate(0deg)';
+                    }
+                } else {
+                    const childrenDiv = targetSubmenu.querySelector('.sidebar-submenu');
+                    const headerBtn = targetSubmenu.querySelector('button');
+                    if (collapsed && childrenDiv) {
+                        childrenDiv.classList.remove('flex');
+                        childrenDiv.classList.add('hidden');
+                        if (headerBtn) headerBtn.setAttribute('aria-expanded', 'false');
+                    }
+                }
+            },
+            observeSidebarToggle(sider = null, callback = null) {
+                const targetSider = sider || Utils.sidebar.get();
+                if (targetSider && !targetSider.dataset.noveliaSiderObserverAttached) {
+                    targetSider.dataset.noveliaSiderObserverAttached = '1';
+                    const observer = new MutationObserver(() => {
+                        this.syncSidebarCollapsedState();
+                        if (typeof callback === 'function') callback(this.isSidebarCollapsed(targetSider));
+                    });
+                    observer.observe(targetSider, { attributes: true, attributeFilter: ['class', 'style', 'aria-expanded'] });
+                }
+            },
+            createWrapper({ anchorCard, repliesArea, isCollapsedState, replyCount, onToggleState }) {
+                if (!anchorCard || !repliesArea) return null;
+
+                const btnWrapper = document.createElement('div');
+                btnWrapper.className = 'novelia-collapse-btn-wrapper';
+
+                const btn = document.createElement('button');
+                Object.assign(btn, {
+                    className: 'novelia-collapse-btn',
+                    type: 'button',
+                    innerHTML: `<span class="novelia-collapse-icon ${isCollapsedState ? 'collapsed' : 'expanded'}">${Utils.svg.CHEVRON}</span>
+                                <span class="novelia-collapse-btn-text">${isCollapsedState ? '展開回覆' : '收起回覆'} (${replyCount})</span>`
+                });
+                btnWrapper.appendChild(btn);
+                anchorCard.after(btnWrapper);
+
+                const wrapper = document.createElement('div');
+                wrapper.className = `novelia-collapse-replies-wrapper ${isCollapsedState ? 'collapsed' : 'expanded'}`;
+                const inner = document.createElement('div');
+                inner.className = 'novelia-collapse-replies-inner';
+
+                repliesArea.parentNode.insertBefore(wrapper, repliesArea);
+                inner.appendChild(repliesArea);
+                wrapper.appendChild(inner);
+
+                btn.addEventListener('click', () => {
+                    const currentlyCollapsed = wrapper.classList.contains('collapsed');
+                    const newCollapsed = !currentlyCollapsed;
+
+                    wrapper.classList.toggle('collapsed', newCollapsed);
+                    wrapper.classList.toggle('expanded', !newCollapsed);
+
+                    const icon = btn.querySelector('.novelia-collapse-icon');
+                    if (icon) {
+                        icon.classList.toggle('collapsed', newCollapsed);
+                        icon.classList.toggle('expanded', !newCollapsed);
+                    }
+                    const text = btn.querySelector('.novelia-collapse-btn-text');
+                    if (text) text.innerText = `${newCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
+
+                    if (typeof onToggleState === 'function') onToggleState(newCollapsed);
+                });
+                btn.addEventListener('mouseup', () => btn.blur());
+
+                const nativeReplyBtn = Array.from(anchorCard.querySelectorAll('button')).find(b => b.innerText.includes('回复') || b.innerText.includes('回覆'));
+                if (nativeReplyBtn) {
+                    nativeReplyBtn.addEventListener('click', () => {
+                        if (wrapper.classList.contains('collapsed')) btn.click();
+                    });
+                }
+                return { btnWrapper, wrapper, inner };
+            }
+        },
+        sidebar: {
+            get() {
+                return Utils.ui.getSidebar();
+            },
+            getButtons(container = null) {
+                return Utils.ui.getSidebarButtons(container);
+            },
+            findMenuItem(target = null) {
+                if (!target) return Utils.ui.findForumMenuItem();
+                const buttons = this.getButtons();
+                if (typeof target === 'function') {
+                    return buttons.find(target) || null;
+                }
+                if (typeof target === 'string') {
+                    const lower = target.toLowerCase();
+                    return buttons.find(item =>
+                        item.name.toLowerCase().includes(lower) ||
+                        item.href.toLowerCase().includes(lower)
+                    ) || null;
+                }
+                if (target instanceof RegExp) {
+                    return buttons.find(item =>
+                        target.test(item.name) ||
+                        target.test(item.href)
+                    ) || null;
+                }
+                if (typeof target === 'object') {
+                    return buttons.find(item => {
+                        if (target.name && !item.name.toLowerCase().includes(String(target.name).toLowerCase())) return false;
+                        if (target.href && !item.href.toLowerCase().includes(String(target.href).toLowerCase())) return false;
+                        if (target.el && item.el !== target.el) return false;
+                        return true;
+                    }) || null;
+                }
+                return Utils.ui.findForumMenuItem();
+            },
+            inject(targetElement, contentElement, mode = 'replace') {
+                if (!targetElement || !contentElement) return false;
+                try {
+                    if (mode === 'replace') {
+                        targetElement.replaceWith(contentElement);
+                    } else if (mode === 'before') {
+                        targetElement.before(contentElement);
+                    } else if (mode === 'after') {
+                        targetElement.after(contentElement);
+                    } else if (mode === 'append') {
+                        targetElement.appendChild(contentElement);
+                    } else if (mode === 'prepend') {
+                        targetElement.prepend(contentElement);
+                    } else {
+                        targetElement.replaceWith(contentElement);
+                    }
+                    return true;
+                } catch (e) {
+                    console.error('[Utils.sidebar.inject] Injection failed:', e);
+                    return false;
+                }
+            },
+            isAvailable() {
+                const sidebar = this.get();
+                if (!sidebar || !sidebar.isConnected) return false;
+                const rect = sidebar.getBoundingClientRect();
+                const style = window.getComputedStyle(sidebar);
+                return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
+            },
+            observeAvailability(callback) {
+                if (typeof callback !== 'function') return () => {};
+                let lastState = this.isAvailable();
+                callback(lastState, this.get());
+
+                const observer = new MutationObserver(() => {
+                    const currentState = this.isAvailable();
+                    if (currentState !== lastState) {
+                        lastState = currentState;
+                        callback(currentState, this.get());
+                    }
+                });
+
+                observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+                return () => observer.disconnect();
             }
         },
         route: {
@@ -686,6 +886,66 @@
             }
         },
         ui: {
+            getForumHeader() {
+                return document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav');
+            },
+            getThemeButton(container = null) {
+                const root = container || document;
+                return root.querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
+            },
+            getSidebar() {
+                return document.querySelector('.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside');
+            },
+            getSidebarButtons(container = null) {
+                const rootEl = container || Utils.ui.getSidebar() || document.querySelector('.n-drawer');
+                if (!rootEl) return [];
+                const selector = '.web-kit-sidebar-item, .n-menu-item, [role="menuitem"], a[href], button';
+                const rawElements = Array.from(rootEl.querySelectorAll(selector));
+
+                const items = [];
+                const seen = new Set();
+
+                for (const rawEl of rawElements) {
+                    if (!Utils.ui.isSidebarMenuItem(rawEl) && !container) continue;
+                    const menuEl = rawEl.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]') || rawEl;
+                    if (seen.has(menuEl)) continue;
+                    seen.add(menuEl);
+
+                    const anchor = menuEl.tagName === 'A' ? menuEl : menuEl.querySelector('a[href]');
+                    const href = anchor ? (anchor.getAttribute('href') || anchor.href || '') : (menuEl.getAttribute('href') || '');
+                    const name = menuEl.textContent.trim();
+                    const isWebKit = menuEl.classList.contains('web-kit-sidebar-item') || !!menuEl.closest('.web-kit-sidebar');
+
+                    items.push({
+                        name,
+                        href,
+                        el: menuEl,
+                        anchor: anchor || menuEl,
+                        isWebKit
+                    });
+                }
+                return items;
+            },
+            isSidebarMenuItem(a) {
+                if (!a) return false;
+                const drawer = a.closest('.n-drawer');
+                if (!drawer && a.closest('header, .n-layout-header, main, .n-layout-content, .layout-content, .novel-page-content, #banner, .n-card, .n-grid, .n-breadcrumb, [aria-label*="Breadcrumb"], [aria-label*="面包屑"]')) {
+                    return false;
+                }
+                const menuItem = a.closest('.web-kit-sidebar-item, .n-menu-item, [role="menuitem"]');
+                const sidebarContainer = a.closest('aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]');
+                return !!(menuItem || sidebarContainer);
+            },
+            findForumMenuItem() {
+                const buttons = Utils.ui.getSidebarButtons();
+                let found = buttons.find(item => Utils.route.isForumUrl(item.href));
+                if (found) return found;
+
+                found = buttons.find(item => item.name === '论坛' || item.name === '論壇' || item.name.includes('论坛') || item.name.includes('論壇'));
+                if (found) return found;
+
+                return null;
+            },
             createHeaderButton({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) {
                 const btn = document.createElement('button');
                 btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
@@ -725,6 +985,163 @@
                         timer = setTimeout(() => toastEl.classList.remove('show'), duration);
                     }
                 };
+            },
+            isDark() {
+                return Utils.ui.isHostDarkTheme();
+            },
+            isHostDarkTheme() {
+                if (document.documentElement.classList.contains('dark') ||
+                    document.body.classList.contains('dark') ||
+                    document.documentElement.getAttribute('data-theme') === 'dark' ||
+                    !!document.querySelector('.n-config-provider--dark')) {
+                    return true;
+                }
+                if (document.documentElement.classList.contains('light') ||
+                    document.body.classList.contains('light') ||
+                    document.documentElement.getAttribute('data-theme') === 'light') {
+                    return false;
+                }
+                try {
+                    const targets = [document.body, document.documentElement, document.getElementById('app'), document.querySelector('.n-layout'), document.querySelector('.n-config-provider')].filter(Boolean);
+                    for (const el of targets) {
+                        const bg = window.getComputedStyle(el).backgroundColor;
+                        const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                        if (match) {
+                            const r = parseInt(match[1], 10);
+                            const g = parseInt(match[2], 10);
+                            const b = parseInt(match[3], 10);
+                            const isTransparent = bg.includes('rgba(') && bg.endsWith(', 0)');
+                            if (!isTransparent) {
+                                const luminance = (r * 299 + g * 587 + b * 114) / 1000;
+                                if (luminance < 128) return true;
+                                if (luminance >= 128) return false;
+                            }
+                        }
+                    }
+                } catch (e) {}
+                return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            },
+            getOrCreateDropdownPopover(subItems, onItemClick = null) {
+                let popover = document.getElementById('novelia-forum-popover');
+                if (popover) return popover;
+
+                popover = document.createElement('div');
+                Object.assign(popover, { id: 'novelia-forum-popover', className: 'novelia-forum-dropdown-popover' });
+
+                subItems.forEach(item => {
+                    const itemDiv = document.createElement('div');
+                    Object.assign(itemDiv, {
+                        className: 'novelia-forum-dropdown-item',
+                        innerHTML: `${item.icon}<span>${item.name}</span>`
+                    });
+
+                    itemDiv.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        popover.style.display = 'none';
+
+                        if (item.path && location.pathname !== item.path) Utils.route.push(item.path);
+                        if (typeof onItemClick === 'function') {
+                            onItemClick(item, e);
+                        }
+                    });
+                    popover.appendChild(itemDiv);
+                });
+                document.body.appendChild(popover);
+                return popover;
+            },
+            createWebKitPopoutButton({ href = '', onClick = null, title = '前往論壇 (取代當前頁面)', ariaLabel = '前往論壇' } = {}) {
+                const popoutBtn = document.createElement('a');
+                Object.assign(popoutBtn, {
+                    href,
+                    target: '_self',
+                    title,
+                    className: 'novelia-forum-popout-btn grid size-5 place-items-center rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10 text-muted hover:text-ink transition-colors',
+                    innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-3.5"><path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z" fill="currentColor"></path></svg>`
+                });
+                popoutBtn.dataset.noveliaPopout = '1';
+                popoutBtn.setAttribute('aria-label', ariaLabel);
+
+                popoutBtn.addEventListener('click', (e) => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (typeof onClick === 'function') {
+                        onClick(e);
+                    } else if (href) {
+                        window.location.assign(href);
+                    }
+                }, true);
+                return popoutBtn;
+            },
+            createWebKitSidebarHeader({ label = '论坛', isExpanded = false, origIcon = null, actionElements = [] } = {}) {
+                const headerBtn = document.createElement('button');
+                Object.assign(headerBtn, {
+                    type: 'button',
+                    className: 'web-kit-sidebar-item text-ink hover:bg-hover w-full flex items-center justify-between cursor-pointer !pr-1.5'
+                });
+                headerBtn.setAttribute('aria-label', label);
+                headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+
+                const iconSpan = document.createElement('span');
+                iconSpan.className = 'grid size-5 flex-none place-items-center';
+                iconSpan.setAttribute('aria-hidden', 'true');
+                if (origIcon) {
+                    iconSpan.innerHTML = typeof origIcon === 'string' ? origIcon : origIcon.outerHTML;
+                } else {
+                    iconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M15 4v7H5.17L4 12.17V4h11m1-2H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm5 4h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1z" fill="currentColor"></path></svg>`;
+                }
+
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'web-kit-sidebar-label flex-1 text-left truncate opacity-100';
+                labelSpan.setAttribute('aria-hidden', 'false');
+                labelSpan.textContent = label;
+
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'flex items-center gap-1.5 flex-none ml-auto';
+
+                const actions = Array.isArray(actionElements) ? actionElements : [actionElements];
+                actions.forEach(el => {
+                    if (el) actionsDiv.appendChild(el);
+                });
+
+                headerBtn.appendChild(iconSpan);
+                headerBtn.appendChild(labelSpan);
+                headerBtn.appendChild(actionsDiv);
+
+                return headerBtn;
+            },
+            createWebKitSubmenuItem({ name = '', path = '', icon = '', onClick = null } = {}) {
+                const link = document.createElement('a');
+                Object.assign(link, {
+                    href: path,
+                    className: 'web-kit-sidebar-item text-ink hover:bg-hover flex items-center gap-2 py-1.5 px-2 rounded-md text-sm'
+                });
+
+                const subIcon = document.createElement('span');
+                subIcon.className = 'grid size-4 flex-none place-items-center';
+                subIcon.setAttribute('aria-hidden', 'true');
+                subIcon.innerHTML = icon;
+
+                const subLabel = document.createElement('span');
+                Object.assign(subLabel, { className: 'web-kit-sidebar-label truncate', textContent: name });
+
+                link.appendChild(subIcon);
+                link.appendChild(subLabel);
+
+                link.addEventListener('click', (e) => {
+                    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (path && location.pathname !== path) {
+                        Utils.route.push(path);
+                    }
+                    if (typeof onClick === 'function') {
+                        onClick(e);
+                    }
+                });
+
+                return link;
             }
         },
         comments: {
