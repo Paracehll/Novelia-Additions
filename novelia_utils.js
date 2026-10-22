@@ -869,43 +869,43 @@
                 return (task) => new Promise((resolve, reject) => { taskQueue.push({ task, resolve, reject }); runNextTask(); });
             }
         },
-        mascot: {
-            url: `https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp`,
-            _blobUrl: null,
-            _promise: null,
-            CACHE_KEY: 'mascot_image_blob',
-            CACHE_TTL: 7 * 24 * 60 * 60 * 1000,
-            async getBlob() {
+        img: {
+            _blobUrls: {},
+            _promises: {},
+            DEFAULT_TTL: 7 * 24 * 60 * 60 * 1000,
+            async getBlob(imageUrl, { ttlMs = 7 * 24 * 60 * 60 * 1000, cacheKey = null, mimeType = null } = {}) {
+                if (!imageUrl) throw new Error('Image URL is required');
+                const effectiveCacheKey = cacheKey || `img_blob_${imageUrl}`;
                 const isIframe = typeof window !== 'undefined' && window.top !== window.self;
-                
+
                 if (!isIframe) {
                     try {
-                        const cachedData = await Utils.cache.getIDB(this.CACHE_KEY, { ttlMs: this.CACHE_TTL });
+                        const cachedData = await Utils.cache.getIDB(effectiveCacheKey, { ttlMs });
                         if (cachedData) {
                             if (cachedData instanceof Blob) {
                                 return cachedData;
                             }
                             if (cachedData instanceof ArrayBuffer || ArrayBuffer.isView(cachedData)) {
-                                return new Blob([cachedData], { type: 'image/webp' });
+                                return new Blob([cachedData], { type: mimeType || 'image/webp' });
                             }
                         }
                     } catch (cacheError) {
-                        console.warn('[Utils.mascot] Error reading image cache from IDB:', cacheError);
+                        console.warn(`[Utils.img] Error reading image cache from IDB (${effectiveCacheKey}):`, cacheError);
                     }
                 }
 
-                const blob = await new Promise((resolve, reject) => {
+                const imageBlob = await new Promise((resolve, reject) => {
                     if (typeof GM_xmlhttpRequest === 'function') {
                         GM_xmlhttpRequest({
                             method: 'GET',
-                            url: this.url,
+                            url: imageUrl,
                             responseType: 'blob',
                             headers: { 'Cache-Control': 'max-age=3600' },
                             onload: (response) => {
                                 if (response.status >= 200 && response.status < 300 && response.response) {
                                     const resBlob = response.response instanceof Blob
                                         ? response.response
-                                        : new Blob([response.response], { type: 'image/webp' });
+                                        : new Blob([response.response], { type: mimeType || 'image/webp' });
                                     resolve(resBlob);
                                 } else {
                                     reject(new Error(`HTTP ${response.status}`));
@@ -916,7 +916,7 @@
                             timeout: 15000
                         });
                     } else if (typeof fetch === 'function') {
-                        fetch(this.url)
+                        fetch(imageUrl)
                             .then((response) => {
                                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                                 return response.blob();
@@ -930,32 +930,52 @@
 
                 if (!isIframe) {
                     try {
-                        await Utils.cache.setIDB(this.CACHE_KEY, blob);
+                        await Utils.cache.setIDB(effectiveCacheKey, imageBlob);
                     } catch (storeError) {
-                        console.warn('[Utils.mascot] Error saving image cache to IDB:', storeError);
+                        console.warn(`[Utils.img] Error saving image cache to IDB (${effectiveCacheKey}):`, storeError);
                     }
                 }
 
-                return blob;
+                return imageBlob;
             },
-            getUrl() {
-                if (this._blobUrl) return Promise.resolve(this._blobUrl);
-                if (!this._promise) {
-                    this._promise = (async () => {
+            getUrl(imageUrl, options = {}) {
+                if (!imageUrl) return Promise.resolve('');
+                if (this._blobUrls[imageUrl]) return Promise.resolve(this._blobUrls[imageUrl]);
+                if (!this._promises[imageUrl]) {
+                    this._promises[imageUrl] = (async () => {
                         try {
-                            const mascotBlob = await this.getBlob();
-                            this._blobUrl = URL.createObjectURL(mascotBlob);
-                            return this._blobUrl;
+                            const imageBlob = await this.getBlob(imageUrl, options);
+                            const createdBlobUrl = URL.createObjectURL(imageBlob);
+                            this._blobUrls[imageUrl] = createdBlobUrl;
+                            return createdBlobUrl;
                         } catch (loadError) {
-                            console.error('[Utils.mascot] Failed to fetch or load mascot image:', loadError);
-                            this._promise = null;
-                            return this.url;
+                            console.error(`[Utils.img] Failed to fetch or load image (${imageUrl}):`, loadError);
+                            delete this._promises[imageUrl];
+                            return imageUrl;
                         }
                     })();
                 }
-                return this._promise;
+                return this._promises[imageUrl];
             },
-            getSyncUrl() { return this._blobUrl || this.url }
+            getSyncUrl(imageUrl) {
+                if (!imageUrl) return '';
+                return this._blobUrls[imageUrl] || imageUrl;
+            },
+            getMascot() {
+                const mascotUrl = `https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp`;
+                const mascotOpts = { cacheKey: 'mascot_image_blob', ttlMs: 7 * 24 * 60 * 60 * 1000 };
+                return {
+                    url: mascotUrl,
+                    CACHE_KEY: 'mascot_image_blob',
+                    CACHE_TTL: 7 * 24 * 60 * 60 * 1000,
+                    getBlob: () => Utils.img.getBlob(mascotUrl, mascotOpts),
+                    getUrl: () => Utils.img.getUrl(mascotUrl, mascotOpts),
+                    getSyncUrl: () => Utils.img.getSyncUrl(mascotUrl)
+                };
+            }
+        },
+        get mascot() {
+            return this.img.getMascot();
         },
         svg: {
             REFRESH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
