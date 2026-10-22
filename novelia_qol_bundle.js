@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.1.5
+// @version      3.2.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2416,16 +2416,22 @@
             if (location.hostname !== DOMAINS.HOST) return;
 
             const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';
-            const IMG_FIT = 'cover';
+            // const IMG_FIT = 'cover';
             const IMG_POSITION = '50% 50%';
+            const IMG_SIZE = '100%';    // 可接受 'cover'、'contain'
+            const IMG_SIZE_MOBILE = '200%';
             const IMG_SCROLLING = true;
             const IMG_SCROLL_SPD = 20;
+            const REMOVE_CYCLE_IMG_BTN = true;
 
             function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
-            function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
+            // function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
             function getObjectPosition() { return Utils.gm.getValue('banner_object_position', IMG_POSITION); }
+            function getBannerSize() { return Utils.gm.getValue('banner_size', IMG_SIZE); }
+            function getBannerSizeMobile() { return Utils.gm.getValue('banner_size_mobile', IMG_SIZE_MOBILE); }
             function getScrolling() { return Utils.gm.getValue('banner_scrolling', IMG_SCROLLING); }
             function getScrollSpd() { return Number(Utils.gm.getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
+            function getRemoveCycleImgBtn() { return Utils.gm.getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
 
             let offsetY = 0;
             let lastTime = 0;
@@ -2461,52 +2467,52 @@
                 if (cleanPath !== '/') { stopScroll(); return; }
 
                 const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
-                if (!bannerImg) return;
-
-                const container = bannerImg.parentElement;
+                let container = bannerImg ? bannerImg.parentElement : document.querySelector('div[data-banner-locked="1"]');
                 if (!container) return;
 
-                const targetUrl = getBannerUrl();
-                const targetFit = getObjectFit();
-                const targetPosition = getObjectPosition();
-                const scrolling = getScrolling();
-
                 if (!container.dataset.bannerLocked) {
-                    const rect = container.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        Object.assign(container.style, { aspectRatio: `${rect.width} / ${rect.height}`, height: 'auto', width: '100%' });
+                    const containerRect = container.getBoundingClientRect();
+                    if (containerRect.width > 0 && containerRect.height > 0) {
+                        Object.assign(container.style, { aspectRatio: `${containerRect.width} / ${containerRect.height}`, height: 'auto', width: '100%' });
                         container.dataset.bannerLocked = '1';
                     } else {
                         return;
                     }
                 }
-                Object.assign(container.style, { position: 'relative', overflow: 'hidden', overflowAnchor: 'none' });
-                Object.assign(bannerImg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%'});
-
-                if (!scrolling) {
-                    const layer = container.querySelector(':scope > .banner-scroll-layer');
-                    if (layer) layer.remove();
-                    stopScroll();
-                    bannerImg.style.visibility = '';
-                    if (bannerImg.getAttribute('src') !== targetUrl) bannerImg.src = targetUrl;
-                    if (bannerImg.style.objectFit !== targetFit) bannerImg.style.objectFit = targetFit;
-                    if (bannerImg.style.objectPosition !== targetPosition) bannerImg.style.objectPosition = targetPosition;
-                    return;
+                if (bannerImg) bannerImg.remove();
+                
+                // 移除原本的橫幅輪轉按鈕，可能會加回來，並新增自訂橫幅列表
+                if (getRemoveCycleImgBtn()) {
+                    const cycleButton = container.querySelector('button[title*="切换下一张"], button[aria-label*="切换下一张"], button[title*="切換下一張"], button[aria-label*="切換下一張"]') || document.querySelector('button[title*="切换下一张"], button[aria-label*="切换下一张"], button[title*="切換下一張"], button[aria-label*="切換下一張"]');
+                    if (cycleButton) cycleButton.remove();
                 }
-                bannerImg.style.visibility = 'hidden';
+                Object.assign(container.style, { position: 'relative', overflow: 'hidden', overflowAnchor: 'none' });
+                
+                // const targetFit = getObjectFit();
+                const targetPosition = getObjectPosition();
+                const targetSize = Utils.dom.isMobile() ? getBannerSizeMobile() : getBannerSize();
+                const scrolling = getScrolling();
 
                 let layer = container.querySelector(':scope > .banner-scroll-layer');
                 if (!layer) {
                     layer = document.createElement('div');
                     layer.className = 'banner-scroll-layer';
-                    Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', backgroundRepeat: 'repeat-y', willChange: 'background-position', });
+                    Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', willChange: 'background-position' });
                     container.appendChild(layer);
                 }
-
-                const cssUrl = `url("${targetUrl}")`;
+                const cssUrl = `url("${getBannerUrl()}")`;
                 if (layer.style.backgroundImage !== cssUrl) layer.style.backgroundImage = cssUrl;
 
-                layer.style.backgroundSize = '100% auto';
+                const computedBackgroundSize = (targetSize === 'cover' || targetSize === 'contain' || targetSize.includes(' ')) ? targetSize : `${targetSize} auto`;
+                layer.style.backgroundSize = computedBackgroundSize;
+
+                if (!scrolling) {
+                    stopScroll();
+                    layer.style.backgroundRepeat = 'no-repeat';
+                    layer.style.backgroundPosition = targetPosition || '50% 50%';
+                    return;
+                }
+                layer.style.backgroundRepeat = 'repeat-y';
                 layer.dataset.posX = (targetPosition || '50% 50%').split(/\s+/)[0];
 
                 if (activeLayer !== layer) startScroll(layer);
