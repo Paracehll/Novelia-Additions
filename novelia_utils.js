@@ -14,7 +14,7 @@
 
 (function() {
     'use strict';
-    
+
     const root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
     const DOMAINS = {
@@ -877,7 +877,6 @@
             _blobUrls: {},
             _promises: {},
             DEFAULT_TTL: 7 * 24 * 60 * 60 * 1000,
-            // 修正:原本 `ttlMs = DEFAULT_TTL` 引用了不存在的變數,會丟 ReferenceError
             async getBlob(imageUrl, { ttlMs = Utils.img.DEFAULT_TTL, cacheKey = null, mimeType = null } = {}) {
                 if (!imageUrl) throw new Error('Image URL is required');
                 const effectiveCacheKey = cacheKey || `img_blob_${imageUrl}`;
