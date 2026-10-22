@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.2.2
+// @version      3.2.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1194,9 +1194,9 @@
                     wrapper.id = 'novelia-forum-inline-container';
 
                     const loader = document.createElement('div');
-                    Object.assign(loader, { className: 'novelia-forum-spinner-wrapper', innerHTML: `<img src="${Utils.img.getMascot().getSyncUrl()}" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>` });
+                    Object.assign(loader, { className: 'novelia-forum-spinner-wrapper', innerHTML: `<img src="${Utils.img.getMascotSyncUrl()}" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>` });
 
-                    Utils.img.getMascot().getUrl().then(mascotUrl => {
+                    Utils.img.getMascotUrl().then(mascotUrl => {
                         const mascotImg = loader.querySelector('.novelia-forum-mascot');
                         if (mascotImg) mascotImg.src = mascotUrl;
                     });
@@ -2876,13 +2876,13 @@
                 panel.innerHTML = renderPanelWrapper(`
                     <button type="button" class="novelia-inspect-close-btn" aria-label="Close">&times;</button>
                     <div class="novelia-inspect-mascot-wrapper">
-                        <img src="${Utils.img.getMascot().getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <img src="${Utils.img.getMascotSyncUrl()}" class="novelia-mascot" alt="Loading..." />
                         <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
                     </div>`);
                 const closeBtnInPanel = panel.querySelector('.novelia-inspect-close-btn');
                 if (closeBtnInPanel) closeBtnInPanel.addEventListener('click', hidePanel);
 
-                Utils.img.getMascot().getUrl().then(mascotUrl => {
+                Utils.img.getMascotUrl().then(mascotUrl => {
                     const mascotImg = panel.querySelector('.novelia-mascot');
                     if (mascotImg) mascotImg.src = mascotUrl;
                 });
@@ -2952,11 +2952,11 @@
                 const panel = getOrCreatePanel();
                 panel.innerHTML = renderPanelWrapper(`
                     <div class="novelia-inspect-mascot-wrapper">
-                        <img src="${Utils.img.getMascot().getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <img src="${Utils.img.getMascotSyncUrl()}" class="novelia-mascot" alt="Loading..." />
                         <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
                     </div>
                 `);
-                Utils.img.getMascot().getUrl().then(mascotUrl => {
+                Utils.img.getMascotUrl().then(mascotUrl => {
                     const mascotImg = panel.querySelector('.novelia-mascot');
                     if (mascotImg) mascotImg.src = mascotUrl;
                 });
