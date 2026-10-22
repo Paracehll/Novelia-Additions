@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.2.0
+// @version      3.2.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2547,23 +2547,12 @@
             const DB_VERSION = 1;
             const STORE_NAME = 'preview_cache';
             const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-            const MAX_PANEL_COUNT = 1;
 
             async function getIndexedDbCache(cacheKey) {
-                return await Utils.cache.getIDB(cacheKey, {
-                    dbName: DB_NAME,
-                    version: DB_VERSION,
-                    storeName: STORE_NAME,
-                    ttlMs: CACHE_TTL_MS
-                });
+                return await Utils.cache.getIDB(cacheKey, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, ttlMs: CACHE_TTL_MS });
             }
             async function setIndexedDbCache(cacheKey, data) {
-                return await Utils.cache.setIDB(cacheKey, data, {
-                    dbName: DB_NAME,
-                    version: DB_VERSION,
-                    storeName: STORE_NAME,
-                    keyPath: 'key'
-                });
+                return await Utils.cache.setIDB(cacheKey, data, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, keyPath: 'key' });
             }
             function injectStyles() {
                 Utils.gm.addStyle(`
@@ -2612,15 +2601,9 @@
                 return backdropElement;
             }
             function getOrCreatePanel() {
-                const existingPanels = document.querySelectorAll('.novelia-inspect-panel');
-                if (existingPanels.length > MAX_PANEL_COUNT) {
-                    for (let index = MAX_PANEL_COUNT; index < existingPanels.length; index++) {
-                        existingPanels[index].remove();
-                    }
-                }
-                if (!panelElement || !panelElement.isConnected) {
+                if (!panelElement) {
                     panelElement = document.querySelector('.novelia-inspect-panel');
-                    if (!panelElement && existingPanels.length < MAX_PANEL_COUNT) {
+                    if (!panelElement) {
                         panelElement = document.createElement('div');
                         panelElement.className = 'novelia-inspect-panel';
                         document.body.appendChild(panelElement);
