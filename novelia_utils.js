@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.6.1
+// @version      1.6.2
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -521,6 +521,9 @@
             isSidebarCollapsed(sider = null) {
                 const sidebarEl = sider || Utils.sidebar.get();
                 if (sidebarEl) {
+                    if (sidebarEl.classList.contains('web-kit-sidebar')) {
+                        return sidebarEl.classList.contains('is-collapsed');
+                    }
                     if (sidebarEl.classList.contains('n-layout-sider--collapsed') || sidebarEl.offsetWidth < 120) return true;
                     const collapseBtn = document.querySelector('.sidebar-collapse');
                     if (collapseBtn && (collapseBtn.getAttribute('aria-expanded') === 'false' || collapseBtn.getAttribute('aria-label')?.includes('展开') || collapseBtn.getAttribute('title')?.includes('展开'))) {
@@ -564,11 +567,12 @@
                 } else {
                     const childrenDiv = targetSubmenu.querySelector('.sidebar-submenu');
                     const headerBtn = targetSubmenu.querySelector('button');
-                    if (collapsed && childrenDiv) {
-                        childrenDiv.classList.remove('flex');
-                        childrenDiv.classList.add('hidden');
-                        if (headerBtn) headerBtn.setAttribute('aria-expanded', 'false');
-                    }
+                    if (!childrenDiv) return;
+
+                    const wantExpanded = !collapsed && Utils.ls.getRaw('novelia_forum_submenu_expanded') === 'true';
+                    childrenDiv.classList.toggle('flex', wantExpanded);
+                    childrenDiv.classList.toggle('hidden', !wantExpanded);
+                    if (headerBtn) headerBtn.setAttribute('aria-expanded', wantExpanded ? 'true' : 'false');
                 }
             },
             observeSidebarToggle(sider = null, callback = null) {
