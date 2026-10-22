@@ -796,11 +796,9 @@
                                 repliesArea = curr;
                             }
                         }
-
                         if (curr.classList.contains('n-divider')) break;
                         curr = curr.nextElementSibling;
                     }
-
                     floors.push({
                         originalIndex: index,
                         headerFlex,
@@ -873,7 +871,7 @@
             _blobUrls: {},
             _promises: {},
             DEFAULT_TTL: 7 * 24 * 60 * 60 * 1000,
-            async getBlob(imageUrl, { ttlMs = 7 * 24 * 60 * 60 * 1000, cacheKey = null, mimeType = null } = {}) {
+            async getBlob(imageUrl, { ttlMs = DEFAULT_TTL, cacheKey = null, mimeType = null } = {}) {
                 if (!imageUrl) throw new Error('Image URL is required');
                 const effectiveCacheKey = cacheKey || `img_blob_${imageUrl}`;
                 const isIframe = typeof window !== 'undefined' && window.top !== window.self;
@@ -882,9 +880,7 @@
                     try {
                         const cachedData = await Utils.cache.getIDB(effectiveCacheKey, { ttlMs });
                         if (cachedData) {
-                            if (cachedData instanceof Blob) {
-                                return cachedData;
-                            }
+                            if (cachedData instanceof Blob) { return cachedData }
                             if (cachedData instanceof ArrayBuffer || ArrayBuffer.isView(cachedData)) {
                                 return new Blob([cachedData], { type: mimeType || 'image/webp' });
                             }
@@ -893,7 +889,6 @@
                         console.warn(`[Utils.img] Error reading image cache from IDB (${effectiveCacheKey}):`, cacheError);
                     }
                 }
-
                 const imageBlob = await new Promise((resolve, reject) => {
                     if (typeof GM_xmlhttpRequest === 'function') {
                         GM_xmlhttpRequest({
@@ -935,7 +930,6 @@
                         console.warn(`[Utils.img] Error saving image cache to IDB (${effectiveCacheKey}):`, storeError);
                     }
                 }
-
                 return imageBlob;
             },
             getUrl(imageUrl, options = {}) {
@@ -972,11 +966,11 @@
                     getUrl: () => Utils.img.getUrl(mascotUrl, mascotOpts),
                     getSyncUrl: () => Utils.img.getSyncUrl(mascotUrl)
                 };
-            }
+            },
+            getMascotUrl() { return this.getMascot().getUrl() },
+            getMascotSyncUrl() { return this.getMascot().getSyncUrl() }
         },
-        get mascot() {
-            return this.img.getMascot();
-        },
+        get mascot() { return this.img.getMascot() },
         svg: {
             REFRESH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
             BULK: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>',
