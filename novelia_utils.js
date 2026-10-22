@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.2.0
+// @version      1.2.1
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -876,18 +876,22 @@
             CACHE_KEY: 'mascot_image_blob',
             CACHE_TTL: 7 * 24 * 60 * 60 * 1000,
             async getBlob() {
-                try {
-                    const cachedData = await Utils.cache.getIDB(this.CACHE_KEY, { ttlMs: this.CACHE_TTL });
-                    if (cachedData) {
-                        if (cachedData instanceof Blob) {
-                            return cachedData;
+                const isIframe = typeof window !== 'undefined' && window.top !== window.self;
+                
+                if (!isIframe) {
+                    try {
+                        const cachedData = await Utils.cache.getIDB(this.CACHE_KEY, { ttlMs: this.CACHE_TTL });
+                        if (cachedData) {
+                            if (cachedData instanceof Blob) {
+                                return cachedData;
+                            }
+                            if (cachedData instanceof ArrayBuffer || ArrayBuffer.isView(cachedData)) {
+                                return new Blob([cachedData], { type: 'image/webp' });
+                            }
                         }
-                        if (cachedData instanceof ArrayBuffer || ArrayBuffer.isView(cachedData)) {
-                            return new Blob([cachedData], { type: 'image/webp' });
-                        }
+                    } catch (cacheError) {
+                        console.warn('[Utils.mascot] Error reading image cache from IDB:', cacheError);
                     }
-                } catch (cacheError) {
-                    console.warn('[Utils.mascot] Error reading image cache from IDB:', cacheError);
                 }
 
                 const blob = await new Promise((resolve, reject) => {
@@ -924,10 +928,12 @@
                     }
                 });
 
-                try {
-                    await Utils.cache.setIDB(this.CACHE_KEY, blob);
-                } catch (storeError) {
-                    console.warn('[Utils.mascot] Error saving image cache to IDB:', storeError);
+                if (!isIframe) {
+                    try {
+                        await Utils.cache.setIDB(this.CACHE_KEY, blob);
+                    } catch (storeError) {
+                        console.warn('[Utils.mascot] Error saving image cache to IDB:', storeError);
+                    }
                 }
 
                 return blob;
