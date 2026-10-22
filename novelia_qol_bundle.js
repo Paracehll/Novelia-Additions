@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.1
+// @version      3.4.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1004,17 +1004,12 @@
                         e.stopPropagation();
                         if (Utils.collapse.isSidebarCollapsed()) return;
 
-                        isExpanded = !isExpanded;
+                        isExpanded = Utils.ls.getRaw('novelia_forum_submenu_expanded') !== 'true';
                         Utils.ls.setRaw('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 
-                        if (isExpanded) {
-                            childrenDiv.classList.remove('hidden');
-                            childrenDiv.classList.add('flex');
-                        } else {
-                            childrenDiv.classList.remove('flex');
-                            childrenDiv.classList.add('hidden');
-                        }
+                        childrenDiv.classList.toggle('flex', isExpanded);
+                        childrenDiv.classList.toggle('hidden', !isExpanded);
                     });
                     isUpdatingDom = true;
                     try {
@@ -1202,20 +1197,42 @@
                 setTimeout(handleForumPage, 300);
             });
 
-            hostObserver = new MutationObserver(() => {
+            hostObserver = new MutationObserver((mutations) => {
                 if (isUpdatingDom) return;
-                Utils.collapse.observeSidebarToggle();
-                transformForumSidebarMenu();
-                Utils.collapse.syncSidebarCollapsedState();
-                if (Utils.route.isForumPage()) {
-                    handleForumPage();
+                const hasChildList = mutations.some(m => m.type === 'childList');
+                if (hasChildList) {
+                    Utils.collapse.observeSidebarToggle();
+                    transformForumSidebarMenu();
+                    attachSidebarClassObserver();
+                    if (Utils.route.isForumPage()) handleForumPage();
                 }
+                Utils.collapse.syncSidebarCollapsedState();
             });
             hostObserver.observe(document.body, { childList: true, subtree: true });
 
+            const sidebarClassObserver = new MutationObserver(() => {
+                Utils.collapse.syncSidebarCollapsedState();
+            });
+            function attachSidebarClassObserver() {
+                const sider = Utils.sidebar.get();
+                if (!sider || sider.dataset.noveliaClassObserved) return;
+                sider.dataset.noveliaClassObserved = '1';
+                sidebarClassObserver.observe(sider, { attributes: true, attributeFilter: ['class'] });
+            }
+            attachSidebarClassObserver();
+
+            Utils.gm.addStyle(`
+                .web-kit-sidebar.is-collapsed .novelia-forum-submenu > .sidebar-submenu {
+                    display: none !important;
+                }
+                .web-kit-sidebar.is-collapsed .novelia-forum-submenu > button > .web-kit-sidebar-label,
+                .web-kit-sidebar.is-collapsed .novelia-forum-submenu > button > div {
+                    display: none !important;
+                }
+            `, 'novelia-utils-sidebar-collapse');
+
             window.addEventListener('click', (e) => {
-                if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button')) {
-                    setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 10);
+                if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button, .web-kit-sidebar button, .brand-header button')) {                    setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 10);
                     setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 50);
                     setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 150);
                 }
