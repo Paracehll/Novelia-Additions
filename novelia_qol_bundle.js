@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.2.3
+// @version      3.3.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2409,7 +2409,7 @@
     };
 
     // ==========================================
-    // 8 替換首頁橫幅 (Modules.banner_replace)
+    // 8. 替換首頁橫幅 (Modules.banner_replace)
     // ==========================================
     Modules.banner_replace = {
         init: function() {
@@ -2423,6 +2423,7 @@
             const IMG_SCROLLING = true;
             const IMG_SCROLL_SPD = 20;
             const REMOVE_CYCLE_IMG_BTN = true;
+            const FADEIN_ANIMATION = true;
 
             function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
             // function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
@@ -2432,6 +2433,7 @@
             function getScrolling() { return Utils.gm.getValue('banner_scrolling', IMG_SCROLLING); }
             function getScrollSpd() { return Number(Utils.gm.getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
             function getRemoveCycleImgBtn() { return Utils.gm.getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
+            function getFadeInAnimation() { return Utils.gm.getValue('banner_fadein_animation', FADEIN_ANIMATION); }
 
             let offsetY = 0;
             let lastTime = 0;
@@ -2467,6 +2469,7 @@
                 if (cleanPath !== '/') { stopScroll(); return; }
 
                 const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
+                if (bannerImg) bannerImg.src = "";
                 let container = bannerImg ? bannerImg.parentElement : document.querySelector('div[data-banner-locked="1"]');
                 if (!container) return;
 
@@ -2500,9 +2503,26 @@
                     Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', willChange: 'background-position' });
                     container.appendChild(layer);
                 }
-                const cssUrl = `url("${getBannerUrl()}")`;
-                if (layer.style.backgroundImage !== cssUrl) layer.style.backgroundImage = cssUrl;
+                const bannerUrl = getBannerUrl();
+                const cssUrl = `url("${bannerUrl}")`;
+                if (layer.style.backgroundImage !== cssUrl) {
+                    layer.style.backgroundImage = cssUrl;
 
+                    if (getFadeInAnimation()) {
+                        Object.assign(layer.style, { transition: 'none', opacity: '0' });
+                        layer.dataset.bannerSrc = bannerUrl;
+
+                        const reveal = () => {
+                            if (!layer.isConnected || layer.dataset.bannerSrc !== bannerUrl) return;
+                            void layer.offsetWidth;
+                            Object.assign(layer.style, { transition: 'opacity 0.1s ease', opacity: '1' });
+                        };
+                        const preload = new Image();
+                        Object.assign(preload, { onload: reveal, onerror: reveal, src: bannerUrl });
+                    } else {
+                        Object.assign(layer.style, { transition: '', opacity: '1' });
+                    }
+                }
                 const computedBackgroundSize = (targetSize === 'cover' || targetSize === 'contain' || targetSize.includes(' ')) ? targetSize : `${targetSize} auto`;
                 layer.style.backgroundSize = computedBackgroundSize;
 
