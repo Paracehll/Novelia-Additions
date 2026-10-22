@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.1.4
+// @version      3.1.5
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2541,6 +2541,7 @@
             const DB_VERSION = 1;
             const STORE_NAME = 'preview_cache';
             const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+            const MAX_PANEL_COUNT = 1;
 
             async function getIndexedDbCache(cacheKey) {
                 return await Utils.cache.getIDB(cacheKey, {
@@ -2605,9 +2606,15 @@
                 return backdropElement;
             }
             function getOrCreatePanel() {
-                if (!panelElement) {
+                const existingPanels = document.querySelectorAll('.novelia-inspect-panel');
+                if (existingPanels.length > MAX_PANEL_COUNT) {
+                    for (let index = MAX_PANEL_COUNT; index < existingPanels.length; index++) {
+                        existingPanels[index].remove();
+                    }
+                }
+                if (!panelElement || !panelElement.isConnected) {
                     panelElement = document.querySelector('.novelia-inspect-panel');
-                    if (!panelElement) {
+                    if (!panelElement && existingPanels.length < MAX_PANEL_COUNT) {
                         panelElement = document.createElement('div');
                         panelElement.className = 'novelia-inspect-panel';
                         document.body.appendChild(panelElement);
@@ -2862,7 +2869,7 @@
             function isAllowedHostPage() {
                 if (location.hostname !== DOMAINS.HOST) return true;
                 const currentPath = Utils.route.getPath();
-                return currentPath.startsWith('/novel') || currentPath.startsWith('/wenku') || currentPath.startsWith('/forum');
+                return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/') || currentPath.startsWith('/forum');
             }
             function isTargetContainer(anchorElement) {
                 if (!anchorElement) return false;
