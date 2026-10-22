@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.1.0
+// @version      1.2.0
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -78,13 +78,7 @@
                 return stringVal.slice(0, length) + suffix;
             }
         },
-        escapeHtml(str) {
-            return Utils.str.escapeHtml(str);
-        },
-        escapeXml(str) {
-            return Utils.str.escapeXml(str);
-        },
-        storage: {
+        ls: {
             get(key, defaultValue = {}) {
                 try {
                     const raw = localStorage.getItem(key);
@@ -98,7 +92,7 @@
                     localStorage.setItem(key, JSON.stringify(value));
                     return true;
                 } catch (e) {
-                    console.error(`[Utils.storage] Failed to set ${key}:`, e);
+                    console.error(`[Utils.ls] Failed to set ${key}:`, e);
                     return false;
                 }
             },
@@ -115,7 +109,7 @@
                     localStorage.setItem(key, String(value));
                     return true;
                 } catch (e) {
-                    console.error(`[Utils.storage] Failed to setRaw ${key}:`, e);
+                    console.error(`[Utils.ls] Failed to setRaw ${key}:`, e);
                     return false;
                 }
             },
@@ -124,7 +118,7 @@
                     localStorage.removeItem(key);
                     return true;
                 } catch (e) {
-                    console.error(`[Utils.storage] Failed to remove ${key}:`, e);
+                    console.error(`[Utils.ls] Failed to remove ${key}:`, e);
                     return false;
                 }
             },
@@ -133,7 +127,7 @@
                     localStorage.clear();
                     return true;
                 } catch (e) {
-                    console.error(`[Utils.storage] Failed to clear storage:`, e);
+                    console.error(`[Utils.ls] Failed to clear ls:`, e);
                     return false;
                 }
             },
@@ -288,16 +282,16 @@
         },
         cache: {
             get(key, defaultValue = null) {
-                return Utils.storage.get(key, defaultValue);
+                return Utils.ls.get(key, defaultValue);
             },
             set(key, value) {
-                return Utils.storage.set(key, value);
+                return Utils.ls.set(key, value);
             },
             remove(key) {
-                return Utils.storage.remove(key);
+                return Utils.ls.remove(key);
             },
             clear() {
-                return Utils.storage.clear();
+                return Utils.ls.clear();
             },
             async getIDB(key, opts = {}) {
                 return await Utils.idb.checkIDbExpireAndGet(key, opts);

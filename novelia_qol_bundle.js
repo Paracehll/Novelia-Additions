@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.2.1
+// @version      3.2.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -116,8 +116,8 @@
             `);
 
             const CommentService = {
-                getFullStorage() { return Utils.storage.get('novelia_comment_count', {}); },
-                saveFullStorage(data) { Utils.storage.set('novelia_comment_count', data); },
+                getFullStorage() { return Utils.ls.get('novelia_comment_count', {}); },
+                saveFullStorage(data) { Utils.ls.set('novelia_comment_count', data); },
                 getStoredEntry(source, id) {
                     const storage = this.getFullStorage();
                     return (storage[source] && storage[source][id]) || null;
@@ -223,7 +223,7 @@
                     if (!cached) return this.updateCommentCount(source, id);
                     const updatedAt = cached.update ?? cached.updated_at ?? 0;
                     const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
-                    const isNewInstall = !Utils.storage.has('novelia_comment_count');
+                    const isNewInstall = !Utils.ls.has('novelia_comment_count');
                     if ((isInitial || isNewInstall) && isStale) return this.updateCommentCount(source, id);
                     return this.buildResultFromEntry(cached);
                 }
@@ -1013,7 +1013,7 @@
                 if (!menuItemDiv || menuItemDiv.dataset.noveliaSubmenuProcessed) return;
 
                 menuItemDiv.dataset.noveliaSubmenuProcessed = '1';
-                let isExpanded = Utils.storage.getRaw('novelia_forum_submenu_expanded') === 'true';
+                let isExpanded = Utils.ls.getRaw('novelia_forum_submenu_expanded') === 'true';
 
                 const subItems = [
                     {
@@ -1136,7 +1136,7 @@
                         if (isSidebarCollapsed()) return;
 
                         isExpanded = !isExpanded;
-                        Utils.storage.setRaw('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
+                        Utils.ls.setRaw('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 
                         if (isExpanded) {
@@ -1381,8 +1381,8 @@
                 return false;
             }
 
-            function loadSearchHistory() { return Utils.storage.get('novelia_forum_search_history', []) }
-            function saveSearchHistory(historyList) { Utils.storage.set('novelia_forum_search_history', historyList); }
+            function loadSearchHistory() { return Utils.ls.get('novelia_forum_search_history', []) }
+            function saveSearchHistory(historyList) { Utils.ls.set('novelia_forum_search_history', historyList); }
             function clearSearchHistory() { saveSearchHistory([]) }
 
             function recordSearchEntry(boardName, queryContent, fullUrl) {
@@ -1990,8 +1990,8 @@
             `);
 
             const LS_KEY = 'novelia_collapsed_comments';
-            let collapsedStore = Utils.storage.get(LS_KEY, {});
-            function saveStore() { Utils.storage.set(LS_KEY, collapsedStore); }
+            let collapsedStore = Utils.ls.get(LS_KEY, {});
+            function saveStore() { Utils.ls.set(LS_KEY, collapsedStore); }
 
             const CollapseUI = {
                 createCollapseWrapper({ anchorCard, repliesArea, isCollapsedState, replyCount, onToggleState }) {
@@ -2761,7 +2761,7 @@
                 cache.set(targetInfo.cacheKey, data);
                 return data;
             }
-            const escapeHtml = Utils.escapeHtml;
+            const escHtml = Utils.str.escapeHtml;
             function getNovelUrl(targetInfo, data) {
                 if (data && data.sourceUrl) return data.sourceUrl;
                 if (targetInfo && targetInfo.type === 'novel') {
@@ -2788,25 +2788,25 @@
                 const openUrl = originalHref || (targetInfo.type === 'novel' ? `https://${DOMAINS.HOST}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}` : `https://${DOMAINS.HOST}/wenku/${encodeURIComponent(targetInfo.id)}`);
                 const sourceUrl = (data && data.sourceUrl) ? data.sourceUrl : getNovelUrl(targetInfo, data);
 
-                let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escapeHtml(openUrl)}">${escapeHtml(displayTitle)}</a></h3>`;
+                let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escHtml(openUrl)}">${escHtml(displayTitle)}</a></h3>`;
                 if (titleJp && titleJp !== displayTitle) {
-                    titleHtml += `<span class="n-text __text-dark-1ynum3r-d3" style="display: block; font-size: 14px; line-height: 1.6;">${escapeHtml(titleJp)}</span>`;
+                    titleHtml += `<span class="n-text __text-dark-1ynum3r-d3" style="display: block; font-size: 14px; line-height: 1.6;">${escHtml(titleJp)}</span>`;
                 }
 
                 const statItems = [];
                 if (data.type) {
-                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escapeHtml(data.type)}</span>`);
+                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escHtml(data.type)}</span>`);
                 }
                 if (typeof data.totalCharacters === 'number') {
                     const totalChars = data.totalCharacters;
                     const wordsFormatted = totalChars >= 10000 ? `${(totalChars / 10000).toFixed(1)} 万字` : `${totalChars.toLocaleString()} 字`;
-                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escapeHtml(wordsFormatted)}</span>`);
+                    statItems.push(`<span class="n-text __text-dark-1ynum3r-d">${escHtml(wordsFormatted)}</span>`);
                 }
                 const rawTimestamp = data.syncAt || data.updateAt || data.createAt;
                 if (rawTimestamp) {
                     const timeFormatted = formatRelativeTime(rawTimestamp);
                     if (timeFormatted) {
-                        statItems.push(`<time>${escapeHtml(timeFormatted)}</time>`);
+                        statItems.push(`<time>${escHtml(timeFormatted)}</time>`);
                     }
                 }
                 if (typeof data.visited === 'number') {
@@ -2818,20 +2818,20 @@
                     : '';
 
                 const introText = data.introductionZh || data.introductionJp || data.introduction || '無簡介';
-                const introHtml = `<p class="n-p __p-dark-1ynum3r" style="word-break: break-all; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 16px;">${escapeHtml(introText)}</p>`;
+                const introHtml = `<p class="n-p __p-dark-1ynum3r" style="word-break: break-all; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; overflow: hidden; margin-top: 16px;">${escHtml(introText)}</p>`;
 
                 const tagElements = [];
                 if (data.points !== undefined && data.points !== null) {
-                    tagElements.push(`<div class="n-tag __tag-dark-1ynum3r-ss" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(String(data.points))} PT</b></span></div>`);
+                    tagElements.push(`<div class="n-tag __tag-dark-1ynum3r-ss" style="cursor: pointer;"><span class="n-tag__content"><b>${escHtml(String(data.points))} PT</b></span></div>`);
                 }
                 if (Array.isArray(data.attentions)) {
                     data.attentions.forEach((attentionItem) => {
-                        if (attentionItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(attentionItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content"><b>${escapeHtml(attentionItem)}</b></span></div></a>`);
+                        if (attentionItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(attentionItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content"><b>${escHtml(attentionItem)}</b></span></div></a>`);
                     });
                 }
                 if (Array.isArray(data.keywords)) {
                     data.keywords.forEach((keywordItem) => {
-                        if (keywordItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(keywordItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content">${escapeHtml(keywordItem)}</span></div></a>`);
+                        if (keywordItem) tagElements.push(`<a href="/novel?query=${encodeURIComponent(keywordItem)}$" class=""><div class="n-tag __tag-dark-1ynum3r-ds" style="cursor: pointer;"><span class="n-tag__content">${escHtml(keywordItem)}</span></div></a>`);
                     });
                 }
                 const tagsContainerHtml = tagElements.length > 0
@@ -2839,8 +2839,8 @@
                     : '';
                 const buildActionBar = () => `
                     <div class="novelia-inspect-action-bar">
-                        <a href="${escapeHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
-                        <a href="${escapeHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
+                        <a href="${escHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
+                        <a href="${escHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
                     </div>
                 `;
                 const actionBarHtml = Utils.dom.isMobile() === false ? '' : buildActionBar();
