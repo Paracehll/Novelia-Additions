@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.4.0
+// @version      1.5.0
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -316,194 +316,185 @@
             DB_VERSION: 1,
             STORE_NAME: 'network_cache',
             TTL_MS: 24 * 60 * 60 * 1000,
-            _resolveDomain(domainConfig) {
-                if (!domainConfig) return '';
-                if (typeof domainConfig === 'string') {
-                    if (DOMAINS[domainConfig.toUpperCase()]) return DOMAINS[domainConfig.toUpperCase()];
-                    return domainConfig;
-                }
-                return String(domainConfig);
+            BLANK_GIF: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+            IMG_EXT_RE: /\.(webp|png|jpe?g|gif|svg|avif|bmp|ico)$/i,
+
+            _resolveDomain(domain) {
+                if (!domain) return '';
+                const s = String(domain);
+                return DOMAINS[s.toUpperCase()] || s;
             },
-            _extractCapturedPrefix(urlStr, domain, key) {
-                if (!urlStr || !key) return null;
-                const resolvedDomain = this._resolveDomain(domain);
-                try {
-                    const parsedUrl = new URL(urlStr, location.origin);
-                    if (resolvedDomain && parsedUrl.hostname !== resolvedDomain) {
-                        return null;
-                    }
-                    const fullUrlWithoutQuery = parsedUrl.origin + parsedUrl.pathname;
-                    const keyIndex = fullUrlWithoutQuery.indexOf(key);
-                    if (keyIndex === -1) return null;
-                    const capturedPrefix = fullUrlWithoutQuery.substring(0, keyIndex + key.length);
-                    return {
-                        capturedPrefix,
-                        cacheKey: capturedPrefix,
-                        url: parsedUrl.href
-                    };
-                } catch (e) {
-                    if (resolvedDomain && !urlStr.includes(resolvedDomain)) return null;
-                    const keyIndex = urlStr.indexOf(key);
-                    if (keyIndex === -1) return null;
-                    const capturedPrefix = urlStr.substring(0, keyIndex + key.length);
-                    return {
-                        capturedPrefix,
-                        cacheKey: capturedPrefix,
-                        url: urlStr
-                    };
-                }
+            _parseUrl(urlStr) {
+                try { return new URL(urlStr, location.origin); } catch (e) { return null; }
             },
-            async _saveToCache(cacheKey, responseData, extraMeta = {}) {
-                try {
-                    const db = await Utils.idb.openDatabase(this.DB_NAME, this.DB_VERSION, [this.STORE_NAME]);
-                    return await new Promise((resolve) => {
-                        const tx = db.transaction(this.STORE_NAME, 'readwrite');
-                        const store = tx.objectStore(this.STORE_NAME);
-                        const record = {
-                            key: cacheKey,
-                            data: responseData,
-                            timestamp: Date.now(),
-                            ...extraMeta
-                        };
-                        const req = store.put(record);
-                        req.onsuccess = () => resolve(true);
-                        req.onerror = () => resolve(false);
-                    });
-                } catch (e) {
-                    return false;
-                }
-            },
+            _dbOpts() { return { dbName: this.DB_NAME, version: this.DB_VERSION, storeName: this.STORE_NAME, ttlMs: this.TTL_MS } },
+            _unwrap(record) { return record.data !== undefined ? record.data : record; },
+            _saveToCache(cacheKey, data, meta = {}) { return Utils.idb.set({ key: cacheKey, data, timestamp: Date.now(), ...meta }, this._dbOpts()); },
+
             async getCached(queryKey) {
                 if (!queryKey) return null;
-                const directRes = await Utils.idb.checkIDbExpire(queryKey, {
-                    dbName: this.DB_NAME,
-                    version: this.DB_VERSION,
-                    storeName: this.STORE_NAME,
-                    ttlMs: this.TTL_MS
-                });
-                if (!directRes.expired && directRes.record) {
-                    return directRes.record.data !== undefined ? directRes.record.data : directRes.record;
+                const opts = this._dbOpts();
+                const direct = await Utils.idb.checkIDbExpire(queryKey, opts);
+                if (!direct.expired && direct.record) return this._unwrap(direct.record);
+
+                const all = await Utils.idb.getAll(opts);
+                for (const r of all) {
+                    const k = r.key || '';
+                    const hit = k.includes(queryKey) || (k && queryKey.includes(k)) || r.capturedPrefix?.includes(queryKey);
+                    if (!hit) continue;
+                    const res = await Utils.idb.checkIDbExpire(k, opts);
+                    if (!res.expired && res.record) return this._unwrap(res.record);
                 }
-                try {
-                    const db = await Utils.idb.openDatabase(this.DB_NAME, this.DB_VERSION, [this.STORE_NAME]);
-                    const records = await new Promise((resolve) => {
-                        const tx = db.transaction(this.STORE_NAME, 'readonly');
-                        const store = tx.objectStore(this.STORE_NAME);
-                        const req = store.getAll();
-                        req.onsuccess = () => resolve(req.result || []);
-                        req.onerror = () => resolve([]);
-                    });
-                    for (const record of records) {
-                        const k = record.key || '';
-                        if (k === queryKey || k.includes(queryKey) || (record.key && queryKey.includes(record.key)) || (record.capturedPrefix && record.capturedPrefix.includes(queryKey))) {
-                            const res = await Utils.idb.checkIDbExpire(k, {
-                                dbName: this.DB_NAME,
-                                version: this.DB_VERSION,
-                                storeName: this.STORE_NAME,
-                                ttlMs: this.TTL_MS
-                            });
-                            if (!res.expired && res.record) {
-                                return res.record.data !== undefined ? res.record.data : res.record;
-                            }
-                        }
-                    }
-                } catch (e) {}
                 return null;
             },
-            capture({ key, domain, ttlMs = 24 * 60 * 60 * 1000, onCapture } = {}) {
+            capture({ key, domain, onCapture } = {}) {
                 if (!key) return;
-                this._rules.push({ key, domain, ttlMs, onCapture });
+                this._rules.push({ action: 'capture', key, domain: this._resolveDomain(domain), onCapture });
                 this.initInterception();
             },
-            intercept({ key, domain, ttlMs, onCapture } = {}) {
-                return this.capture({ key, domain, ttlMs, onCapture });
+            intercept(opts) { return this.capture(opts); },
+            reject(keyOrOptions, domain) {
+                const opts = typeof keyOrOptions === 'string' ? { key: keyOrOptions, domain } : (keyOrOptions || {});
+                const rule = { isImage: true, ...opts, action: 'reject' };
+                let key = rule.key || rule.url || '';
+                let host = this._resolveDomain(rule.domain);
+                if (!host && /^https?:/i.test(key)) {
+                    const u = this._parseUrl(key);
+                    if (u) { host = u.hostname; key = u.pathname + u.search; }
+                }
+                rule.domain = host;
+                rule.key = key.replace(/\*+$/, '');   // '' 代表全部符合
+                this._rules.push(rule);
+                this.initInterception();
+                return rule;
+            },
+            _matchCaptures(urlStr) {
+                const u = this._parseUrl(urlStr);
+                if (!u) return [];
+                const base = u.origin + u.pathname;
+                const hits = [];
+                for (const rule of this._rules) {
+                    if (rule.action !== 'capture') continue;
+                    if (rule.domain && u.hostname !== rule.domain) continue;
+                    const idx = base.indexOf(rule.key);
+                    if (idx === -1) continue;
+                    const prefix = base.slice(0, idx + rule.key.length);
+                    hits.push({ rule, cacheKey: prefix, capturedPrefix: prefix, url: u.href });
+                }
+                return hits;
+            },
+            async _storeCaptures(hits, rawText) {
+                let data = rawText;
+                try { data = JSON.parse(rawText); } catch (e) {}
+                for (const { rule, cacheKey, capturedPrefix, url } of hits) {
+                    await this._saveToCache(cacheKey, data, { url, capturedPrefix, key: rule.key, domain: rule.domain });
+                    try { rule.onCapture?.({ cacheKey, data, url, capturedPrefix }); } catch (e) {}
+                }
+            },
+            _isRejected(urlStr, ctx) {
+                const u = this._parseUrl(urlStr);
+                if (!u) return false;
+                for (const rule of this._rules) {
+                    if (rule.action !== 'reject') continue;
+                    if (rule.domain && u.hostname !== rule.domain) continue;
+                    if (rule.key && !(u.origin + u.pathname).includes(rule.key)) continue;
+                    if (rule.isImage) {
+                        const isImg = this.IMG_EXT_RE.test(u.pathname)
+                            || ctx?.destination === 'image'
+                            || String(ctx?.headers?.accept || '').includes('image')
+                            || u.pathname.includes('/banners/');
+                        if (!isImg) continue;
+                    }
+                    try { rule.onReject?.({ url: urlStr, rule }); } catch (e) {}
+                    return true;
+                }
+                return false;
             },
             initInterception() {
                 if (this._intercepted) return;
                 this._intercepted = true;
                 const self = this;
-                const W = root;
-
-                if (W && W.fetch) {
-                    const origFetch = W.fetch;
-                    W.fetch = async function(...args) {
-                        const response = await origFetch.apply(this, args);
-                        try {
-                            const requestUrl = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-                            if (requestUrl && self._rules.length > 0) {
-                                const matchedRules = self._rules.map(rule => ({
-                                    rule,
-                                    match: self._extractCapturedPrefix(requestUrl, rule.domain, rule.key)
-                                })).filter(item => item.match !== null);
-
-                                if (matchedRules.length > 0) {
-                                    const clone = response.clone();
-                                    clone.text().then(async (rawText) => {
-                                        let parsedData = rawText;
-                                        try { parsedData = JSON.parse(rawText); } catch (e) {}
-                                        for (const { rule, match } of matchedRules) {
-                                            await self._saveToCache(match.cacheKey, parsedData, {
-                                                url: match.url,
-                                                capturedPrefix: match.capturedPrefix,
-                                                key: rule.key,
-                                                domain: self._resolveDomain(rule.domain)
-                                            });
-                                            if (typeof rule.onCapture === 'function') {
-                                                try { rule.onCapture({ cacheKey: match.cacheKey, data: parsedData, url: match.url, capturedPrefix: match.capturedPrefix }); } catch (err) {}
-                                            }
-                                        }
-                                    }).catch(() => {});
-                                }
-                            }
-                        } catch (e) {}
-                        return response;
+                // fetch
+                if (root.fetch) {
+                    const origFetch = root.fetch;
+                    root.fetch = function(input, init) {
+                        const url = input?.url || String(input ?? '');
+                        if (self._isRejected(url, init)) {
+                            console.warn(`[Utils.network] Blocked fetch: ${url}`);
+                            return Promise.reject(new TypeError(`Failed to fetch: blocked by Utils.network (${url})`));
+                        }
+                        const promise = origFetch.apply(this, arguments);
+                        const hits = self._matchCaptures(url);
+                        if (hits.length) {
+                            promise.then(res => res.clone().text()).then(text => self._storeCaptures(hits, text)).catch(() => {});
+                        }
+                        return promise;
                     };
                 }
-
-                if (W && W.XMLHttpRequest) {
-                    const XHR = W.XMLHttpRequest;
-                    const origOpen = XHR.prototype.open;
-                    const origSend = XHR.prototype.send;
-
-                    XHR.prototype.open = function(method, url, ...rest) {
-                        this._noveliaReqUrl = url;
+                // XMLHttpRequest
+                if (root.XMLHttpRequest) {
+                    const proto = root.XMLHttpRequest.prototype;
+                    const origOpen = proto.open;
+                    const origSend = proto.send;
+                    proto.open = function(method, url, ...rest) {
+                        this._noveliaUrl = String(url);
                         return origOpen.call(this, method, url, ...rest);
                     };
-
-                    XHR.prototype.send = function(...args) {
-                        this.addEventListener('load', function() {
-                            try {
-                                const requestUrl = this._noveliaReqUrl;
-                                if (requestUrl && self._rules.length > 0) {
-                                    const matchedRules = self._rules.map(rule => ({
-                                        rule,
-                                        match: self._extractCapturedPrefix(requestUrl, rule.domain, rule.key)
-                                    })).filter(item => item.match !== null);
-
-                                    if (matchedRules.length > 0) {
-                                        const rawText = this.responseText;
-                                        let parsedData = rawText;
-                                        try { parsedData = JSON.parse(rawText); } catch (e) {}
-                                        (async () => {
-                                            for (const { rule, match } of matchedRules) {
-                                                await self._saveToCache(match.cacheKey, parsedData, {
-                                                    url: match.url,
-                                                    capturedPrefix: match.capturedPrefix,
-                                                    key: rule.key,
-                                                    domain: self._resolveDomain(rule.domain)
-                                                });
-                                                if (typeof rule.onCapture === 'function') {
-                                                    try { rule.onCapture({ cacheKey: match.cacheKey, data: parsedData, url: match.url, capturedPrefix: match.capturedPrefix }); } catch (err) {}
-                                                }
-                                            }
-                                        })();
-                                    }
-                                }
-                            } catch (e) {}
-                        });
+                    proto.send = function(...args) {
+                        const url = this._noveliaUrl;
+                        if (url && self._isRejected(url)) {
+                            console.warn(`[Utils.network] Blocked XHR: ${url}`);
+                            setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
+                            return;
+                        }
+                        const hits = url ? self._matchCaptures(url) : [];
+                        if (hits.length) {
+                            this.addEventListener('load', () => {
+                                try { self._storeCaptures(hits, this.responseText); } catch (e) {}
+                            });
+                        }
                         return origSend.apply(this, args);
                     };
                 }
+                // GM_xmlhttpRequest
+                if (typeof GM_xmlhttpRequest === 'function') {
+                    const origGM = GM_xmlhttpRequest;
+                    try {
+                        GM_xmlhttpRequest = function(details) {
+                            if (details?.url && self._isRejected(details.url)) {
+                                console.warn(`[Utils.network] Blocked GM_xmlhttpRequest: ${details.url}`);
+                                setTimeout(() => details.onerror?.({ status: 0, statusText: 'Blocked by Utils.network' }), 0);
+                                return { abort() {} };
+                            }
+                            return origGM.apply(this, arguments);
+                        };
+                    } catch (e) {}
+                }
+                try {
+                    const proto = root.HTMLImageElement.prototype;
+                    const desc = Object.getOwnPropertyDescriptor(proto, 'src');
+                    if (desc?.set) {
+                        Object.defineProperty(proto, 'src', {
+                            ...desc,
+                            set(val) {
+                                if (val && self._isRejected(String(val))) {
+                                    console.warn(`[Utils.network] Blocked img src: ${val}`);
+                                    val = self.BLANK_GIF;
+                                }
+                                return desc.set.call(this, val);
+                            }
+                        });
+                    }
+                    new MutationObserver(mutations => {
+                        for (const m of mutations) for (const n of m.addedNodes) {
+                            if (n.nodeType !== 1) continue;
+                            const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll('img[src]');
+                            for (const img of imgs) {
+                                if (img.src && self._isRejected(img.src)) img.removeAttribute('src');
+                            }
+                        }
+                    }).observe(document.documentElement, { childList: true, subtree: true });
+                } catch (e) {}
             }
         },
         dom: {
