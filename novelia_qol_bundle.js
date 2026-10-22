@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.3.0
+// @version      3.3.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -2413,6 +2413,10 @@
     // ==========================================
     Modules.banner_replace = {
         init: function() {
+            // block og banner image request to avoid loading the original banner
+            if (Utils && Utils.network && typeof Utils.network.reject === 'function') {
+                Utils.network.reject({ domain: (typeof DOMAINS !== 'undefined' && DOMAINS.CDN) || 'n-cdn.novelia.cc', key: '/banners/', isImage: true });
+            }
             if (location.hostname !== DOMAINS.HOST) return;
 
             const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';

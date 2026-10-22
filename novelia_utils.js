@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.6.0
+// @version      1.6.1
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -420,7 +420,7 @@
                     root.fetch = function(input, init) {
                         const url = input?.url || String(input ?? '');
                         if (self._isRejected(url, init)) {
-                            console.warn(`[Utils.network] Blocked fetch: ${url}`);
+                            // console.warn(`[Utils.network] Blocked fetch: ${url}`);
                             return Promise.reject(new TypeError(`Failed to fetch: blocked by Utils.network (${url})`));
                         }
                         const promise = origFetch.apply(this, arguments);
@@ -443,7 +443,7 @@
                     proto.send = function(...args) {
                         const url = this._noveliaUrl;
                         if (url && self._isRejected(url)) {
-                            console.warn(`[Utils.network] Blocked XHR: ${url}`);
+                            // console.warn(`[Utils.network] Blocked XHR: ${url}`);
                             setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
                             return;
                         }
@@ -462,7 +462,7 @@
                     try {
                         GM_xmlhttpRequest = function(details) {
                             if (details?.url && self._isRejected(details.url)) {
-                                console.warn(`[Utils.network] Blocked GM_xmlhttpRequest: ${details.url}`);
+                                // console.warn(`[Utils.network] Blocked GM_xmlhttpRequest: ${details.url}`);
                                 setTimeout(() => details.onerror?.({ status: 0, statusText: 'Blocked by Utils.network' }), 0);
                                 return { abort() {} };
                             }
@@ -478,7 +478,7 @@
                             ...desc,
                             set(val) {
                                 if (val && self._isRejected(String(val))) {
-                                    console.warn(`[Utils.network] Blocked img src: ${val}`);
+                                    // console.warn(`[Utils.network] Blocked img src: ${val}`);
                                     val = self.BLANK_GIF;
                                 }
                                 return desc.set.call(this, val);
