@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.3.0
+// @version      1.4.0
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -9,10 +9,13 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // ==/UserScript==
 
 (function() {
     'use strict';
+    
+    const root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
     const DOMAINS = {
         HOST: 'n.novelia.cc',
@@ -419,10 +422,11 @@
                 if (this._intercepted) return;
                 this._intercepted = true;
                 const self = this;
+                const W = root;
 
-                if (typeof window !== 'undefined' && window.fetch) {
-                    const origFetch = window.fetch;
-                    window.fetch = async function(...args) {
+                if (W && W.fetch) {
+                    const origFetch = W.fetch;
+                    W.fetch = async function(...args) {
                         const response = await origFetch.apply(this, args);
                         try {
                             const requestUrl = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
@@ -456,16 +460,17 @@
                     };
                 }
 
-                if (typeof window !== 'undefined' && window.XMLHttpRequest) {
-                    const origOpen = XMLHttpRequest.prototype.open;
-                    const origSend = XMLHttpRequest.prototype.send;
+                if (W && W.XMLHttpRequest) {
+                    const XHR = W.XMLHttpRequest;
+                    const origOpen = XHR.prototype.open;
+                    const origSend = XHR.prototype.send;
 
-                    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                    XHR.prototype.open = function(method, url, ...rest) {
                         this._noveliaReqUrl = url;
                         return origOpen.call(this, method, url, ...rest);
                     };
 
-                    XMLHttpRequest.prototype.send = function(...args) {
+                    XHR.prototype.send = function(...args) {
                         this.addEventListener('load', function() {
                             try {
                                 const requestUrl = this._noveliaReqUrl;
@@ -526,16 +531,17 @@
             init() {
                 if (this._initDone) return;
                 this._initDone = true;
-                const originalPushState = history.pushState;
-                const originalReplaceState = history.replaceState;
+                const hist = root.history;
+                const originalPushState = hist.pushState;
+                const originalReplaceState = hist.replaceState;
 
-                history.pushState = function(...args) {
+                hist.pushState = function(...args) {
                     const result = originalPushState.apply(this, args);
                     window.dispatchEvent(new Event("tm-locationchange"));
                     return result;
                 };
 
-                history.replaceState = function(...args) {
+                hist.replaceState = function(...args) {
                     const result = originalReplaceState.apply(this, args);
                     window.dispatchEvent(new Event("tm-locationchange"));
                     return result;
@@ -563,8 +569,8 @@
                             }
                         }
                     }
-                    if (window.__vue_app__?.config?.globalProperties?.$router) return window.__vue_app__.config.globalProperties.$router;
-                    if (window.router && typeof window.router.push === 'function') return window.router;
+                    if (root.__vue_app__?.config?.globalProperties?.$router) return root.__vue_app__.config.globalProperties.$router;
+                    if (root.router && typeof root.router.push === 'function') return root.router;
                 } catch (e) {}
                 return null;
             },
@@ -601,7 +607,7 @@
                 }
                 window.dispatchEvent(new Event('tm-locationchange'));
             },
-            getPath() { return window.__noveliaMockPath || (location.pathname + location.search + location.hash) },
+            getPath() { return root.__noveliaMockPath || (location.pathname + location.search + location.hash) },
             matchNovelPath(pathname) {
                 const pathMatch = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
                 if (pathMatch) return { source: pathMatch[1], id: pathMatch[2] };
@@ -871,7 +877,8 @@
             _blobUrls: {},
             _promises: {},
             DEFAULT_TTL: 7 * 24 * 60 * 60 * 1000,
-            async getBlob(imageUrl, { ttlMs = DEFAULT_TTL, cacheKey = null, mimeType = null } = {}) {
+            // 修正:原本 `ttlMs = DEFAULT_TTL` 引用了不存在的變數,會丟 ReferenceError
+            async getBlob(imageUrl, { ttlMs = Utils.img.DEFAULT_TTL, cacheKey = null, mimeType = null } = {}) {
                 if (!imageUrl) throw new Error('Image URL is required');
                 const effectiveCacheKey = cacheKey || `img_blob_${imageUrl}`;
                 const isIframe = typeof window !== 'undefined' && window.top !== window.self;
@@ -983,13 +990,10 @@
             STAR_OUTLINE: '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 24 24" width="20" height="20"><path d="M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z" fill="currentColor"></path></svg>'
         }
     };
-
-    if (typeof window !== 'undefined') {
-        window.DOMAINS = DOMAINS;
-        window.Utils = Utils;
-    }
-    if (typeof globalThis !== 'undefined') {
-        globalThis.DOMAINS = DOMAINS;
-        globalThis.Utils = Utils;
-    }
+    // Debug
+    try { window.DOMAINS = DOMAINS; window.Utils = Utils; } catch (e) {}
+    root.DOMAINS = DOMAINS;
+    root.Utils = Utils;
+    // Firefox Alt.
+    // root.Utils = cloneInto(Utils, root, { cloneFunctions: true });
 })();
