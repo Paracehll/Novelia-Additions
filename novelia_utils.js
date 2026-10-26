@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.6.2
+// @version      1.7.0
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -19,7 +19,8 @@
 
     const DOMAINS = {
         HOST: 'n.novelia.cc',
-        FORUM: 'forum.novelia.cc'
+        FORUM: 'forum.novelia.cc',
+        CDN: 'n-cdn.novelia.cc'
     };
 
     // Top-level central utilities
@@ -312,6 +313,9 @@
         network: {
             _intercepted: false,
             _rules: [],
+            _unpatchers: [],
+            _observer: null,
+            _xhrUrls: new WeakMap(),
             DB_NAME: 'novelia_qol_db',
             DB_VERSION: 1,
             STORE_NAME: 'network_cache',
@@ -413,88 +417,126 @@
             initInterception() {
                 if (this._intercepted) return;
                 this._intercepted = true;
+                ['_patchFetch', '_patchXhr', '_patchGM', '_patchImage', '_observeImages'].forEach((name) => {
+                    try { this[name](); } catch (e) { console.error(`[Utils.network] ${name} failed:`, e); }
+                });
+            },
+
+            destroy() {
+                this._unpatchers.splice(0).forEach((un) => { try { un(); } catch (e) {} });
+                if (this._observer) { this._observer.disconnect(); this._observer = null; }
+                this._intercepted = false;
+            },
+
+            _track(unpatch) { if (unpatch) this._unpatchers.push(unpatch); },
+
+            _fetchCtx(input, init) {
+                const h = init?.headers || input?.headers;
+                const accept = h && typeof h.get === 'function' ? h.get('accept') : (h?.accept || h?.Accept);
+                return { destination: input?.destination, headers: { accept } };
+            },
+
+            _patchFetch() {
+                if (!root || typeof root.fetch !== 'function') return;
                 const self = this;
-                // fetch
-                if (root.fetch) {
-                    const origFetch = root.fetch;
-                    root.fetch = function(input, init) {
-                        const url = input?.url || String(input ?? '');
-                        if (self._isRejected(url, init)) {
-                            // console.warn(`[Utils.network] Blocked fetch: ${url}`);
-                            return Promise.reject(new TypeError(`Failed to fetch: blocked by Utils.network (${url})`));
-                        }
-                        const promise = origFetch.apply(this, arguments);
-                        const hits = self._matchCaptures(url);
-                        if (hits.length) {
-                            promise.then(res => res.clone().text()).then(text => self._storeCaptures(hits, text)).catch(() => {});
-                        }
-                        return promise;
-                    };
-                }
-                // XMLHttpRequest
-                if (root.XMLHttpRequest) {
-                    const proto = root.XMLHttpRequest.prototype;
-                    const origOpen = proto.open;
-                    const origSend = proto.send;
-                    proto.open = function(method, url, ...rest) {
-                        this._noveliaUrl = String(url);
-                        return origOpen.call(this, method, url, ...rest);
-                    };
-                    proto.send = function(...args) {
-                        const url = this._noveliaUrl;
-                        if (url && self._isRejected(url)) {
-                            // console.warn(`[Utils.network] Blocked XHR: ${url}`);
-                            setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
-                            return;
-                        }
-                        const hits = url ? self._matchCaptures(url) : [];
-                        if (hits.length) {
-                            this.addEventListener('load', () => {
-                                try { self._storeCaptures(hits, this.responseText); } catch (e) {}
-                            });
-                        }
-                        return origSend.apply(this, args);
-                    };
-                }
-                // GM_xmlhttpRequest
-                if (typeof GM_xmlhttpRequest === 'function') {
-                    const origGM = GM_xmlhttpRequest;
-                    try {
-                        GM_xmlhttpRequest = function(details) {
-                            if (details?.url && self._isRejected(details.url)) {
-                                // console.warn(`[Utils.network] Blocked GM_xmlhttpRequest: ${details.url}`);
-                                setTimeout(() => details.onerror?.({ status: 0, statusText: 'Blocked by Utils.network' }), 0);
-                                return { abort() {} };
-                            }
-                            return origGM.apply(this, arguments);
-                        };
-                    } catch (e) {}
-                }
-                try {
-                    const proto = root.HTMLImageElement.prototype;
-                    const desc = Object.getOwnPropertyDescriptor(proto, 'src');
-                    if (desc?.set) {
-                        Object.defineProperty(proto, 'src', {
-                            ...desc,
-                            set(val) {
-                                if (val && self._isRejected(String(val))) {
-                                    // console.warn(`[Utils.network] Blocked img src: ${val}`);
-                                    val = self.BLANK_GIF;
-                                }
-                                return desc.set.call(this, val);
-                            }
-                        });
+
+                this._track(Utils.patcher.before(root, 'fetch', function (ctx) {
+                    const [input, init] = ctx.args;
+                    const url = input?.url || String(input ?? '');
+                    if (self._isRejected(url, self._fetchCtx(input, init))) {
+                        ctx.cancel(Promise.reject(new TypeError(`Failed to fetch: blocked by Utils.network (${url})`)));
                     }
-                    new MutationObserver(mutations => {
-                        for (const m of mutations) for (const n of m.addedNodes) {
-                            if (n.nodeType !== 1) continue;
-                            const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll('img[src]');
-                            for (const img of imgs) {
-                                if (img.src && self._isRejected(img.src)) img.removeAttribute('src');
-                            }
+                }));
+
+                this._track(Utils.patcher.after(root, 'fetch', function (ctx) {
+                    if (ctx.cancelled || !ctx.result || typeof ctx.result.then !== 'function') return;
+                    const [input] = ctx.args;
+                    const url = input?.url || String(input ?? '');
+                    const hits = self._matchCaptures(url);
+                    if (!hits.length) return;
+                    ctx.result
+                        .then((res) => (res.ok ? res.clone().text() : null))
+                        .then((text) => { if (text !== null) return self._storeCaptures(hits, text); })
+                        .catch(() => {});
+                }));
+            },
+
+            _patchXhr() {
+                const proto = root?.XMLHttpRequest?.prototype;
+                if (!proto) return;
+                const self = this;
+
+                this._track(Utils.patcher.before(proto, 'open', function (ctx) {
+                    self._xhrUrls.set(this, String(ctx.args[1]));
+                }));
+
+                this._track(Utils.patcher.before(proto, 'send', function (ctx) {
+                    const url = self._xhrUrls.get(this);
+                    if (!url) return;
+                    if (self._isRejected(url)) {
+                        ctx.cancel();
+                        setTimeout(() => {
+                            this.dispatchEvent(new ProgressEvent('error'));
+                            this.dispatchEvent(new ProgressEvent('loadend'));
+                        }, 0);
+                        return;
+                    }
+                    const hits = self._matchCaptures(url);
+                    if (hits.length) {
+                        this.addEventListener('load', () => {
+                            try { self._storeCaptures(hits, this.responseText); } catch (e) {}
+                        }, { once: true });
+                    }
+                }));
+            },
+
+            _patchGM() {
+                if (typeof GM_xmlhttpRequest !== 'function') return;
+                const self = this;
+                const candidates = [root, typeof globalThis !== 'undefined' ? globalThis : null, typeof window !== 'undefined' ? window : null];
+                const target = candidates.find((t) => { try { return t && typeof t.GM_xmlhttpRequest === 'function'; } catch (e) { return false; } });
+                if (!target) return;
+
+                this._track(Utils.patcher.before(target, 'GM_xmlhttpRequest', function (ctx) {
+                    const details = ctx.args[0];
+                    if (details?.url && self._isRejected(details.url)) {
+                        ctx.cancel({ abort() {} });
+                        setTimeout(() => details.onerror?.({ status: 0, statusText: 'Blocked by Utils.network' }), 0);
+                    }
+                }));
+            },
+
+            _patchImage() {
+                const self = this;
+                const imgProto = root?.HTMLImageElement?.prototype;
+                if (imgProto) {
+                    this._track(Utils.patcher.patchSetter(imgProto, 'src', function (ctx) {
+                        if (ctx.value && self._isRejected(String(ctx.value))) ctx.value = self.BLANK_GIF;
+                    }));
+                }
+                const elProto = root?.Element?.prototype;
+                if (elProto) {
+                    this._track(Utils.patcher.before(elProto, 'setAttribute', function (ctx) {
+                        if (this.tagName !== 'IMG') return;
+                        if (String(ctx.args[0]).toLowerCase() !== 'src') return;
+                        if (self._isRejected(String(ctx.args[1]))) ctx.args[1] = self.BLANK_GIF;
+                    }));
+                }
+            },
+
+            _observeImages() {
+                if (typeof MutationObserver === 'undefined' || !document?.documentElement) return;
+                const self = this;
+                this._observer = new MutationObserver((mutations) => {
+                    for (const m of mutations) for (const n of m.addedNodes) {
+                        if (n.nodeType !== 1) continue;
+                        const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll('img[src]');
+                        for (const img of imgs) {
+                            if (img.src && self._isRejected(img.src)) img.removeAttribute('src');
                         }
-                    }).observe(document.documentElement, { childList: true, subtree: true });
-                } catch (e) {}
+                    }
+                });
+                this._observer.observe(document.documentElement, { childList: true, subtree: true });
             }
         },
         dom: {
@@ -516,6 +558,123 @@
                 const screenMobile = window.innerWidth <= 768;
                 return userAgentMobile || screenMobile;
             },
+            guard: {
+                _rules: [],
+                _installed: false,
+                _unpatchers: [],
+                _observer: null,
+
+                add(rule) {
+                    if (!rule?.selector || typeof rule.onMatch !== 'function') return null;
+                    this._rules.push(rule);
+                    this._install();
+                    return () => {
+                        this._rules = this._rules.filter((r) => r !== rule);
+                    };
+                },
+
+                _test(el) {
+                    if (!el || el.nodeType !== 1) return;
+                    for (const r of this._rules) {
+                        try {
+                            if (typeof el.matches === 'function' && el.matches(r.selector)) {
+                                r.onMatch(el);
+                            }
+                        } catch (e) {}
+                    }
+                },
+
+                _scan(node) {
+                    if (!node) return;
+                    if (node.nodeType === 11) {
+                        if (node.childNodes && typeof node.childNodes.forEach === 'function') {
+                            node.childNodes.forEach((c) => this._scan(c));
+                        }
+                        return;
+                    }
+                    if (node.nodeType !== 1) return;
+                    this._test(node);
+                    if (!node.firstElementChild) return;
+                    for (const r of this._rules) {
+                        try {
+                            if (typeof node.querySelectorAll === 'function') {
+                                node.querySelectorAll(r.selector).forEach((el) => {
+                                    try { r.onMatch(el); } catch (e) {}
+                                });
+                            }
+                        } catch (e) {}
+                    }
+                },
+
+                _install() {
+                    if (this._installed) return;
+                    this._installed = true;
+                    const self = this;
+                    const P = Utils.patcher;
+                    const track = (un) => un && this._unpatchers.push(un);
+
+                    const nodeProto = root?.Node?.prototype;
+                    if (nodeProto) {
+                        ['appendChild', 'insertBefore', 'replaceChild'].forEach((m) => {
+                            track(P.before(nodeProto, m, function (ctx) {
+                                if (this && !this.isConnected) return;
+                                self._scan(ctx.args[0]);
+                            }));
+                        });
+                    }
+                    const elProto = root?.Element?.prototype;
+                    if (elProto) {
+                        ['append', 'prepend', 'before', 'after', 'replaceWith'].forEach((m) => {
+                            track(P.before(elProto, m, function (ctx) {
+                                if (this && !this.isConnected) return;
+                                ctx.args.forEach((a) => self._scan(a));
+                            }));
+                        });
+                        track(P.before(elProto, 'insertAdjacentElement', function (ctx) {
+                            if (this && !this.isConnected) return;
+                            self._scan(ctx.args[1]);
+                        }));
+
+                        track(P.before(elProto, 'insertAdjacentHTML', function () {
+                            const el = this;
+                            queueMicrotask(() => self._scan(el.parentNode || el));
+                        }));
+                        ['innerHTML', 'outerHTML'].forEach((p) => {
+                            track(P.patchSetter(elProto, p, function () {
+                                const el = this;
+                                queueMicrotask(() => self._scan(el.parentNode || el));
+                            }));
+                        });
+                    }
+
+                    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document.documentElement) {
+                        this._observer = new MutationObserver((ms) => {
+                            for (const m of ms) {
+                                if (m.type === 'attributes') {
+                                    self._test(m.target);
+                                    continue;
+                                }
+                                if (m.addedNodes) {
+                                    m.addedNodes.forEach((n) => self._scan(n));
+                                }
+                            }
+                        });
+                        this._observer.observe(document.documentElement, {
+                            childList: true,
+                            subtree: true,
+                            attributes: true,
+                            attributeFilter: ['src', 'class', 'href', 'style']
+                        });
+                    }
+                },
+
+                destroy() {
+                    this._unpatchers.splice(0).forEach((un) => { try { un(); } catch (e) {} });
+                    if (this._observer) { this._observer.disconnect(); this._observer = null; }
+                    this._rules = [];
+                    this._installed = false;
+                }
+            }
         },
         collapse: {
             isSidebarCollapsed(sider = null) {
@@ -1291,6 +1450,7 @@
             DEFAULT_TTL: 7 * 24 * 60 * 60 * 1000,
             async getBlob(imageUrl, { ttlMs = Utils.img.DEFAULT_TTL, cacheKey = null, mimeType = null } = {}) {
                 if (!imageUrl) throw new Error('Image URL is required');
+                if (Utils.network._isRejected(imageUrl)) throw new Error(`Blocked by Utils.network (${imageUrl})`);
                 const effectiveCacheKey = cacheKey || `img_blob_${imageUrl}`;
                 const isIframe = typeof window !== 'undefined' && window.top !== window.self;
 
@@ -1389,6 +1549,311 @@
             getMascotSyncUrl() { return this.getMascot().getSyncUrl() }
         },
         get mascot() { return this.img.getMascot() },
+        patcher: {
+            _patches: new Map(),
+            _getOrCreateState(target, prop) {
+                let targetMap = this._patches.get(target);
+                if (!targetMap) {
+                    targetMap = new Map();
+                    this._patches.set(target, targetMap);
+                }
+                let state = targetMap.get(prop);
+                if (!state) {
+                    let desc = {};
+                    try { desc = Object.getOwnPropertyDescriptor(target, prop) || {}; } catch (e) { desc = {}; }
+                    const isAccessor = !!(desc.get || desc.set);
+                    let rawValue;
+                    if (!isAccessor) {
+                        try { rawValue = desc.value !== undefined ? desc.value : target[prop]; } catch (e) {}
+                    }
+                    const isMethod = !isAccessor && typeof rawValue === 'function';
+                    const original = isMethod ? rawValue : undefined;
+                    state = {
+                        target,
+                        prop,
+                        original,
+                        originalDesc: desc,
+                        current: original,
+                        hooks: [],
+                        type: isMethod ? 'method' : 'property',
+                        propertyPatched: false
+                    };
+                    targetMap.set(prop, state);
+                }
+                return state;
+            },
+            patch(target, prop, optionsOrFn) {
+                if (!target || !prop) return null;
+                const opts = typeof optionsOrFn === 'function' ? { instead: optionsOrFn } : (optionsOrFn || {});
+                const state = this._getOrCreateState(target, prop);
+
+                const hookEntry = {
+                    id: Symbol('patch_hook'),
+                    before: typeof opts.before === 'function' ? opts.before : null,
+                    after: typeof opts.after === 'function' ? opts.after : null,
+                    around: typeof opts.around === 'function' ? opts.around : null,
+                    instead: typeof opts.instead === 'function' ? opts.instead : null,
+                    getter: typeof opts.getter === 'function' ? opts.getter : null,
+                    setter: typeof opts.setter === 'function' ? opts.setter : null,
+                    once: !!opts.once
+                };
+
+                state.hooks.push(hookEntry);
+
+                if (state.type === 'method' && target[prop] !== state.wrapper) {
+                    const self = this;
+                    const origFn = state.original;
+
+                    const wrapper = function(...args) {
+                        const ctx = {
+                            target,
+                            prop,
+                            thisArg: this,
+                            args: [...args],
+                            result: undefined,
+                            cancelled: false,
+                            error: null,
+                            cancel(val) {
+                                this.cancelled = true;
+                                if (val !== undefined) this.result = val;
+                            }
+                        };
+
+                        const activeHooks = [...state.hooks];
+
+                        for (const hook of activeHooks) {
+                            if (hook.before) {
+                                try {
+                                    hook.before.call(this, ctx);
+                                } catch (e) {
+                                    console.error(`[Utils.patcher] Error in before hook for ${String(prop)}:`, e);
+                                }
+                                if (hook.once) self.unpatch(target, prop, hook.id);
+                                if (ctx.cancelled) break;
+                            }
+                        }
+
+                        if (!ctx.cancelled) {
+                            const insteadHook = activeHooks.slice().reverse().find(h => h.instead);
+                            const aroundHook = activeHooks.slice().reverse().find(h => h.around);
+
+                            try {
+                                if (insteadHook) {
+                                    ctx.result = insteadHook.instead.call(this, ctx, origFn ? origFn.bind(this) : null);
+                                    if (insteadHook.once) self.unpatch(target, prop, insteadHook.id);
+                                } else if (aroundHook) {
+                                    const proceed = (...newArgs) => {
+                                        const callArgs = newArgs.length ? newArgs : ctx.args;
+                                        return origFn ? origFn.apply(this, callArgs) : undefined;
+                                    };
+                                    ctx.result = aroundHook.around.call(this, ctx, proceed);
+                                    if (aroundHook.once) self.unpatch(target, prop, aroundHook.id);
+                                } else if (origFn) {
+                                    ctx.result = origFn.apply(this, ctx.args);
+                                }
+                            } catch (err) {
+                                ctx.error = err;
+                            }
+                        }
+
+                        for (const hook of activeHooks) {
+                            if (hook.after) {
+                                try {
+                                    hook.after.call(this, ctx);
+                                } catch (e) {
+                                    console.error(`[Utils.patcher] Error in after hook for ${String(prop)}:`, e);
+                                }
+                                if (hook.once) self.unpatch(target, prop, hook.id);
+                            }
+                        }
+
+                        if (ctx.error) throw ctx.error;
+                        return ctx.result;
+                    };
+
+                    wrapper.__isPatched = true;
+                    wrapper.__original = origFn;
+
+                    state.wrapper = wrapper;
+                    target[prop] = wrapper;
+                } else if (state.type === 'property' || opts.getter || opts.setter) {
+                    this._applyPropertyPatch(target, prop, state);
+                }
+
+                const unpatchFn = () => this.unpatch(target, prop, hookEntry.id);
+                unpatchFn.unpatch = unpatchFn;
+                unpatchFn.restore = unpatchFn;
+                return unpatchFn;
+            },
+            _applyPropertyPatch(target, prop, state) {
+                if (state.propertyPatched) return;
+                state.propertyPatched = true;
+
+                let origDesc = state.originalDesc;
+                if (!origDesc || (!origDesc.get && !origDesc.set && !('value' in origDesc))) {
+                    try { origDesc = Object.getOwnPropertyDescriptor(target, prop); } catch (e) { origDesc = null; }
+                }
+                if (!origDesc) {
+                    let v; try { v = target[prop]; } catch (e) {}
+                    origDesc = { configurable: true, writable: true, value: v };
+                }
+
+                let currentValue = origDesc.value;
+
+                const newDesc = {
+                    configurable: true,
+                    enumerable: origDesc.enumerable !== undefined ? origDesc.enumerable : true,
+                    get() {
+                        const ctx = {
+                            target,
+                            prop,
+                            thisArg: this,
+                            value: origDesc.get ? origDesc.get.call(this) : currentValue,
+                            result: undefined,
+                            cancelled: false,
+                            cancel(val) {
+                                this.cancelled = true;
+                                if (val !== undefined) this.result = val;
+                            }
+                        };
+                        ctx.result = ctx.value;
+
+                        const activeHooks = [...state.hooks];
+                        for (const hook of activeHooks) {
+                            if (hook.getter) {
+                                try {
+                                    hook.getter.call(this, ctx);
+                                } catch (e) {
+                                    console.error(`[Utils.patcher] Error in getter hook for ${String(prop)}:`, e);
+                                }
+                            }
+                        }
+                        return ctx.result;
+                    },
+                    set(val) {
+                        const ctx = {
+                            target,
+                            prop,
+                            thisArg: this,
+                            value: val,
+                            cancelled: false,
+                            cancel() {
+                                this.cancelled = true;
+                            }
+                        };
+
+                        const activeHooks = [...state.hooks];
+                        for (const hook of activeHooks) {
+                            if (hook.setter) {
+                                try {
+                                    hook.setter.call(this, ctx);
+                                } catch (e) {
+                                    console.error(`[Utils.patcher] Error in setter hook for ${String(prop)}:`, e);
+                                }
+                            }
+                        }
+
+                        if (!ctx.cancelled) {
+                            if (origDesc.set) {
+                                origDesc.set.call(this, ctx.value);
+                            } else {
+                                currentValue = ctx.value;
+                            }
+                        }
+                    }
+                };
+
+                Object.defineProperty(target, prop, newDesc);
+            },
+            before(target, prop, hookFn, opts = {}) {
+                return this.patch(target, prop, { before: hookFn, ...opts });
+            },
+            after(target, prop, hookFn, opts = {}) {
+                return this.patch(target, prop, { after: hookFn, ...opts });
+            },
+            around(target, prop, hookFn, opts = {}) {
+                return this.patch(target, prop, { around: hookFn, ...opts });
+            },
+            instead(target, prop, hookFn, opts = {}) {
+                return this.patch(target, prop, { instead: hookFn, ...opts });
+            },
+            patchGetter(target, prop, getterFn, opts = {}) {
+                return this.patch(target, prop, { getter: getterFn, ...opts });
+            },
+            patchSetter(target, prop, setterFn, opts = {}) {
+                return this.patch(target, prop, { setter: setterFn, ...opts });
+            },
+            patchProperty(target, prop, opts = {}) {
+                return this.patch(target, prop, opts);
+            },
+            unpatch(target, prop, hookIdOrFn) {
+                const targetMap = this._patches.get(target);
+                if (!targetMap) return false;
+                const state = targetMap.get(prop);
+                if (!state) return false;
+
+                if (!hookIdOrFn) {
+                    return this.restore(target, prop);
+                }
+
+                const initialLength = state.hooks.length;
+                state.hooks = state.hooks.filter(h => h.id !== hookIdOrFn && h.before !== hookIdOrFn && h.after !== hookIdOrFn && h.around !== hookIdOrFn && h.instead !== hookIdOrFn && h.getter !== hookIdOrFn && h.setter !== hookIdOrFn);
+
+                if (state.hooks.length === 0) {
+                    this.restore(target, prop);
+                }
+                return state.hooks.length < initialLength;
+            },
+            restore(target, prop) {
+                const targetMap = this._patches.get(target);
+                if (!targetMap) return false;
+                const state = targetMap.get(prop);
+                if (!state) return false;
+
+                if (state.type === 'method' && state.original) {
+                    target[prop] = state.original;
+                } else if (state.originalDesc) {
+                    try {
+                        Object.defineProperty(target, prop, state.originalDesc);
+                    } catch (e) {
+                        target[prop] = state.originalDesc.value;
+                    }
+                }
+
+                targetMap.delete(prop);
+                if (targetMap.size === 0) {
+                    this._patches.delete(target);
+                }
+                return true;
+            },
+            restoreAll() {
+                for (const [target, targetMap] of Array.from(this._patches.entries())) {
+                    for (const prop of Array.from(targetMap.keys())) {
+                        this.restore(target, prop);
+                    }
+                }
+                this._patches.clear();
+            },
+            isPatched(target, prop) {
+                const targetMap = this._patches.get(target);
+                if (!targetMap) return false;
+                const state = targetMap.get(prop);
+                return !!(state && state.hooks.length > 0);
+            },
+            getOriginal(target, prop) {
+                const targetMap = this._patches.get(target);
+                if (targetMap) {
+                    const state = targetMap.get(prop);
+                    if (state) return state.original;
+                }
+                if (target && target[prop] && target[prop].__original) {
+                    return target[prop].__original;
+                }
+                return target ? target[prop] : undefined;
+            }
+        },
+        get hook() { return this.patcher; },
+        get patch() { return this.patcher; },
         svg: {
             REFRESH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>',
             BULK: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect></svg>',
