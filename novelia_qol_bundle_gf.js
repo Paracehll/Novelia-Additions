@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.3
+// @version      3.4.4
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1648,7 +1648,7 @@
                     if (itemElement.closest('.n-drawer') || itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const anchorElement = itemElement.querySelector("a[href^='/novel/']");
                     if (!anchorElement) return;
-                    const textSpanElement = itemElement.querySelector("span.n-text");
+                    const textSpanElement = itemElement.querySelector(".n-text");
                     const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
@@ -1669,11 +1669,17 @@
 
                 parentElement.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
                     if (anchorElement.closest('.n-drawer') || anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
-                    const textSpanElement = anchorElement.querySelector("span.n-text");
+                    const textSpanElement = anchorElement.querySelector(".n-text");
                     if (!textSpanElement) return;
                     const titleText = textSpanElement.textContent.trim();
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
+
+                    const parentPaddingDiv = textSpanElement.parentElement && textSpanElement.parentElement.style.padding ? textSpanElement.parentElement : textSpanElement.closest('div[style*="padding:"]');
+                    if (parentPaddingDiv) {
+                        parentPaddingDiv.dataset.noveliaOrigPadding = parentPaddingDiv.style.padding;
+                        parentPaddingDiv.style.padding = "8px 0px 8px 0px";
+                    }
 
                     const formattedLink = `[${titleText}](https://${DOMAINS.HOST}${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
@@ -1750,9 +1756,15 @@
                 });
 
                 document.querySelectorAll('.novelia-grid-wrapper').forEach((wrapper) => {
-                    const originalText = wrapper.querySelector("span.n-text");
-                    if (originalText) wrapper.replaceWith(originalText);
-                    else wrapper.remove();
+                    const originalText = wrapper.querySelector(".n-text");
+                    if (originalText) {
+                        const parentPaddingDiv = originalText.parentElement && originalText.parentElement.dataset.noveliaOrigPadding !== undefined ? originalText.parentElement : originalText.closest('div[data-novelia-orig-padding]');
+                        if (parentPaddingDiv) {
+                            parentPaddingDiv.style.padding = parentPaddingDiv.dataset.noveliaOrigPadding;
+                            delete parentPaddingDiv.dataset.noveliaOrigPadding;
+                        }
+                        wrapper.replaceWith(originalText);
+                    } else wrapper.remove();
                 });
 
                 document.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((button) => button.remove());
