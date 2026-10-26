@@ -1,0 +1,3 @@
+1. 評論區樣式改版，需更新 comment collapse
+2. 文庫未顯示複製按鈕
+3. inspect panel 隱藏時仍遮擋輸入
