@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.4
+// @version      3.4.5
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1971958/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1976412/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
