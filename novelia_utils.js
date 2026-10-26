@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.7.0
+// @version      1.7.1
 // @description  Novelia 工具函式庫 (DOMAINS & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -1309,6 +1309,9 @@
         },
         comments: {
             getNovelCommentPane() {
+                const sectionPane = document.querySelector('section.comment-list, section[aria-label*="评论"], section[aria-label*="評論"]');
+                if (sectionPane) return sectionPane;
+
                 const activeTab = document.querySelector('.n-tabs-tab--active, .n-tabs-tab[aria-selected="true"]');
                 const activeTabIsComment = activeTab && (activeTab.textContent.includes('评论') || activeTab.textContent.includes('評論'));
 
@@ -1317,7 +1320,7 @@
                 for (const h2Element of h2Elements) {
                     const text = h2Element.textContent.trim();
                     if (text.startsWith('评论') || text.startsWith('評論')) {
-                        paneElement = h2Element.closest('.n-tab-pane') || h2Element.closest('div[role="none"]')?.parentElement || h2Element.parentElement?.parentElement;
+                        paneElement = h2Element.closest('section.comment-list, section[aria-label*="评论"], section[aria-label*="評論"]') || h2Element.closest('.n-tab-pane') || h2Element.closest('div[role="none"]')?.parentElement || h2Element.parentElement?.parentElement;
                         if (paneElement) break;
                     }
                 }
@@ -1389,7 +1392,9 @@
                 return floors;
             },
             getForumCommentFloors() {
-                const commentsEl = document.getElementById('comments') || document.querySelector('[id="comments"]');
+                const commentsEl = document.getElementById('comments') ||
+                                  document.querySelector('[id="comments"]') ||
+                                  document.querySelector('section.comment-list, section[aria-label*="评论"], section[aria-label*="評論"]');
                 if (!commentsEl) return { floorContainer: null, candidateFloors: [], floors: [] };
 
                 const floorContainer = commentsEl.querySelector('.divide-y') || commentsEl.querySelector('.contents') || commentsEl;
