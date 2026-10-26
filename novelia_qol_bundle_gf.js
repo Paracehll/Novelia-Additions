@@ -2505,9 +2505,9 @@
             }
             function injectStyles() {
                 Utils.gm.addStyle(`
-                    .novelia-inspect-panel { position: fixed; z-index: 99999; width: 360px; max-width: 90vw; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); padding: 12px 14px; font-size: 13px; line-height: 1.5; pointer-events: auto; transition: opacity 0.05s ease-out; opacity: 0; box-sizing: border-box; }
+                    .novelia-inspect-panel { position: fixed; z-index: 99999; width: 360px; max-width: 90vw; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); padding: 12px 14px; font-size: 13px; line-height: 1.5; pointer-events: none; transition: opacity 0.05s ease-out; opacity: 0; box-sizing: border-box; }
                     .dark .novelia-inspect-panel, [data-theme="dark"] .novelia-inspect-panel, body.dark .novelia-inspect-panel { background-color: #1e1e22; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
-                    .novelia-inspect-panel.show { opacity: 1; }
+                    .novelia-inspect-panel.show { opacity: 1; pointer-events: auto; }
                     .novelia-inspect-panel.mobile-mode { position: fixed; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: 88vw !important; max-width: 380px !important; max-height: 85vh !important; overflow-y: auto !important; z-index: 100000 !important; }
                     .novelia-inspect-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.4); z-index: 99999; display: none; }
                     .novelia-inspect-backdrop.show { display: block; }
