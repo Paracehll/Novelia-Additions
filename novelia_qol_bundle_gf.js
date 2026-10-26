@@ -1924,9 +1924,11 @@
                 },
                 getReplyCount(repliesArea) {
                     if (!repliesArea) return 0;
-                    const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"]');
+                    const subReplies = repliesArea.querySelectorAll('div[style*="margin-left: 32px"], article.ml-8, article[class*="ml-"]');
                     if (subReplies.length > 0) return subReplies.length;
-                    if (repliesArea.matches('div[style*="margin-left: 32px"]')) return 1;
+                    if (repliesArea.matches('div[style*="margin-left: 32px"], article.ml-8, article[class*="ml-"]')) return 1;
+                    const articles = repliesArea.querySelectorAll('article');
+                    if (articles.length > 0) return articles.length;
                     return repliesArea.querySelectorAll('.n-flex').length;
                 },
                 processFloor(floor) {
@@ -1991,9 +1993,74 @@
                         console.error('[Novelia Bundle] Error processing novel comment thread:', error);
                     }
                 },
+                processSectionFloor(floor) {
+                    try {
+                        const rootArticle = floor.rootArticle;
+                        if (!rootArticle) return;
+                        if (rootArticle.classList.contains('ml-6') || rootArticle.className.includes('ml-') || rootArticle.classList.contains('ml-8')) return;
+
+                        if (rootArticle.dataset.noveliaCollapseProcessed) {
+                            const btnWrapper = rootArticle.nextElementSibling;
+                            if (!btnWrapper || !btnWrapper.classList.contains('novelia-collapse-btn-wrapper')) return;
+
+                            const wrapper = btnWrapper.nextElementSibling;
+                            if (!wrapper || !wrapper.classList.contains('novelia-collapse-replies-wrapper')) return;
+
+                            const inner = wrapper.querySelector('.novelia-collapse-replies-inner');
+                            const currentRepliesArea = inner ? inner.firstElementChild : null;
+                            if (!currentRepliesArea) return;
+
+                            const replyCount = NovelCommentCollapse.getReplyCount(currentRepliesArea);
+                            if (replyCount === 0) {
+                                wrapper.parentNode.insertBefore(currentRepliesArea, wrapper);
+                                btnWrapper.remove();
+                                wrapper.remove();
+                                delete rootArticle.dataset.noveliaCollapseProcessed;
+                            } else {
+                                const btnText = btnWrapper.querySelector('.novelia-collapse-btn-text');
+                                if (btnText) {
+                                    const isCollapsed = wrapper.classList.contains('collapsed');
+                                    const newText = `${isCollapsed ? '展開回覆' : '收起回覆'} (${replyCount})`;
+                                    if (btnText.innerText !== newText) btnText.innerText = newText;
+                                }
+                            }
+                            return;
+                        }
+
+                        const repliesArea = floor.repliesArea;
+                        if (!repliesArea) return;
+
+                        const replyCount = NovelCommentCollapse.getReplyCount(repliesArea);
+                        if (replyCount === 0) return;
+                        rootArticle.dataset.noveliaCollapseProcessed = "true";
+
+                        let commentId = rootArticle.id ? rootArticle.id.replace(/^comment-/, '') : '';
+                        if (!commentId) {
+                            const author = rootArticle.querySelector('header span')?.innerText.trim() || "";
+                            const time = rootArticle.querySelector('time')?.innerText.trim() || "";
+                            const rawId = author + time;
+                            commentId = Utils.hash.hashString(rawId);
+                        }
+                        const context = NovelCommentCollapse.getContext();
+                        const isCollapsedState = NovelCommentCollapse.isCollapsed(context, commentId);
+
+                        CollapseUI.createCollapseWrapper({
+                            anchorCard: rootArticle,
+                            repliesArea,
+                            isCollapsedState,
+                            replyCount,
+                            onToggleState: (newCollapsed) => NovelCommentCollapse.setCollapsed(context, commentId, newCollapsed)
+                        });
+                    } catch (error) {
+                        console.error('[Novelia Bundle] Error processing novel section comment thread:', error);
+                    }
+                },
                 scan() {
                     const floors = Utils.comments.getNovelCommentFloors();
                     floors.forEach(NovelCommentCollapse.processFloor);
+
+                    const { floors: sectionFloors } = Utils.comments.getForumCommentFloors();
+                    sectionFloors.forEach(NovelCommentCollapse.processSectionFloor);
                 },
                 init() {
                     let timer = null;
@@ -2207,7 +2274,8 @@
 
             function runSort() {
                 if (isUpdatingDom || !Utils.route.isCommentNotifyPage()) return;
-                if (location.hostname.includes(DOMAINS.FORUM) || location.pathname.includes('/forum/p/')) processForumComments();
+                const { candidateFloors } = Utils.comments.getForumCommentFloors();
+                if (candidateFloors && candidateFloors.length > 0) processForumComments();
                 else processNovelComments();
             }
 
