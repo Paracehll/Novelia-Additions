@@ -33,6 +33,7 @@
         { id: 'comment_notify', name: '評論區更新排序', default: true },     
 
         { id: 'share_btn', name: '小說分享按鈕', default: true },
+        { id: 'share_compress', name: '連結壓縮與解碼', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
 
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
@@ -1812,6 +1813,324 @@
                 }
             });
             mutationObserver.observe(document.body, { childList: true, subtree: true });
+        }
+    };
+
+    // ==========================================
+    // 3.5 連結壓縮與解碼 (Modules.share_compress)
+    // ==========================================
+    Modules.share_compress = {
+        init: function() {
+            if (location.hostname !== DOMAINS.HOST) return;
+
+            const HEADER_BUTTON_CLASS = "novelia-header-btn";
+            const COMPRESS_BTN_CLASS = "novelia-compress-btn";
+
+            function injectStyles() {
+                Utils.gm.addStyle(`
+                    .novelia-compress-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.4); z-index: 99999; display: none; }
+                    .novelia-compress-backdrop.show { display: block; }
+                    .novelia-compress-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 90vw; max-width: 540px; max-height: 85vh; background-color: #ffffff; color: #333333; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); padding: 18px 20px; font-size: 13px; z-index: 100000; display: none; flex-direction: column; gap: 14px; box-sizing: border-box; overflow-y: auto; }
+                    .dark .novelia-compress-modal, [data-theme="dark"] .novelia-compress-modal, body.dark .novelia-compress-modal { background-color: #1e1e22; color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+                    .novelia-compress-modal.show { display: flex; }
+                    .novelia-compress-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(0, 0, 0, 0.08); padding-bottom: 10px; }
+                    .dark .novelia-compress-header, [data-theme="dark"] .novelia-compress-header, body.dark .novelia-compress-header { border-bottom-color: rgba(255, 255, 255, 0.12); }
+                    .novelia-compress-title { font-size: 16px; font-weight: 600; }
+                    .novelia-compress-close { background: transparent; border: none; font-size: 20px; line-height: 1; color: #888; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+                    .novelia-compress-close:hover { color: #333; background: rgba(0, 0, 0, 0.05); }
+                    .dark .novelia-compress-close:hover, [data-theme="dark"] .novelia-compress-close:hover, body.dark .novelia-compress-close:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+                    .novelia-compress-tabs { display: flex; gap: 8px; border-bottom: 1px solid rgba(0, 0, 0, 0.08); padding-bottom: 8px; }
+                    .dark .novelia-compress-tabs, [data-theme="dark"] .novelia-compress-tabs, body.dark .novelia-compress-tabs { border-bottom-color: rgba(255, 255, 255, 0.12); }
+                    .novelia-compress-tab { padding: 6px 14px; border-radius: 4px; cursor: pointer; border: none; background: transparent; color: inherit; font-size: 13px; font-weight: 500; transition: background 0.2s, color 0.2s; }
+                    .novelia-compress-tab.active { background-color: #63e2b7; color: #18181c !important; font-weight: 600; }
+                    .novelia-compress-section { display: flex; flex-direction: column; gap: 10px; }
+                    .novelia-compress-section.hidden { display: none !important; }
+                    .novelia-compress-textarea { width: 100%; height: 110px; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(0, 0, 0, 0.2); background: transparent; color: inherit; font-family: monospace; font-size: 12px; resize: vertical; box-sizing: border-box; }
+                    .dark .novelia-compress-textarea, [data-theme="dark"] .novelia-compress-textarea, body.dark .novelia-compress-textarea { border-color: rgba(255, 255, 255, 0.2); background: rgba(0, 0, 0, 0.2); }
+                    .novelia-compress-textarea:focus { outline: none; border-color: #63e2b7; }
+                    .novelia-compress-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+                    .novelia-compress-btn-action { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 6px 12px; font-size: 12px; font-weight: 500; border-radius: 4px; cursor: pointer; border: 1px solid rgba(0, 0, 0, 0.2); background: transparent; color: inherit; transition: background 0.2s, border-color 0.2s; }
+                    .novelia-compress-btn-action:hover { background-color: rgba(99, 226, 183, 0.15); border-color: #63e2b7; color: #63e2b7; }
+                    .dark .novelia-compress-btn-action, [data-theme="dark"] .novelia-compress-btn-action, body.dark .novelia-compress-btn-action { border-color: rgba(255, 255, 255, 0.2); }
+                    .novelia-compress-primary-btn { background-color: #63e2b7; color: #18181c !important; border: none; font-weight: 600; }
+                    .novelia-compress-primary-btn:hover { background-color: #7fe7c4; opacity: 0.9; }
+                    .novelia-compress-label { font-size: 12px; font-weight: 600; opacity: 0.85; margin-bottom: 2px; }
+                `, 'novelia-compress-styles');
+            }
+
+            const toast = Utils.ui.createToastManager('novelia-toast');
+
+            async function compressText(inputStr) {
+                const stream = new Blob([inputStr]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+                const buffer = await new Response(stream).arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let index = 0; index < bytes.length; index++) binary += String.fromCharCode(bytes[index]);
+                return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            }
+
+            async function decompressCode(compressedCode) {
+                let base64 = compressedCode.trim().replace(/-/g, '+').replace(/_/g, '/');
+                while (base64.length % 4) base64 += '=';
+                const binary = atob(base64);
+                const bytes = new Uint8Array(binary.length);
+                for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+                const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+                const buffer = await new Response(stream).arrayBuffer();
+                return new TextDecoder().decode(buffer);
+            }
+
+            function extractAndDeduplicateLinks(textContent) {
+                if (!textContent) return [];
+                const matches = [];
+                const mdRegex = /\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g;
+                let mdMatch;
+                while ((mdMatch = mdRegex.exec(textContent)) !== null) {
+                    matches.push({
+                        type: 'md',
+                        index: mdMatch.index,
+                        length: mdMatch[0].length,
+                        url: mdMatch[2].trim()
+                    });
+                }
+
+                const urlRegex = /(https?:\/\/[^\s\)]+)/g;
+                let urlMatch;
+                while ((urlMatch = urlRegex.exec(textContent)) !== null) {
+                    const urlIndex = urlMatch.index;
+                    const urlStr = urlMatch[1].trim();
+                    const isInsideMd = matches.some((existing) => existing.type === 'md' && urlIndex >= existing.index && urlIndex < (existing.index + existing.length));
+                    if (!isInsideMd) {
+                        matches.push({
+                            type: 'url',
+                            index: urlIndex,
+                            length: urlMatch[0].length,
+                            url: urlStr
+                        });
+                    }
+                }
+
+                matches.sort((first, second) => first.index - second.index);
+
+                const items = [];
+                const seenUrls = new Set();
+                for (const item of matches) {
+                    const normalizedUrl = item.url.toLowerCase().replace(/\/$/, '');
+                    if (!seenUrls.has(normalizedUrl)) {
+                        seenUrls.add(normalizedUrl);
+                        items.push(item.url);
+                    }
+                }
+                return items;
+            }
+
+            let backdropElement = null;
+            let modalElement = null;
+
+            function createModal() {
+                if (modalElement) return;
+                backdropElement = document.createElement('div');
+                backdropElement.className = 'novelia-compress-backdrop';
+                backdropElement.addEventListener('click', closeModal);
+
+                modalElement = document.createElement('div');
+                modalElement.className = 'novelia-compress-modal';
+
+                modalElement.innerHTML = `
+                    <div class="novelia-compress-header">
+                        <span class="novelia-compress-title">📦 連結壓縮 / 解碼</span>
+                        <button type="button" class="novelia-compress-close" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="novelia-compress-tabs">
+                        <button type="button" class="novelia-compress-tab active" data-tab="compress">壓縮連結</button>
+                        <button type="button" class="novelia-compress-tab" data-tab="decode">解碼壓縮碼</button>
+                    </div>
+                    <div class="novelia-compress-section" data-section="compress">
+                        <div class="novelia-compress-label">請貼上小說連結（每行一個，自動去重與提取網址）：</div>
+                        <textarea class="novelia-compress-textarea novelia-compress-input" placeholder="https://n.novelia.cc/novel/syosetu/n7778cw\nhttps://n.novelia.cc/novel/hameln/261504\n..."></textarea>
+                        <div class="novelia-compress-actions">
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-load-cache">載入 Share 快取</button>
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-primary-btn novelia-compress-do-compress">壓縮並複製</button>
+                        </div>
+                        <div class="novelia-compress-label">壓縮碼輸出：</div>
+                        <textarea class="novelia-compress-textarea novelia-compress-output" readonly placeholder="壓縮後的字串將顯示於此..."></textarea>
+                        <div class="novelia-compress-actions">
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-copy-code">複製壓縮碼</button>
+                        </div>
+                    </div>
+                    <div class="novelia-compress-section hidden" data-section="decode">
+                        <div class="novelia-compress-label">請貼上壓縮碼：</div>
+                        <textarea class="novelia-compress-textarea novelia-decode-input" placeholder="請貼上代碼..."></textarea>
+                        <div class="novelia-compress-actions">
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-primary-btn novelia-compress-do-decode">解碼連結</button>
+                        </div>
+                        <div class="novelia-compress-label">還原網址列表：</div>
+                        <textarea class="novelia-compress-textarea novelia-decode-output" readonly placeholder="解碼後的網址列表將顯示於此..."></textarea>
+                        <div class="novelia-compress-actions">
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-copy-links">複製網址列表</button>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(backdropElement);
+                document.body.appendChild(modalElement);
+
+                modalElement.querySelector('.novelia-compress-close').addEventListener('click', closeModal);
+
+                const tabBtns = modalElement.querySelectorAll('.novelia-compress-tab');
+                const sectionElements = modalElement.querySelectorAll('.novelia-compress-section');
+                tabBtns.forEach((tabBtn) => {
+                    tabBtn.addEventListener('click', () => {
+                        const targetTab = tabBtn.dataset.tab;
+                        tabBtns.forEach((btnItem) => btnItem.classList.toggle('active', btnItem.dataset.tab === targetTab));
+                        sectionElements.forEach((secItem) => secItem.classList.toggle('hidden', secItem.dataset.section !== targetTab));
+                    });
+                });
+
+                const compressInput = modalElement.querySelector('.novelia-compress-input');
+                const compressOutput = modalElement.querySelector('.novelia-compress-output');
+                const decodeInput = modalElement.querySelector('.novelia-decode-input');
+                const decodeOutput = modalElement.querySelector('.novelia-decode-output');
+
+                modalElement.querySelector('.novelia-compress-load-cache').addEventListener('click', () => {
+                    const cacheItems = window.noveliaShareCache || [];
+                    if (!Array.isArray(cacheItems) || cacheItems.length === 0) {
+                        toast.show("ℹ️ 目前沒有可載入的快取連結。");
+                        return;
+                    }
+                    const extractedUrls = extractAndDeduplicateLinks(cacheItems.join('\n'));
+                    compressInput.value = extractedUrls.join('\n');
+                    toast.show(`✅ 已成功載入 ${extractedUrls.length} 條快取連結！`);
+                });
+
+                modalElement.querySelector('.novelia-compress-do-compress').addEventListener('click', async () => {
+                    const rawText = compressInput.value.trim();
+                    if (!rawText) {
+                        toast.show("⚠️ 請先輸入或貼上小說連結。");
+                        return;
+                    }
+                    const deduplicated = extractAndDeduplicateLinks(rawText);
+                    if (deduplicated.length === 0) {
+                        toast.show("⚠️ 未偵測到有效的小說連結。");
+                        return;
+                    }
+                    const cleanedString = deduplicated.join('\n');
+                    try {
+                        const compressedCode = await compressText(cleanedString);
+                        compressOutput.value = compressedCode;
+                        await Utils.gm.setClipboard(compressedCode);
+                        toast.show(`✅ 已成功壓縮 (${deduplicated.length} 條) 並複製壓縮碼！`);
+                    } catch (error) {
+                        toast.show("❌ 壓縮失敗: " + error.message);
+                    }
+                });
+
+                modalElement.querySelector('.novelia-compress-copy-code').addEventListener('click', async () => {
+                    const code = compressOutput.value.trim();
+                    if (!code) {
+                        toast.show("⚠️ 沒有可複製的壓縮碼。");
+                        return;
+                    }
+                    await Utils.gm.setClipboard(code);
+                    toast.show("📋 壓縮碼已複製到剪貼簿！");
+                });
+
+                modalElement.querySelector('.novelia-compress-do-decode').addEventListener('click', async () => {
+                    const code = decodeInput.value.trim();
+                    if (!code) {
+                        toast.show("⚠️ 請輸入壓縮碼。");
+                        return;
+                    }
+                    try {
+                        const restored = await decompressCode(code);
+                        decodeOutput.value = restored;
+                        toast.show("✅ 解碼成功！");
+                    } catch (error) {
+                        toast.show("⚠️ 無法解碼，請確認壓縮碼格式是否正確。");
+                    }
+                });
+
+                modalElement.querySelector('.novelia-compress-copy-links').addEventListener('click', async () => {
+                    const links = decodeOutput.value.trim();
+                    if (!links) {
+                        toast.show("⚠️ 沒有可複製的網址列表。");
+                        return;
+                    }
+                    await Utils.gm.setClipboard(links);
+                    toast.show("📋 網址列表已複製到剪貼簿！");
+                });
+            }
+
+            function openModal() {
+                injectStyles();
+                createModal();
+                backdropElement.classList.add('show');
+                modalElement.classList.add('show');
+            }
+
+            function closeModal() {
+                if (backdropElement) backdropElement.classList.remove('show');
+                if (modalElement) modalElement.classList.remove('show');
+            }
+
+            function injectTopHeaderButton() {
+                const topHeader = Utils.ui.getForumHeader() || document.querySelector('.n-layout-header, .web-kit-header, header');
+                if (!topHeader || topHeader.querySelector('.novelia-top-compress-btn')) return;
+
+                const ZIP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 13H5v-2h14v2zM12 3L7.5 7.5h3V11h3V7.5h3L12 3zm0 18l4.5-4.5h-3V13h-3v3.5h-3L12 21z"/></svg>`;
+                const topBtn = Utils.ui.createHeaderButton({
+                    className: 'novelia-top-compress-btn',
+                    title: '連結壓縮 / 解碼',
+                    iconSize: 20,
+                    margin: '0px 4px',
+                    iconSvg: ZIP_SVG,
+                    onClick: () => openModal()
+                });
+
+                const themeBtn = Utils.ui.getThemeButton(topHeader);
+                if (themeBtn) {
+                    themeBtn.before(topBtn);
+                } else {
+                    const targetContainer = topHeader.querySelector('.flex.items-center, div[role="none"], .n-space') || topHeader;
+                    targetContainer.appendChild(topBtn);
+                }
+            }
+
+            function injectHeaderCompressButton() {
+                if (!Utils.route.isSharePage()) return;
+                const h1Elements = document.querySelectorAll('h1');
+                if (!h1Elements.length) return;
+
+                h1Elements.forEach((h1Element) => {
+                    if (h1Element.closest('.n-drawer') || h1Element.querySelector(`.${COMPRESS_BTN_CLASS}`)) return;
+
+                    const compressBtn = document.createElement("button");
+                    const ZIP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 13H5v-2h14v2zM12 3L7.5 7.5h3V11h3V7.5h3L12 3zm0 18l4.5-4.5h-3V13h-3v3.5h-3L12 21z"/></svg>`;
+                    Object.assign(compressBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS} ${COMPRESS_BTN_CLASS}`, innerHTML: `${ZIP_SVG}<span>連結壓縮</span>`, title: '開啟小說連結壓縮/解碼視窗' });
+                    compressBtn.addEventListener("click", (event) => { event.preventDefault(); openModal(); });
+
+                    const lastHeaderBtn = Array.from(h1Element.querySelectorAll(`.${HEADER_BUTTON_CLASS}`)).pop();
+                    if (lastHeaderBtn) lastHeaderBtn.after(compressBtn);
+                    else h1Element.appendChild(compressBtn);
+                });
+            }
+
+            document.addEventListener('novelia-cache-change', (event) => {
+                if (event.detail && Array.isArray(event.detail.cache)) {
+                    window.noveliaShareCache = event.detail.cache;
+                }
+            });
+
+            function scanAndInject() {
+                injectTopHeaderButton();
+                injectHeaderCompressButton();
+            }
+
+            scanAndInject();
+            window.addEventListener("tm-locationchange", () => { setTimeout(scanAndInject, 200); });
+
+            const observer = new MutationObserver(scanAndInject);
+            observer.observe(document.body, { childList: true, subtree: true });
         }
     };
 
