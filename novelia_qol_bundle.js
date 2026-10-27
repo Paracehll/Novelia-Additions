@@ -37,6 +37,7 @@
 
         { id: 'comment_count', name: 'Web 評論數追蹤', default: true },
         { id: 'novel_inspect', name: '懸浮作品 Preview', default: true },
+        { id: 'sync_ls', name: 'LocalStorage 快取同步', default: true },
     ];
 
 
@@ -2999,6 +3000,483 @@
                     setTimeout(processMobileLinks, 100);
                 }
             });
+        }
+    };
+
+    // ==========================================
+    // 10. LocalStorage 快取同步 (Modules.sync_ls)
+    // ==========================================
+    Modules.sync_ls = {
+        init: function() {
+            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+
+            const PREFIX = 'lssync-';
+            const TIMEOUT = 120_000;
+            const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+
+            const ALL_KNOWN_KEYS = [
+                { key: 'novelia_comment_count', desc: 'Web 評論數追蹤快取', domain: 'HOST' },
+                { key: 'novelia_collapsed_comments', desc: '摺疊評論區回覆狀態', domain: 'HOST + FORUM' },
+                { key: 'novelia_forum_search_history', desc: '論壇搜尋歷史', domain: 'FORUM' },
+                { key: 'novelia_forum_submenu_expanded', desc: '內嵌論壇側邊欄展開狀態', domain: 'HOST' },
+                { key: 'banner_url', desc: '首頁橫幅網址', domain: 'HOST' },
+                { key: 'banner_object_position', desc: '首頁橫幅對齊位置', domain: 'HOST' },
+                { key: 'banner_size', desc: '首頁橫幅尺寸', domain: 'HOST' },
+                { key: 'banner_size_mobile', desc: '首頁橫幅行動端尺寸', domain: 'HOST' },
+                { key: 'banner_scrolling', desc: '首頁橫幅滾動狀態', domain: 'HOST' },
+                { key: 'banner_scroll_spd', desc: '首頁橫幅滾動速度', domain: 'HOST' },
+                { key: 'banner_remove_cycle_btn', desc: '移除橫幅輪播按鈕', domain: 'HOST' },
+                { key: 'banner_fadein_animation', desc: '橫幅淡入動畫', domain: 'HOST' }
+            ];
+
+            FEATURES.forEach(f => {
+                ALL_KNOWN_KEYS.push({ key: `feature_${f.id}`, desc: `模組關閉/開啟設定 (${f.name})`, domain: 'HOST + FORUM' });
+            });
+
+            function loadPeerJS() {
+                if (window.Peer) return Promise.resolve(window.Peer);
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = PEERJS_URL;
+                    script.onload = () => {
+                        if (window.Peer) resolve(window.Peer);
+                        else reject(new Error('PeerJS 載入失敗'));
+                    };
+                    script.onerror = () => reject(new Error('PeerJS 網絡載入失敗'));
+                    document.head.appendChild(script);
+                });
+            }
+
+            function genCode() {
+                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                return Array.from(crypto.getRandomValues(new Uint8Array(8)), b => chars[b % chars.length]).join('');
+            }
+
+            function injectStyles() {
+                Utils.gm.addStyle(`
+                    .novelia-sync-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 99999; display: none; align-items: center; justify-content: center; }
+                    .novelia-sync-backdrop.show { display: flex; }
+                    .novelia-sync-modal { background: #fff; color: #333; border-radius: 8px; width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto; padding: 20px; box-sizing: border-box; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-size: 13px; font-family: system-ui, -apple-system, sans-serif; position: relative; }
+                    .dark .novelia-sync-modal, [data-theme="dark"] .novelia-sync-modal, body.dark .novelia-sync-modal { background: #1e1e22; color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.15); }
+                    .novelia-sync-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
+                    .dark .novelia-sync-header, [data-theme="dark"] .novelia-sync-header, body.dark .novelia-sync-header { border-bottom-color: rgba(255,255,255,0.15); }
+                    .novelia-sync-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+                    .novelia-sync-close { cursor: pointer; background: transparent; border: none; font-size: 20px; line-height: 1; color: #888; }
+                    .dark .novelia-sync-close, [data-theme="dark"] .novelia-sync-close, body.dark .novelia-sync-close { color: #aaa; }
+                    .novelia-sync-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); }
+                    .dark .novelia-sync-tabs, [data-theme="dark"] .novelia-sync-tabs, body.dark .novelia-sync-tabs { border-bottom-color: rgba(255,255,255,0.15); }
+                    .novelia-sync-tab { padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500; }
+                    .novelia-sync-tab.active { border-bottom-color: #63e2b7; color: #63e2b7; }
+                    .novelia-sync-sec { display: flex; flex-direction: column; gap: 12px; }
+                    .novelia-sync-code-box { font-size: 24px; font-weight: 700; letter-spacing: 2px; text-align: center; background: rgba(99,226,183,0.1); color: #63e2b7; padding: 12px; border-radius: 6px; user-select: all; }
+                    .novelia-sync-input { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2); box-sizing: border-box; background: transparent; color: inherit; font-size: 14px; text-transform: uppercase; }
+                    .dark .novelia-sync-input, [data-theme="dark"] .novelia-sync-input, body.dark .novelia-sync-input { border-color: rgba(255,255,255,0.25); }
+                    .novelia-sync-key-list { max-height: 180px; overflow-y: auto; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+                    .dark .novelia-sync-key-list, [data-theme="dark"] .novelia-sync-key-list, body.dark .novelia-sync-key-list { border-color: rgba(255,255,255,0.15); }
+                    .novelia-sync-key-item { display: flex; align-items: center; gap: 8px; padding: 4px; font-size: 12px; }
+                    .novelia-sync-key-item input { cursor: pointer; }
+                    .novelia-sync-key-desc { color: #666; font-size: 11px; margin-left: auto; }
+                    .dark .novelia-sync-key-desc, [data-theme="dark"] .novelia-sync-key-desc, body.dark .novelia-sync-key-desc { color: #aaa; }
+                    .novelia-sync-btn { background: #63e2b7; color: #18181c; border: none; padding: 8px 16px; border-radius: 4px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; text-align: center; }
+                    .novelia-sync-btn:hover { opacity: 0.9; }
+                    .novelia-sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                    .novelia-sync-status { font-size: 12px; opacity: 0.8; text-align: center; margin-top: 4px; }
+                `, 'novelia-sync-ls-styles');
+            }
+
+            let modalBackdrop = null;
+            let currentTab = 'send';
+            let activePeer = null;
+
+            function getAllPresentKeys() {
+                const present = new Map();
+                ALL_KNOWN_KEYS.forEach(k => {
+                    if (localStorage.getItem(k.key) !== null) present.set(k.key, k);
+                });
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && !present.has(key) && (key.startsWith('novelia') || key.startsWith('feature_') || key.startsWith('banner_'))) {
+                        present.set(key, { key, desc: '自訂數據', domain: 'LocalStorage' });
+                    }
+                }
+                return Array.from(present.values());
+            }
+
+            function createModal() {
+                if (modalBackdrop) return modalBackdrop;
+                injectStyles();
+
+                modalBackdrop = document.createElement('div');
+                modalBackdrop.className = 'novelia-sync-backdrop';
+                modalBackdrop.innerHTML = `
+                    <div class="novelia-sync-modal">
+                        <div class="novelia-sync-header">
+                            <div class="novelia-sync-title"><span>🔄 快取資料 PeerJS 同步</span></div>
+                            <button type="button" class="novelia-sync-close">&times;</button>
+                        </div>
+                        <div class="novelia-sync-tabs">
+                            <div class="novelia-sync-tab active" data-tab="send">發送端 (推送)</div>
+                            <div class="novelia-sync-tab" data-tab="receive">接收端 (接收)</div>
+                        </div>
+                        <div class="novelia-sync-content"></div>
+                    </div>
+                `;
+
+                document.body.appendChild(modalBackdrop);
+
+                modalBackdrop.querySelector('.novelia-sync-close').addEventListener('click', closeModal);
+                modalBackdrop.addEventListener('click', (e) => {
+                    if (e.target === modalBackdrop) closeModal();
+                });
+
+                modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(tabEl => {
+                    tabEl.addEventListener('click', () => {
+                        modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(t => t.classList.remove('active'));
+                        tabEl.classList.add('active');
+                        currentTab = tabEl.dataset.tab;
+                        renderTabContent();
+                    });
+                });
+
+                return modalBackdrop;
+            }
+
+            function closeModal() {
+                if (activePeer) {
+                    try { activePeer.destroy(); } catch (e) {}
+                    activePeer = null;
+                }
+                if (modalBackdrop) modalBackdrop.classList.remove('show');
+            }
+
+            function showModal(defaultTab = 'send') {
+                createModal();
+                currentTab = defaultTab;
+                modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(t => {
+                    t.classList.toggle('active', t.dataset.tab === currentTab);
+                });
+                modalBackdrop.classList.add('show');
+                renderTabContent();
+            }
+
+            function renderTabContent() {
+                const container = modalBackdrop.querySelector('.novelia-sync-content');
+                if (!container) return;
+
+                if (activePeer) {
+                    try { activePeer.destroy(); } catch (e) {}
+                    activePeer = null;
+                }
+
+                if (currentTab === 'send') {
+                    renderSendSubmodule(container);
+                } else {
+                    renderReceiveSubmodule(container);
+                }
+            }
+
+            function renderSendSubmodule(container) {
+                const keys = getAllPresentKeys();
+                let keysListHtml = '';
+
+                if (keys.length === 0) {
+                    keysListHtml = '<div style="padding:10px;text-align:center;opacity:0.6;">本地沒有可發送的資料</div>';
+                } else {
+                    keysListHtml = keys.map(k => `
+                        <label class="novelia-sync-key-item">
+                            <input type="checkbox" value="${Utils.str.escapeHtml(k.key)}" checked />
+                            <span>${Utils.str.escapeHtml(k.key)}</span>
+                            <span class="novelia-sync-key-desc">${Utils.str.escapeHtml(k.desc)}</span>
+                        </label>
+                    `).join('');
+                }
+
+                container.innerHTML = `
+                    <div class="novelia-sync-sec">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label style="font-weight:600;">選擇要推送的 LocalStorage Key：</label>
+                            <div style="font-size:11px;">
+                                <a href="#" id="novelia-sync-select-all" style="color:#63e2b7; text-decoration:none; margin-right:8px;">全選</a>
+                                <a href="#" id="novelia-sync-select-none" style="color:#63e2b7; text-decoration:none;">取消全選</a>
+                            </div>
+                        </div>
+                        <div class="novelia-sync-key-list">${keysListHtml}</div>
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <label style="font-weight:600;">合併方式：</label>
+                            <label style="cursor:pointer;"><input type="radio" name="novelia_merge_mode" value="overwrite" checked /> 強制覆蓋</label>
+                            <label style="cursor:pointer;"><input type="radio" name="novelia_merge_mode" value="merge" /> Merge (物件屬性合併)</label>
+                        </div>
+                        <div>
+                            <label style="font-weight:600; display:block; margin-bottom:4px;">接收端配對碼：</label>
+                            <input type="text" class="novelia-sync-input" id="novelia-sync-code-input" placeholder="請輸入接收端顯示的 8 位配對碼" maxlength="8" />
+                        </div>
+                        <button type="button" class="novelia-sync-btn" id="novelia-sync-send-action-btn">連線並發送資料</button>
+                        <div class="novelia-sync-status" id="novelia-sync-send-status"></div>
+                    </div>
+                `;
+
+                const selectAllBtn = container.querySelector('#novelia-sync-select-all');
+                const selectNoneBtn = container.querySelector('#novelia-sync-select-none');
+                if (selectAllBtn) selectAllBtn.addEventListener('click', (e) => { e.preventDefault(); container.querySelectorAll('.novelia-sync-key-list input[type="checkbox"]').forEach(c => c.checked = true); });
+                if (selectNoneBtn) selectNoneBtn.addEventListener('click', (e) => { e.preventDefault(); container.querySelectorAll('.novelia-sync-key-list input[type="checkbox"]').forEach(c => c.checked = false); });
+
+                const sendActionBtn = container.querySelector('#novelia-sync-send-action-btn');
+                const statusEl = container.querySelector('#novelia-sync-send-status');
+
+                sendActionBtn.addEventListener('click', async () => {
+                    const codeInput = container.querySelector('#novelia-sync-code-input');
+                    const targetCode = (codeInput?.value || '').trim().toUpperCase();
+                    if (!targetCode || targetCode.length !== 8) {
+                        alert('請輸入正確的 8 位配對碼');
+                        return;
+                    }
+
+                    const checkedBoxes = Array.from(container.querySelectorAll('.novelia-sync-key-list input[type="checkbox"]:checked'));
+                    if (checkedBoxes.length === 0) {
+                        alert('請至少勾選一個要推送的 Key');
+                        return;
+                    }
+
+                    const selectedKeys = checkedBoxes.map(cb => cb.value);
+                    const mergeMode = container.querySelector('input[name="novelia_merge_mode"]:checked')?.value || 'overwrite';
+
+                    const payloadData = {};
+                    selectedKeys.forEach(k => {
+                        const val = localStorage.getItem(k);
+                        if (val !== null) payloadData[k] = val;
+                    });
+
+                    if (Object.keys(payloadData).length === 0) {
+                        alert('本地沒有可發送的資料');
+                        return;
+                    }
+
+                    sendActionBtn.disabled = true;
+                    statusEl.textContent = '正在載入 PeerJS 並建立連線...';
+
+                    try {
+                        const PeerClass = await loadPeerJS();
+                        const peer = new PeerClass();
+                        activePeer = peer;
+
+                        const timer = setTimeout(() => {
+                            statusEl.textContent = '連線逾時，請確認配對碼和網路';
+                            sendActionBtn.disabled = false;
+                            try { peer.destroy(); } catch (e) {}
+                        }, 30_000);
+
+                        peer.on('open', () => {
+                            statusEl.textContent = `連接接收端 [${targetCode}] 中...`;
+                            const conn = peer.connect(PREFIX + targetCode, { reliable: true });
+
+                            conn.on('open', () => {
+                                statusEl.textContent = '已連接，正在傳送資料...';
+                                conn.send({ type: 'sync', mode: mergeMode, data: payloadData });
+                            });
+
+                            conn.on('data', msg => {
+                                clearTimeout(timer);
+                                if (msg?.type === 'ack') {
+                                    if (msg.ok) {
+                                        statusEl.textContent = `✅ 發送成功！接收端已應用 ${msg.count} 個 Key`;
+                                        alert(`已成功發送 ${msg.count} 個 Key 至接收端！`);
+                                    } else {
+                                        statusEl.textContent = '❌ 發送失敗：' + (msg.reason || '未知原因');
+                                        alert('發送失敗：' + (msg.reason || '未知原因'));
+                                    }
+                                }
+                                try { peer.destroy(); } catch (e) {}
+                                sendActionBtn.disabled = false;
+                            });
+
+                            conn.on('error', e => {
+                                clearTimeout(timer);
+                                statusEl.textContent = '❌ 連線錯誤：' + e;
+                                alert('連線錯誤：' + e);
+                                sendActionBtn.disabled = false;
+                                try { peer.destroy(); } catch (err) {}
+                            });
+                        });
+
+                        peer.on('error', e => {
+                            clearTimeout(timer);
+                            const errMsg = e.type === 'peer-unavailable' ? '找不到該配對碼（可能輸入錯誤或已逾時）' : '發送端錯誤：' + e.type;
+                            statusEl.textContent = '❌ ' + errMsg;
+                            alert(errMsg);
+                            sendActionBtn.disabled = false;
+                            try { peer.destroy(); } catch (err) {}
+                        });
+
+                    } catch (err) {
+                        statusEl.textContent = '❌ 載入 PeerJS 失敗：' + err.message;
+                        sendActionBtn.disabled = false;
+                    }
+                });
+            }
+
+            function renderReceiveSubmodule(container) {
+                container.innerHTML = `
+                    <div class="novelia-sync-sec">
+                        <button type="button" class="novelia-sync-btn" id="novelia-sync-gen-code-btn">接收端：產生配對碼</button>
+                        <div id="novelia-sync-receive-display" style="display:none; flex-direction:column; gap:12px;">
+                            <div style="text-align:center;">請在發送端輸入下方 8 位配對碼：</div>
+                            <div class="novelia-sync-code-box" id="novelia-sync-code-val">--------</div>
+                            <div class="novelia-sync-status" id="novelia-sync-receive-status">等待發送端連線中... (${TIMEOUT / 1000} 秒有效)</div>
+                        </div>
+                        <div id="novelia-sync-incoming-confirm" style="display:none; flex-direction:column; gap:10px;">
+                            <div style="font-weight:600; color:#63e2b7;">收到來自發送端的資料！請勾選要套用的項目：</div>
+                            <div class="novelia-sync-key-list" id="novelia-sync-incoming-list"></div>
+                            <button type="button" class="novelia-sync-btn" id="novelia-sync-apply-btn">確認套用並重新整理頁面</button>
+                        </div>
+                    </div>
+                `;
+
+                const genBtn = container.querySelector('#novelia-sync-gen-code-btn');
+                const displayArea = container.querySelector('#novelia-sync-receive-display');
+                const codeBox = container.querySelector('#novelia-sync-code-val');
+                const statusEl = container.querySelector('#novelia-sync-receive-status');
+                const incomingConfirm = container.querySelector('#novelia-sync-incoming-confirm');
+                const incomingList = container.querySelector('#novelia-sync-incoming-list');
+                const applyBtn = container.querySelector('#novelia-sync-apply-btn');
+
+                genBtn.addEventListener('click', async () => {
+                    genBtn.disabled = true;
+                    genBtn.textContent = '正在初始化 PeerJS...';
+
+                    try {
+                        const PeerClass = await loadPeerJS();
+                        const code = genCode();
+                        const peer = new PeerClass(PREFIX + code);
+                        activePeer = peer;
+                        let done = false;
+
+                        const finish = () => {
+                            done = true;
+                            try { peer.destroy(); } catch (e) {}
+                        };
+
+                        peer.on('open', () => {
+                            genBtn.style.display = 'none';
+                            displayArea.style.display = 'flex';
+                            codeBox.textContent = code;
+
+                            setTimeout(() => {
+                                if (!done && peer && !peer.destroyed) {
+                                    finish();
+                                    statusEl.textContent = '❌ 等待逾時，請重新產生配對碼';
+                                }
+                            }, TIMEOUT);
+                        });
+
+                        peer.on('connection', conn => {
+                            conn.on('data', msg => {
+                                if (done || !msg || msg.type !== 'sync' || typeof msg.data !== 'object') return;
+
+                                const mergeMode = msg.mode || 'overwrite';
+                                const entries = Object.entries(msg.data).filter(([k, v]) => typeof v === 'string');
+
+                                if (!entries.length) {
+                                    conn.send({ type: 'ack', ok: false, reason: '沒有可用的資料' });
+                                    return;
+                                }
+
+                                statusEl.textContent = '已接收資料，請在下方確認套用...';
+                                incomingConfirm.style.display = 'flex';
+
+                                incomingList.innerHTML = entries.map(([k, v]) => `
+                                    <label class="novelia-sync-key-item">
+                                        <input type="checkbox" value="${Utils.str.escapeHtml(k)}" checked />
+                                        <span>${Utils.str.escapeHtml(k)}</span>
+                                    </label>
+                                `).join('');
+
+                                applyBtn.onclick = () => {
+                                    const selectedBoxes = Array.from(incomingList.querySelectorAll('input[type="checkbox"]:checked'));
+                                    if (!selectedBoxes.length) {
+                                        alert('請至少勾選一項');
+                                        return;
+                                    }
+
+                                    let count = 0;
+                                    selectedBoxes.forEach(cb => {
+                                        const key = cb.value;
+                                        const val = msg.data[key];
+                                        if (val === undefined) return;
+
+                                        if (mergeMode === 'merge') {
+                                            try {
+                                                const existingRaw = localStorage.getItem(key);
+                                                if (existingRaw !== null) {
+                                                    const existingObj = JSON.parse(existingRaw);
+                                                    const incomingObj = JSON.parse(val);
+                                                    if (typeof existingObj === 'object' && typeof incomingObj === 'object' && existingObj !== null && incomingObj !== null) {
+                                                        const mergedObj = Array.isArray(existingObj) && Array.isArray(incomingObj)
+                                                            ? Array.from(new Set([...existingObj, ...incomingObj]))
+                                                            : { ...existingObj, ...incomingObj };
+                                                        localStorage.setItem(key, JSON.stringify(mergedObj));
+                                                        count++;
+                                                        return;
+                                                    }
+                                                }
+                                            } catch (err) {}
+                                        }
+
+                                        localStorage.setItem(key, val);
+                                        count++;
+                                    });
+
+                                    conn.send({ type: 'ack', ok: true, count });
+                                    finish();
+                                    alert(`成功套用 ${count} 個 Key！即將重新整理頁面...`);
+                                    setTimeout(() => location.reload(), 300);
+                                };
+                            });
+                        });
+
+                        peer.on('error', e => {
+                            finish();
+                            alert(e.type === 'unavailable-id' ? '配對碼衝突，請重新產生' : '接收端錯誤：' + e.type);
+                            genBtn.disabled = false;
+                            genBtn.style.display = 'block';
+                            genBtn.textContent = '接收端：產生配對碼';
+                            displayArea.style.display = 'none';
+                        });
+
+                    } catch (err) {
+                        alert('載入 PeerJS 失敗：' + err.message);
+                        genBtn.disabled = false;
+                        genBtn.textContent = '接收端：產生配對碼';
+                    }
+                });
+            }
+
+            function injectHeaderSyncButton() {
+                if (location.hostname !== DOMAINS.HOST) return;
+                const headerEl = document.querySelector('header');
+                if (!headerEl) return;
+                const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
+                if (!rightContainer || rightContainer.querySelector('.novelia-sync-header-btn')) return;
+
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'novelia-sync-header-btn grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover text-muted hover:text-ink transition-colors';
+                btn.title = 'LocalStorage 快取同步';
+                btn.setAttribute('aria-label', 'LocalStorage 快取同步');
+                btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"></path></svg>`;
+
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showModal('send');
+                });
+
+                rightContainer.prepend(btn);
+            }
+
+            injectHeaderSyncButton();
+            const observer = new MutationObserver(() => injectHeaderSyncButton());
+            observer.observe(document.body, { childList: true, subtree: true });
+            window.addEventListener('tm-locationchange', () => setTimeout(injectHeaderSyncButton, 200));
         }
     };
 
