@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.5
+// @version      3.4.6
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -710,10 +710,11 @@
                 iframeObserver = new MutationObserver(scheduleInject);
                 iframeObserver.observe(document.body, { childList: true, subtree: true });
 
-                window.addEventListener('message', function(e) {
-                    if (!e.data) return;
-                    if (e.data.type === 'NOVELIA_NAVIGATE') {
-                        const targetPath = e.data.path || '/';
+
+                window.addEventListener('message', function(messageEvent) {
+                    if (!messageEvent.data) return;
+                    if (messageEvent.data.type === 'NOVELIA_NAVIGATE') {
+                        const targetPath = messageEvent.data.path || '/';
                         const currentPath = location.pathname + location.search + location.hash;
                         const currentCleanPath = location.pathname;
                         const targetCleanPath = targetPath.split('?')[0].split('#')[0];
@@ -727,8 +728,8 @@
                         }
                         return;
                     }
-                    if (e.data.type === 'NOVELIA_THEME_CHANGE') {
-                        const isDark = !!e.data.isDark;
+                    if (messageEvent.data.type === 'NOVELIA_THEME_CHANGE') {
+                        const isDark = !!messageEvent.data.isDark;
                         const forumIsDarkBefore = Utils.ui.isDark();
                         if (isDark) {
                             document.documentElement.classList.add('dark');
@@ -887,8 +888,11 @@
                     window.location.assign(e.data.url || getIframeTargetUrl());
                 }
                 if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
-                    const targetPath = e.data.path || '/favorite/web';
-                    window.location.href = location.origin + (targetPath.startsWith('/') ? targetPath : '/' + targetPath);
+                    const rawPath = e.data.path || '/favorite/web';
+                    const targetHostPath = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
+                    Utils.route.push(targetHostPath);
+                    handleForumPage();
+                    updateSelectedSubmenuItem();
                 }
                 if (e.data.type === 'NOVELIA_URL_CHANGE') {
                     const innerPath = e.data.path || '/';
@@ -2645,7 +2649,22 @@
                 self._hostListenerSet = true;
 
                 window.addEventListener('message', async (event) => {
-                    if (!event.data || event.data.type !== 'NOVELIA_INSPECT_FETCH') return;
+                    if (!event.data) return;
+
+                    if (event.data.type === 'NOVELIA_INSPECT_GOTO') {
+                        const path = event.data.path;
+                        if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return;
+                        hidePanel();
+                        if (Utils.route && typeof Utils.route.push === 'function') {
+                            Utils.route.push(path);
+                            window.dispatchEvent(new Event('tm-locationchange'));
+                        } else {
+                            window.location.assign(location.origin + path);
+                        }
+                        return;
+                    }
+
+                    if (event.data.type !== 'NOVELIA_INSPECT_FETCH') return;
 
                     const { requestId, targetInfo } = event.data;
                     if (!requestId || !targetInfo) return;
@@ -2711,6 +2730,14 @@
                 return data;
             }
             const escHtml = Utils.str.escapeHtml;
+            function toHostPath(href) {
+                try {
+                    const u = new URL(href, `https://${DOMAINS.HOST}`);
+                    return u.pathname + u.search + u.hash;
+                } catch (error) {
+                    return null;
+                }
+            }
             function getNovelUrl(targetInfo, data) {
                 if (data && data.sourceUrl) return data.sourceUrl;
                 if (targetInfo && targetInfo.type === 'novel') {
@@ -2786,12 +2813,16 @@
                 const tagsContainerHtml = tagElements.length > 0
                     ? `<div role="none" class="n-flex" style="display: flex; flex-flow: wrap; justify-content: start; gap: 4px; margin-top: 12px;">${tagElements.join('')}</div>`
                     : '';
-                const buildActionBar = () => `
-                    <div class="novelia-inspect-action-bar">
-                        <a href="${escHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
-                        <a href="${escHtml(openUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
-                    </div>
-                `;
+                const buildActionBar = () => {
+                    const hostPath = toHostPath(openUrl) || '/';
+                    const hostAbsUrl = `https://${DOMAINS.HOST}${hostPath}`;
+                    return `
+                        <div class="novelia-inspect-action-bar">
+                            <a href="${escHtml(hostAbsUrl)}" data-novelia-goto-host="${escHtml(hostPath)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
+                            <a href="${escHtml(hostAbsUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
+                        </div>
+                    `;
+                };
                 const actionBarHtml = Utils.dom.isMobile() === false ? '' : buildActionBar();
                 return renderPanelWrapper(`
                     <div style="margin: 18px 0px;">
@@ -2936,6 +2967,18 @@
             injectStyles();
             setupHostFetchListener();
             setupIframeResponseListener();
+
+            if (window.top !== window.self) {
+                document.addEventListener('click', (event) => {
+                    const btn = event.target.closest && event.target.closest('[data-novelia-goto-host]');
+                    if (!btn) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const path = btn.getAttribute('data-novelia-goto-host');
+                    hidePanel();
+                    window.parent.postMessage({ type: 'NOVELIA_INSPECT_GOTO', path }, '*');
+                }, true);
+            }
 
             if (Utils.dom.isMobile()) {
                 processMobileLinks();
