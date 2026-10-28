@@ -1860,8 +1860,38 @@
 
             const toast = Utils.ui.createToastManager('novelia-toast');
 
+            const URL_PREFIX_MAP = [
+                ['https://n.novelia.cc/novel/', 'N|'],
+                ['https://n.novelia.cc/wenku/', 'W|'],
+                ['https://n.novelia.cc/forum/', 'F|'],
+                ['https://n.novelia.cc/', 'H|'],
+                ['https://forum.novelia.cc/', 'f|'],
+                ['https://', 's|'],
+                ['http://', 'h|']
+            ];
+
+            function compactUrl(targetUrl) {
+                for (const [fullPrefix, shortPrefix] of URL_PREFIX_MAP) {
+                    if (targetUrl.startsWith(fullPrefix)) {
+                        return shortPrefix + targetUrl.slice(fullPrefix.length);
+                    }
+                }
+                return targetUrl;
+            }
+
+            function expandUrl(compactedUrl) {
+                for (const [fullPrefix, shortPrefix] of URL_PREFIX_MAP) {
+                    if (compactedUrl.startsWith(shortPrefix)) {
+                        return fullPrefix + compactedUrl.slice(shortPrefix.length);
+                    }
+                }
+                return compactedUrl;
+            }
+
             async function compressText(inputStr) {
-                const stream = new Blob([inputStr]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+                const lines = inputStr.split('\n').map((line) => compactUrl(line.trim())).filter(Boolean);
+                const compactedStr = lines.join('\n');
+                const stream = new Blob([compactedStr]).stream().pipeThrough(new CompressionStream('deflate-raw'));
                 const buffer = await new Response(stream).arrayBuffer();
                 const bytes = new Uint8Array(buffer);
                 let binary = '';
@@ -1877,7 +1907,8 @@
                 for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
                 const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
                 const buffer = await new Response(stream).arrayBuffer();
-                return new TextDecoder().decode(buffer);
+                const decompressedStr = new TextDecoder().decode(buffer);
+                return decompressedStr.split('\n').map((line) => expandUrl(line.trim())).join('\n');
             }
 
             function extractAndDeduplicateLinks(textContent) {
@@ -1941,33 +1972,17 @@
                         <span class="novelia-compress-title">📦 連結壓縮 / 解碼</span>
                         <button type="button" class="novelia-compress-close" aria-label="Close">&times;</button>
                     </div>
-                    <div class="novelia-compress-tabs">
-                        <button type="button" class="novelia-compress-tab active" data-tab="compress">壓縮連結</button>
-                        <button type="button" class="novelia-compress-tab" data-tab="decode">解碼壓縮碼</button>
-                    </div>
-                    <div class="novelia-compress-section" data-section="compress">
-                        <div class="novelia-compress-label">請貼上小說連結（每行一個，自動去重與提取網址）：</div>
-                        <textarea class="novelia-compress-textarea novelia-compress-input" placeholder="https://n.novelia.cc/novel/syosetu/n7778cw\nhttps://n.novelia.cc/novel/hameln/261504\n..."></textarea>
+                    <div class="novelia-compress-section">
+                        <div class="novelia-compress-label">請貼上小說連結（每行一個）或壓縮碼：</div>
+                        <textarea class="novelia-compress-textarea novelia-compress-input" placeholder="請貼上小說網址（如 https://n.novelia.cc/novel/...）或壓縮碼..."></textarea>
                         <div class="novelia-compress-actions">
                             <button type="button" class="novelia-compress-btn-action novelia-compress-load-cache">載入 Share 快取</button>
-                            <button type="button" class="novelia-compress-btn-action novelia-compress-primary-btn novelia-compress-do-compress">壓縮並複製</button>
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-primary-btn novelia-compress-do-process">轉換 / 處理</button>
                         </div>
-                        <div class="novelia-compress-label">壓縮碼輸出：</div>
-                        <textarea class="novelia-compress-textarea novelia-compress-output" readonly placeholder="壓縮後的字串將顯示於此..."></textarea>
+                        <div class="novelia-compress-label novelia-compress-output-label">處理結果：</div>
+                        <textarea class="novelia-compress-textarea novelia-compress-output" readonly placeholder="轉換後的結果將顯示於此..."></textarea>
                         <div class="novelia-compress-actions">
-                            <button type="button" class="novelia-compress-btn-action novelia-compress-copy-code">複製壓縮碼</button>
-                        </div>
-                    </div>
-                    <div class="novelia-compress-section hidden" data-section="decode">
-                        <div class="novelia-compress-label">請貼上壓縮碼：</div>
-                        <textarea class="novelia-compress-textarea novelia-decode-input" placeholder="請貼上代碼..."></textarea>
-                        <div class="novelia-compress-actions">
-                            <button type="button" class="novelia-compress-btn-action novelia-compress-primary-btn novelia-compress-do-decode">解碼連結</button>
-                        </div>
-                        <div class="novelia-compress-label">還原網址列表：</div>
-                        <textarea class="novelia-compress-textarea novelia-decode-output" readonly placeholder="解碼後的網址列表將顯示於此..."></textarea>
-                        <div class="novelia-compress-actions">
-                            <button type="button" class="novelia-compress-btn-action novelia-compress-copy-links">複製網址列表</button>
+                            <button type="button" class="novelia-compress-btn-action novelia-compress-copy-output">複製結果</button>
                         </div>
                     </div>
                 `;
@@ -1977,22 +1992,49 @@
 
                 modalElement.querySelector('.novelia-compress-close').addEventListener('click', closeModal);
 
-                const tabBtns = modalElement.querySelectorAll('.novelia-compress-tab');
-                const sectionElements = modalElement.querySelectorAll('.novelia-compress-section');
-                tabBtns.forEach((tabBtn) => {
-                    tabBtn.addEventListener('click', () => {
-                        const targetTab = tabBtn.dataset.tab;
-                        tabBtns.forEach((btnItem) => btnItem.classList.toggle('active', btnItem.dataset.tab === targetTab));
-                        sectionElements.forEach((secItem) => secItem.classList.toggle('hidden', secItem.dataset.section !== targetTab));
-                    });
-                });
-
                 const compressInput = modalElement.querySelector('.novelia-compress-input');
                 const compressOutput = modalElement.querySelector('.novelia-compress-output');
-                const decodeInput = modalElement.querySelector('.novelia-decode-input');
-                const decodeOutput = modalElement.querySelector('.novelia-decode-output');
+                const outputLabel = modalElement.querySelector('.novelia-compress-output-label');
 
-                modalElement.querySelector('.novelia-compress-load-cache').addEventListener('click', () => {
+                async function handleProcess() {
+                    const rawText = compressInput.value.trim();
+                    if (!rawText) {
+                        toast.show("⚠️ 請先輸入小說連結或壓縮碼。");
+                        return;
+                    }
+                    try {
+                        const links = extractAndDeduplicateLinks(rawText);
+                        if (links.length > 0) {
+                            const compressedCode = await compressText(links.join('\n'));
+                            compressOutput.value = compressedCode;
+                            outputLabel.textContent = `壓縮結果 (共 ${links.length} 條連結)：`;
+                            await Utils.gm.setClipboard(compressedCode);
+                            toast.show(`✅ 已自動壓縮 (${links.length} 條) 並複製壓縮碼！`);
+                        } else {
+                            const restored = await decompressCode(rawText);
+                            compressOutput.value = restored;
+                            outputLabel.textContent = "解碼結果 (網址列表)：";
+                            await Utils.gm.setClipboard(restored);
+                            toast.show("✅ 已自動解碼並複製網址列表！");
+                        }
+                    } catch (error) {
+                        toast.show("⚠️ 無法識別輸入內容，請確認是否為有效網址或壓縮碼。");
+                    }
+                }
+
+                modalElement.querySelector('.novelia-compress-do-process').addEventListener('click', handleProcess);
+
+                modalElement.querySelector('.novelia-compress-copy-output').addEventListener('click', async () => {
+                    const outputText = compressOutput.value.trim();
+                    if (!outputText) {
+                        toast.show("⚠️ 沒有可複製的結果。");
+                        return;
+                    }
+                    await Utils.gm.setClipboard(outputText);
+                    toast.show("📋 結果已複製到剪貼簿！");
+                });
+
+                modalElement.querySelector('.novelia-compress-load-cache').addEventListener('click', async () => {
                     const cacheItems = window.noveliaShareCache || [];
                     if (!Array.isArray(cacheItems) || cacheItems.length === 0) {
                         toast.show("ℹ️ 目前沒有可載入的快取連結。");
@@ -2000,64 +2042,8 @@
                     }
                     const extractedUrls = extractAndDeduplicateLinks(cacheItems.join('\n'));
                     compressInput.value = extractedUrls.join('\n');
-                    toast.show(`✅ 已成功載入 ${extractedUrls.length} 條快取連結！`);
-                });
-
-                modalElement.querySelector('.novelia-compress-do-compress').addEventListener('click', async () => {
-                    const rawText = compressInput.value.trim();
-                    if (!rawText) {
-                        toast.show("⚠️ 請先輸入或貼上小說連結。");
-                        return;
-                    }
-                    const deduplicated = extractAndDeduplicateLinks(rawText);
-                    if (deduplicated.length === 0) {
-                        toast.show("⚠️ 未偵測到有效的小說連結。");
-                        return;
-                    }
-                    const cleanedString = deduplicated.join('\n');
-                    try {
-                        const compressedCode = await compressText(cleanedString);
-                        compressOutput.value = compressedCode;
-                        await Utils.gm.setClipboard(compressedCode);
-                        toast.show(`✅ 已成功壓縮 (${deduplicated.length} 條) 並複製壓縮碼！`);
-                    } catch (error) {
-                        toast.show("❌ 壓縮失敗: " + error.message);
-                    }
-                });
-
-                modalElement.querySelector('.novelia-compress-copy-code').addEventListener('click', async () => {
-                    const code = compressOutput.value.trim();
-                    if (!code) {
-                        toast.show("⚠️ 沒有可複製的壓縮碼。");
-                        return;
-                    }
-                    await Utils.gm.setClipboard(code);
-                    toast.show("📋 壓縮碼已複製到剪貼簿！");
-                });
-
-                modalElement.querySelector('.novelia-compress-do-decode').addEventListener('click', async () => {
-                    const code = decodeInput.value.trim();
-                    if (!code) {
-                        toast.show("⚠️ 請輸入壓縮碼。");
-                        return;
-                    }
-                    try {
-                        const restored = await decompressCode(code);
-                        decodeOutput.value = restored;
-                        toast.show("✅ 解碼成功！");
-                    } catch (error) {
-                        toast.show("⚠️ 無法解碼，請確認壓縮碼格式是否正確。");
-                    }
-                });
-
-                modalElement.querySelector('.novelia-compress-copy-links').addEventListener('click', async () => {
-                    const links = decodeOutput.value.trim();
-                    if (!links) {
-                        toast.show("⚠️ 沒有可複製的網址列表。");
-                        return;
-                    }
-                    await Utils.gm.setClipboard(links);
-                    toast.show("📋 網址列表已複製到剪貼簿！");
+                    toast.show(`✅ 已載入 ${extractedUrls.length} 條快取連結！`);
+                    await handleProcess();
                 });
             }
 
