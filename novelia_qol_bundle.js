@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.5.1
+// @version      3.5.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1574,11 +1574,17 @@
 
             const toast = Utils.ui.createToast('novelia-toast');
 
+            const CACHE_KEY = "novelia_share_link_cache";
+
             const LinkCache = {
-                items: [],
+                items: Utils.localStore.get(CACHE_KEY, []),
+                save() {
+                    Utils.localStore.set(CACHE_KEY, this.items);
+                },
                 add(link) {
                     if (!this.items.includes(link)) {
                         this.items.push(link);
+                        this.save();
                         this.dispatch();
                         return true;
                     }
@@ -1586,14 +1592,29 @@
                 },
                 clear() {
                     this.items = [];
+                    this.save();
                     Utils.gm.setClipboard('');
                     this.dispatch();
                 },
-                has(link) { return this.items.includes(link); },
+                has(link) {
+                    if (!link) return false;
+                    return this.items.includes(link);
+                },
+                hasPath(pathname) {
+                    if (!pathname) return false;
+                    return this.items.some((item) => item.includes(pathname));
+                },
                 dispatch() {
                     document.dispatchEvent(new CustomEvent(CACHE_CHANGE_EVENT_NAME, { detail: { cache: [...this.items] } }));
                 }
             };
+
+            window.addEventListener("storage", (event) => {
+                if (event.key === CACHE_KEY) {
+                    LinkCache.items = Utils.localStore.get(CACHE_KEY, []);
+                    LinkCache.dispatch();
+                }
+            });
             function writeToClipboard(text, buttonElement) {
                 Utils.gm.setClipboard(text).then((success) => {
                     if (success) {
@@ -1625,11 +1646,6 @@
             function createCopyButton(formattedLink) {
                 const buttonElement = document.createElement("button");
                 Object.assign(buttonElement, { className: COPY_BUTTON_CLASS, title: "點擊累加複製：" + formattedLink, textContent: "📋" });
-                if (LinkCache.has(formattedLink)) buttonElement.style.display = "none";
-
-                document.addEventListener(CACHE_CHANGE_EVENT_NAME, (event) => {
-                    buttonElement.style.display = event.detail.cache.includes(formattedLink) ? "none" : "";
-                });
 
                 buttonElement.addEventListener("click", (event) => {
                     event.preventDefault();
@@ -1659,6 +1675,8 @@
                     if (!titleText || !linkHref) return;
 
                     const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    if (LinkCache.has(formattedLink)) return;
+
                     const copyBtn = createCopyButton(formattedLink);
                     let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}`);
                     if (!wrapper) {
@@ -1681,13 +1699,15 @@
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
 
+                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    if (LinkCache.has(formattedLink)) return;
+
                     const parentPaddingDiv = textSpanElement.parentElement && textSpanElement.parentElement.style.padding ? textSpanElement.parentElement : textSpanElement.closest('div[style*="padding:"]');
                     if (parentPaddingDiv) {
                         parentPaddingDiv.dataset.noveliaOrigPadding = parentPaddingDiv.style.padding;
                         parentPaddingDiv.style.padding = "8px 0px 8px 0px";
                     }
 
-                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
 
                     const gridWrapperDiv = Object.assign(document.createElement('div'), {
@@ -1698,18 +1718,29 @@
                     gridWrapperDiv.appendChild(textSpanElement);
                 });
             }
-            function copyCurrentNovelLink() {
+            function getCurrentNovelFormattedLink() {
+                if (!Utils.router.isNovelPage()) return null;
                 const pathname = Utils.router.getPathname();
                 const isWenku = pathname.startsWith('/wenku/');
                 const titleEl = isWenku ? document.querySelector('h2') : document.querySelector('h3');
                 const titleText = titleEl ? titleEl.textContent.trim() : '';
-                if (!titleText) {
+                if (!titleText) return null;
+                return `[${titleText}](https://${NoveliaConfig.domains.main}${pathname})`;
+            }
+            function copyCurrentNovelLink() {
+                const formattedLink = getCurrentNovelFormattedLink();
+                if (!formattedLink) {
                     toast.show("⚠️ 未能找到小說標題！");
                     return;
                 }
-                const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${pathname})`;
-                writeToClipboard(formattedLink);
-                toast.show(`📋 已複製小說連結：\n${formattedLink}`);
+                if (LinkCache.has(formattedLink)) {
+                    toast.show("ℹ️ 此小說連結已在快取清單中！");
+                    injectHeaderActionButtons();
+                } else {
+                    LinkCache.add(formattedLink);
+                    writeToClipboard(LinkCache.items.join("\n"));
+                    toast.show(`📋 已複製小說連結：\n${formattedLink}`);
+                }
             }
             function shouldDisplayHeaderButtons() {
                 return (
@@ -1725,6 +1756,9 @@
                     : Utils.router.isListPageExceptNovelDetail() ? 'list'
                     : null;
 
+                const currentPath = Utils.router.getPathname();
+                const currentFormattedLink = getCurrentNovelFormattedLink();
+
                 HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
                     const cls = `novelia-share-${key}-btn`;
 
@@ -1732,6 +1766,15 @@
                         document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
                         return;
                     }
+
+                    if (key === 'copy') {
+                        const isCached = (currentFormattedLink && LinkCache.has(currentFormattedLink)) || (currentPath && LinkCache.hasPath(currentPath));
+                        if (isCached) {
+                            document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
+                            return;
+                        }
+                    }
+
                     Utils.ui.site.injectMainHeaderButton({
                         id: cls,
                         className: `${HEADER_BUTTON_CLASS} ${cls}`,
@@ -1753,6 +1796,12 @@
             window.addEventListener("keydown", (event) => {
                 if (checkKeyboardShortcut(event, CLEAR_CACHE_KEY)) { event.preventDefault(); clearLinkCache(); }
                 if (checkKeyboardShortcut(event, VIEW_CACHE_KEY)) { event.preventDefault(); viewLinkCache(); }
+            });
+            document.addEventListener(CACHE_CHANGE_EVENT_NAME, () => {
+                if (Utils.router.isListPageExceptNovelDetail()) {
+                    removeStaleButtons(true);
+                }
+                performFullScan();
             });
 
             function removeStaleButtons(skipHeaders = false) {
