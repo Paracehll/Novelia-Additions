@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.0
+// @version      2.1.1
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -18,6 +18,18 @@
     const root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : (typeof window !== 'undefined' ? window : globalThis);
 
     const DAY = 24 * 60 * 60 * 1000;
+
+    const HEADER_BUTTON_ORDER = [
+        'novelia-host-drawer-btn',
+        'novelia-forum-popout-btn',
+        'novelia-forum-fav-btn',
+        'novelia-forum-reload-btn',
+        'novelia-bulk-update-button',
+        'novelia-share-clear-btn',
+        'novelia-share-view-btn',
+        'novelia-share-copy-novel-btn',
+        'novelia-sync-ls-btn'
+    ];
 
     const defaultConfig = {
         domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
@@ -905,6 +917,7 @@
         BULK: icon14('<rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>'),
         CLEAR: icon14('<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>'),
         VIEW: icon14('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>'),
+        COPY: icon14('<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>'),
         CHEVRON: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"></path></svg>',
         DRAWER: mdIcon(24, 'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z'),
         POPOUT: mdIcon(20, POPOUT_PATH),
@@ -982,6 +995,11 @@
             }
         };
 
+        const isNovelPage = () => {
+            const p = getPathname();
+            return /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(p) || /^\/wenku\/[^\/]+\/?$/i.test(p);
+        };
+
         const isListPage = () => {
             const p = getPathname();
             if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(p)) return false;
@@ -1038,7 +1056,7 @@
             }
         };
 
-        return { init, push, getPath, getPathname, parseNovelPath, isForumPage, isForumUrl, isListPage, isListPageExceptNovelDetail, isCommentableDetailPage, onChange, getRouter };
+        return { init, push, getPath, getPathname, parseNovelPath, isNovelPage, isForumPage, isForumUrl, isListPage, isListPageExceptNovelDetail, isCommentableDetailPage, onChange, getRouter };
     };
 
     const SIDEBAR_SEL = '.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside';
@@ -1485,18 +1503,6 @@
             if (typeof document === 'undefined') return null;
             return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
         };
-
-        const HEADER_BUTTON_ORDER = [
-            'novelia-host-drawer-btn',
-            'novelia-forum-popout-btn',
-            'novelia-forum-fav-btn',
-            'novelia-forum-reload-btn',
-            'novelia-bulk-update-button',
-            'novelia-share-refresh-btn',
-            'novelia-share-clear-btn',
-            'novelia-share-view-btn',
-            'novelia-sync-ls-btn'
-        ];
 
         const getHeaderButtonId = (el) => {
             if (!el) return '';
