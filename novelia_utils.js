@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      1.8.0
-// @description  Novelia 工具函式庫 (DOMAINS & Utils)
+// @version      2.0.0
+// @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -15,15 +15,19 @@
 (function () {
     'use strict';
 
-    const root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-
-    const DOMAINS = {
-        HOST: 'n.novelia.cc',
-        FORUM: 'forum.novelia.cc',
-        CDN: 'n-cdn.novelia.cc'
-    };
+    const root = typeof unsafeWindow !== 'undefined' ? unsafeWindow : (typeof window !== 'undefined' ? window : globalThis);
 
     const DAY = 24 * 60 * 60 * 1000;
+
+    const defaultConfig = {
+        domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
+        db: { name: 'novelia_qol_db', version: 1, stores: ['cache_store', 'preview_cache', 'network_cache'], keyPath: 'key' },
+        keys: { forumSubmenuExpanded: 'novelia_forum_submenu_expanded', mascotBlob: 'mascot_image_blob' },
+        assets: { mascotPath: '/assets/mascot-DSVGgW05.webp' },
+        events: { locationChange: 'tm-locationchange' },
+        ttl: { default: DAY, image: 7 * DAY },
+        cssPrefix: 'novelia-'
+    };
 
     const attempt = (fn, fallback, label) => {
         try { return fn(); } catch (e) {
@@ -42,14 +46,92 @@
 
     const isPlainClick = (e) => !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0));
 
-    const emit = (name) => window.dispatchEvent(new Event(name));
+    const fireWindowEvent = (name) => {
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event(name));
+        }
+    };
 
-    const gm = {
+    const makeEscaper = (aposEntity) => {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": aposEntity };
+        return (str) => (str ? String(str).replace(/[&<>"']/g, (c) => map[c]) : '');
+    };
+
+    const hashString = (s) => {
+        let h = 0;
+        const strVal = String(s || '');
+        for (let i = 0; i < strVal.length; i++) h = (((h << 5) - h) + strVal.charCodeAt(i)) | 0;
+        return Math.abs(h).toString(36);
+    };
+
+    const text = {
+        escapeHtml: makeEscaper('&#039;'),
+        escapeXml: makeEscaper('&apos;'),
+        truncate(s, length, suffix = '...') {
+            if (!s) return '';
+            const v = String(s);
+            return v.length <= length ? v : v.slice(0, length) + suffix;
+        },
+        hash: hashString
+    };
+
+    const createLimiter = (limit) => {
+        let active = 0;
+        const queue = [];
+        const next = () => {
+            if (active >= limit || !queue.length) return;
+            active++;
+            const { task, resolve, reject } = queue.shift();
+            task().then(resolve, reject).finally(() => { active--; next(); });
+        };
+        return (task) => new Promise((resolve, reject) => { queue.push({ task, resolve, reject }); next(); });
+    };
+
+    const TIME_PATTERNS = [
+        { regex: /(\d+)\s*秒/, mult: 1 },
+        { regex: /(\d+)\s*(?:分钟|分鐘|分)/, mult: 60 },
+        { regex: /(\d+)\s*(?:小时|小時|時|时)/, mult: 3600 },
+        { regex: /(\d+)\s*(?:天|日)/, mult: 86400 },
+        { regex: /(\d+)\s*(?:个?月|個?月)/, mult: 2592000 },
+        { regex: /(\d+)\s*年/, mult: 31536000 }
+    ];
+
+    const time = {
+        parseRelativeToSeconds(rawText) {
+            const s = rawText?.trim();
+            if (!s) return Infinity;
+            if (/^(刚刚|剛剛|just now)$/i.test(s)) return 0;
+            for (const { regex, mult } of TIME_PATTERNS) {
+                const m = s.match(regex);
+                if (m) return parseInt(m[1], 10) * mult;
+            }
+            const parsed = Date.parse(s);
+            return isNaN(parsed) ? Infinity : Math.max(0, (Date.now() - parsed) / 1000);
+        },
+        formatRelativeTime(timestamp) {
+            if (!timestamp) return '';
+            let ms = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
+            if (isNaN(ms)) return '';
+            if (ms < 1e11) ms *= 1000;
+
+            const date = new Date(ms);
+            const diff = Math.floor((Date.now() - ms) / 1000);
+            if (diff < 60) return '剛剛';
+            if (diff < 3600) return `${Math.floor(diff / 60)} 分鐘前`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)} 小時前`;
+            if (diff < 2592000) return `${Math.floor(diff / 86400)} 天前`;
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+        }
+    };
+
+    const createGm = (g = globalThis) => ({
         addStyle(css, id) {
+            if (typeof document === 'undefined') return null;
             const existing = id && document.getElementById(id);
             if (existing) return existing;
-            if (typeof GM_addStyle === 'function') {
-                const style = GM_addStyle(css);
+            if (typeof g.GM_addStyle === 'function') {
+                const style = g.GM_addStyle(css);
                 if (id && style && style.id !== undefined) style.id = id;
                 return style;
             }
@@ -60,38 +142,49 @@
             return style;
         },
         getValue(key, defaultValue) {
-            return typeof GM_getValue === 'function' ? GM_getValue(key, defaultValue) : defaultValue;
+            return typeof g.GM_getValue === 'function' ? g.GM_getValue(key, defaultValue) : defaultValue;
         },
-        setValue(key, value) { if (typeof GM_setValue === 'function') GM_setValue(key, value); },
-        registerMenuCommand(label, fn) { if (typeof GM_registerMenuCommand === 'function') GM_registerMenuCommand(label, fn); },
-        setClipboard(text) {
-            if (typeof GM_setClipboard === 'function') {
-                GM_setClipboard(text);
+        setValue(key, value) {
+            if (typeof g.GM_setValue === 'function') g.GM_setValue(key, value);
+        },
+        registerMenuCommand(label, fn) {
+            if (typeof g.GM_registerMenuCommand === 'function') g.GM_registerMenuCommand(label, fn);
+        },
+        setClipboard(clipboardText) {
+            if (typeof g.GM_setClipboard === 'function') {
+                g.GM_setClipboard(clipboardText);
                 return Promise.resolve(true);
             }
-            if (navigator.clipboard) {
-                return navigator.clipboard.writeText(text).then(() => true, () => false);
+            if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                return navigator.clipboard.writeText(clipboardText).then(() => true, () => false);
             }
             return Promise.resolve(false);
-        }
-    };
+        },
+        downloadBlob(url, { mimeType, timeout = 15000 } = {}) {
+            return new Promise((resolve, reject) => {
+                if (typeof g.GM_xmlhttpRequest === 'function') {
+                    g.GM_xmlhttpRequest({
+                        method: 'GET', url, responseType: 'blob', timeout,
+                        headers: { 'Cache-Control': 'max-age=3600' },
+                        onload: (r) => {
+                            if (r.status >= 200 && r.status < 300 && r.response) {
+                                resolve(r.response instanceof Blob ? r.response : new Blob([r.response], { type: mimeType || 'image/webp' }));
+                            } else reject(new Error(`HTTP ${r.status}`));
+                        },
+                        onerror: reject,
+                        ontimeout: () => reject(new Error('Request timed out'))
+                    });
+                } else if (typeof fetch === 'function') {
+                    fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); }).then(resolve, reject);
+                } else {
+                    reject(new Error('No network request method available'));
+                }
+            });
+        },
+        hasXhr: typeof g.GM_xmlhttpRequest === 'function'
+    });
 
-    const makeEscaper = (aposEntity) => {
-        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": aposEntity };
-        return (str) => (str ? String(str).replace(/[&<>"']/g, (c) => map[c]) : '');
-    };
-
-    const str = {
-        escapeHtml: makeEscaper('&#039;'),
-        escapeXml: makeEscaper('&apos;'),
-        truncate(s, length, suffix = '...') {
-            if (!s) return '';
-            const v = String(s);
-            return v.length <= length ? v : v.slice(0, length) + suffix;
-        }
-    };
-
-    const ls = {
+    const createLocalStore = () => ({
         get(key, defaultValue = {}) {
             return attempt(() => {
                 const raw = localStorage.getItem(key);
@@ -99,22 +192,22 @@
             }, defaultValue);
         },
         set(key, value) {
-            return attempt(() => { localStorage.setItem(key, JSON.stringify(value)); return true; }, false, `[Utils.ls] Failed to set ${key}:`);
+            return attempt(() => { localStorage.setItem(key, JSON.stringify(value)); return true; }, false, `[Utils.localStore] Failed to set ${key}:`);
         },
-        getRaw(key, defaultValue = null) {
+        getString(key, defaultValue = null) {
             return attempt(() => {
                 const raw = localStorage.getItem(key);
                 return raw !== null ? raw : defaultValue;
             }, defaultValue);
         },
-        setRaw(key, value) {
-            return attempt(() => { localStorage.setItem(key, String(value)); return true; }, false, `[Utils.ls] Failed to setRaw ${key}:`);
+        setString(key, value) {
+            return attempt(() => { localStorage.setItem(key, String(value)); return true; }, false, `[Utils.localStore] Failed to setString ${key}:`);
         },
         remove(key) {
-            return attempt(() => { localStorage.removeItem(key); return true; }, false, `[Utils.ls] Failed to remove ${key}:`);
+            return attempt(() => { localStorage.removeItem(key); return true; }, false, `[Utils.localStore] Failed to remove ${key}:`);
         },
         clear() {
-            return attempt(() => { localStorage.clear(); return true; }, false, '[Utils.ls] Failed to clear ls:');
+            return attempt(() => { localStorage.clear(); return true; }, false, '[Utils.localStore] Failed to clear localStore:');
         },
         has(key) {
             return attempt(() => localStorage.getItem(key) !== null, false);
@@ -122,18 +215,15 @@
         keys() {
             return attempt(() => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((k) => k !== null), []);
         }
-    };
+    });
 
-    const IDB_DEFAULTS = { dbName: 'novelia_qol_db', version: 1, storeName: 'cache_store', keyPath: 'key' };
-    const IDB_DEFAULT_STORES = ['cache_store', 'preview_cache', 'network_cache'];
+    const createIdb = (cfgDb) => {
+        const conns = new Map();
 
-    const idb = {
-        _conns: new Map(),
-
-        openDatabase(dbName = IDB_DEFAULTS.dbName, version = 1, storeNames = IDB_DEFAULT_STORES, keyPath = 'key') {
+        const open = (dbName = cfgDb.name, version = cfgDb.version, storeNames = cfgDb.stores, keyPath = cfgDb.keyPath) => {
             return new Promise((resolve, reject) => {
                 if (typeof indexedDB === 'undefined') return reject(new Error('IndexedDB not supported'));
-                const stores = new Set([...IDB_DEFAULT_STORES, ...(Array.isArray(storeNames) ? storeNames : [storeNames])]);
+                const stores = new Set([...(cfgDb.stores || []), ...(Array.isArray(storeNames) ? storeNames : [storeNames])]);
                 const request = indexedDB.open(dbName, version);
                 request.onupgradeneeded = (e) => {
                     const db = e.target.result;
@@ -144,48 +234,52 @@
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
-        },
+        };
 
-        _connect(o) {
+        const connect = (o) => {
             const id = `${o.dbName}@${o.version}`;
-            if (!idb._conns.has(id)) {
-                const p = idb.openDatabase(o.dbName, o.version, [o.storeName], o.keyPath).then((db) => {
-                    db.onversionchange = () => { db.close(); idb._conns.delete(id); };
+            if (!conns.has(id)) {
+                const p = open(o.dbName, o.version, [o.storeName], o.keyPath).then((db) => {
+                    db.onversionchange = () => { db.close(); conns.delete(id); };
                     return db;
                 });
-                p.catch(() => idb._conns.delete(id));
-                idb._conns.set(id, p);
+                p.catch(() => conns.delete(id));
+                conns.set(id, p);
             }
-            return idb._conns.get(id);
-        },
-        async _run(mode, action, opts, fallback) {
-            const o = { ...IDB_DEFAULTS, ...opts };
+            return conns.get(id);
+        };
+
+        const run = async (mode, action, opts, fallback) => {
+            const o = { dbName: cfgDb.name, version: cfgDb.version, storeName: cfgDb.stores[0], keyPath: cfgDb.keyPath, ...opts };
             try {
-                const db = await idb._connect(o);
+                const db = await connect(o);
                 return await new Promise((resolve) => {
                     action(db.transaction(o.storeName, mode).objectStore(o.storeName), resolve, o);
                 });
             } catch (e) {
-                idb._conns.delete(`${o.dbName}@${o.version}`);
+                conns.delete(`${o.dbName}@${o.version}`);
                 return fallback;
             }
-        },
-        _req(req, resolve, onOk, onFail) {
-            req.onsuccess = () => resolve(onOk(req.result));
-            req.onerror = () => resolve(onFail);
-        },
-        get(key, opts) { return idb._run('readonly', (s, res) => idb._req(s.get(key), res, (r) => r || null, null), opts, null) },
-        set(record, opts) { return idb._run('readwrite', (s, res) => idb._req(s.put(record), res, () => true, false), opts, false) },
-        delete(key, opts) { return idb._run('readwrite', (s, res) => idb._req(s.delete(key), res, () => true, false), opts, false) },
-        clear(opts) { return idb._run('readwrite', (s, res) => idb._req(s.clear(), res, () => true, false), opts, false) },
-        getAll(opts) { return idb._run('readonly', (s, res) => idb._req(s.getAll(), res, (r) => r || [], []), opts, []) },
-        checkIDbExpire(key, { ttlMs = DAY, ...opts } = {}) {
+        };
+
+        const req = (request, resolve, onOk, onFail) => {
+            request.onsuccess = () => resolve(onOk(request.result));
+            request.onerror = () => resolve(onFail);
+        };
+
+        const get = (key, opts) => run('readonly', (s, res) => req(s.get(key), res, (r) => r || null, null), opts, null);
+        const set = (record, opts) => run('readwrite', (s, res) => req(s.put(record), res, () => true, false), opts, false);
+        const del = (key, opts) => run('readwrite', (s, res) => req(s.delete(key), res, () => true, false), opts, false);
+        const clear = (opts) => run('readwrite', (s, res) => req(s.clear(), res, () => true, false), opts, false);
+        const getAll = (opts) => run('readonly', (s, res) => req(s.getAll(), res, (r) => r || [], []), opts, []);
+
+        const getWithExpiry = (key, { ttlMs = DAY, ...opts } = {}) => {
             const EXPIRED = { expired: true, record: null };
-            return idb._run('readwrite', (store, resolve) => {
-                const req = store.get(key);
-                req.onerror = () => resolve(EXPIRED);
-                req.onsuccess = () => {
-                    const record = req.result;
+            return run('readwrite', (store, resolve) => {
+                const request = store.get(key);
+                request.onerror = () => resolve(EXPIRED);
+                request.onsuccess = () => {
+                    const record = request.result;
                     if (!record) return resolve(EXPIRED);
                     const ts = record.timestamp || record.updatedAt || record.createAt || 0;
                     if (Date.now() - ts >= ttlMs) {
@@ -195,27 +289,32 @@
                     resolve({ expired: false, record });
                 };
             }, opts, EXPIRED);
-        },
-        async checkIDbExpireAndGet(key, opts = {}) {
-            const { expired, record } = await idb.checkIDbExpire(key, opts);
+        };
+
+        const getValid = async (key, opts = {}) => {
+            const { expired, record } = await getWithExpiry(key, opts);
             if (expired || !record) return null;
             return record.data !== undefined ? record.data : record;
-        }
+        };
+
+        return { open, get, set, delete: del, clear, getAll, getWithExpiry, getValid };
     };
 
-    const cache = {
+    const createCache = ({ ls, idb }) => ({
         get: (key, defaultValue = null) => ls.get(key, defaultValue),
         set: (key, value) => ls.set(key, value),
         remove: (key) => ls.remove(key),
         clear: () => ls.clear(),
-        getIDB: (key, opts = {}) => idb.checkIDbExpireAndGet(key, opts),
-        setIDB(key, data, opts = {}) {
-            const { keyPath = IDB_DEFAULTS.keyPath } = opts;
-            return idb.set({ [keyPath]: key, data, timestamp: Date.now() }, opts);
-        },
-        removeIDB: (key, opts = {}) => idb.delete(key, opts),
-        clearIDB: (opts = {}) => idb.clear(opts)
-    };
+        idb: {
+            get: (key, opts = {}) => idb.getValid(key, opts),
+            set(key, data, opts = {}) {
+                const { keyPath = defaultConfig.db.keyPath } = opts;
+                return idb.set({ [keyPath]: key, data, timestamp: Date.now() }, opts);
+            },
+            remove: (key, opts = {}) => idb.delete(key, opts),
+            clear: (opts = {}) => idb.clear(opts)
+        }
+    });
 
     const HOOK_KEYS = ['before', 'after', 'around', 'instead', 'getter', 'setter'];
 
@@ -225,12 +324,12 @@
         }
     };
 
-    const patcher = {
-        _patches: new Map(),
+    const createPatcher = () => {
+        const patches = new Map();
 
-        _getOrCreateState(target, prop) {
-            let targetMap = this._patches.get(target);
-            if (!targetMap) this._patches.set(target, (targetMap = new Map()));
+        const getOrCreateState = (target, prop) => {
+            let targetMap = patches.get(target);
+            if (!targetMap) patches.set(target, (targetMap = new Map()));
             let state = targetMap.get(prop);
             if (!state) {
                 const desc = attempt(() => Object.getOwnPropertyDescriptor(target, prop), null) || {};
@@ -249,29 +348,46 @@
                 targetMap.set(prop, state);
             }
             return state;
-        },
-        patch(target, prop, optionsOrFn) {
-            if (!target || !prop) return null;
-            const opts = typeof optionsOrFn === 'function' ? { instead: optionsOrFn } : (optionsOrFn || {});
-            const state = this._getOrCreateState(target, prop);
+        };
 
-            const hook = { id: Symbol('patch_hook'), once: !!opts.once };
-            HOOK_KEYS.forEach((k) => { hook[k] = typeof opts[k] === 'function' ? opts[k] : null; });
-            state.hooks.push(hook);
+        const unpatch = (target, prop, hookIdOrFn) => {
+            const state = patches.get(target)?.get(prop);
+            if (!state) return false;
+            if (!hookIdOrFn) return restore(target, prop);
 
-            if (state.type === 'method' && target[prop] !== state.wrapper) {
-                this._wrapMethod(target, prop, state);
-            } else if (state.type === 'property' || opts.getter || opts.setter) {
-                this._applyPropertyPatch(target, prop, state);
+            const beforeCount = state.hooks.length;
+            state.hooks = state.hooks.filter((h) => h.id !== hookIdOrFn && !HOOK_KEYS.some((k) => h[k] === hookIdOrFn));
+            if (state.hooks.length === 0) restore(target, prop);
+            return state.hooks.length < beforeCount;
+        };
+
+        const restore = (target, prop) => {
+            const targetMap = patches.get(target);
+            const state = targetMap?.get(prop);
+            if (!state) return false;
+
+            if (state.type === 'method' && state.original) {
+                target[prop] = state.original;
+            } else if (state.originalDesc && Object.keys(state.originalDesc).length) {
+                attempt(() => Object.defineProperty(target, prop, state.originalDesc), null)
+                    ?? attempt(() => { target[prop] = state.originalDesc.value; });
+            } else {
+                attempt(() => { delete target[prop]; });
             }
 
-            const unpatchFn = () => this.unpatch(target, prop, hook.id);
-            unpatchFn.unpatch = unpatchFn;
-            unpatchFn.restore = unpatchFn;
-            return unpatchFn;
-        },
-        _wrapMethod(target, prop, state) {
-            const self = this;
+            targetMap.delete(prop);
+            if (targetMap.size === 0) patches.delete(target);
+            return true;
+        };
+
+        const restoreAll = () => {
+            for (const [target, map] of Array.from(patches)) {
+                for (const prop of Array.from(map.keys())) restore(target, prop);
+            }
+            patches.clear();
+        };
+
+        const wrapMethod = (target, prop, state) => {
             const origFn = state.original;
             const lastOf = (hooks, k) => hooks.slice().reverse().find((h) => h[k]);
 
@@ -286,7 +402,7 @@
                 for (const h of hooks) {
                     if (!h.before) continue;
                     callHook(h, 'before', this, ctx, prop);
-                    if (h.once) self.unpatch(target, prop, h.id);
+                    if (h.once) unpatch(target, prop, h.id);
                     if (ctx.cancelled) break;
                 }
                 if (!ctx.cancelled) {
@@ -295,11 +411,11 @@
                     try {
                         if (instead) {
                             ctx.result = instead.instead.call(this, ctx, origFn ? origFn.bind(this) : null);
-                            if (instead.once) self.unpatch(target, prop, instead.id);
+                            if (instead.once) unpatch(target, prop, instead.id);
                         } else if (around) {
                             const proceed = (...a) => (origFn ? origFn.apply(this, a.length ? a : ctx.args) : undefined);
                             ctx.result = around.around.call(this, ctx, proceed);
-                            if (around.once) self.unpatch(target, prop, around.id);
+                            if (around.once) unpatch(target, prop, around.id);
                         } else if (origFn) {
                             ctx.result = origFn.apply(this, ctx.args);
                         }
@@ -308,7 +424,7 @@
                 for (const h of hooks) {
                     if (!h.after) continue;
                     callHook(h, 'after', this, ctx, prop);
-                    if (h.once) self.unpatch(target, prop, h.id);
+                    if (h.once) unpatch(target, prop, h.id);
                 }
                 if (ctx.error) throw ctx.error;
                 return ctx.result;
@@ -318,8 +434,9 @@
             wrapper.__original = origFn;
             state.wrapper = wrapper;
             target[prop] = wrapper;
-        },
-        _applyPropertyPatch(target, prop, state) {
+        };
+
+        const applyPropertyPatch = (target, prop, state) => {
             if (state.propertyPatched) return;
             state.propertyPatched = true;
 
@@ -350,153 +467,194 @@
                     else currentValue = ctx.value;
                 }
             });
-        },
+        };
 
-        before: (t, p, fn, o = {}) => patcher.patch(t, p, { before: fn, ...o }),
-        after: (t, p, fn, o = {}) => patcher.patch(t, p, { after: fn, ...o }),
-        around: (t, p, fn, o = {}) => patcher.patch(t, p, { around: fn, ...o }),
-        instead: (t, p, fn, o = {}) => patcher.patch(t, p, { instead: fn, ...o }),
-        patchGetter: (t, p, fn, o = {}) => patcher.patch(t, p, { getter: fn, ...o }),
-        patchSetter: (t, p, fn, o = {}) => patcher.patch(t, p, { setter: fn, ...o }),
-        patchProperty: (t, p, o = {}) => patcher.patch(t, p, o),
+        const patch = (target, prop, optionsOrFn) => {
+            if (!target || !prop) return null;
+            const opts = typeof optionsOrFn === 'function' ? { instead: optionsOrFn } : (optionsOrFn || {});
+            const state = getOrCreateState(target, prop);
 
-        unpatch(target, prop, hookIdOrFn) {
-            const state = this._patches.get(target)?.get(prop);
-            if (!state) return false;
-            if (!hookIdOrFn) return this.restore(target, prop);
+            const hook = { id: Symbol('patch_hook'), once: !!opts.once };
+            HOOK_KEYS.forEach((k) => { hook[k] = typeof opts[k] === 'function' ? opts[k] : null; });
+            state.hooks.push(hook);
 
-            const before = state.hooks.length;
-            state.hooks = state.hooks.filter((h) => h.id !== hookIdOrFn && !HOOK_KEYS.some((k) => h[k] === hookIdOrFn));
-            if (state.hooks.length === 0) this.restore(target, prop);
-            return state.hooks.length < before;
-        },
-        restore(target, prop) {
-            const targetMap = this._patches.get(target);
-            const state = targetMap?.get(prop);
-            if (!state) return false;
-
-            if (state.type === 'method' && state.original) {
-                target[prop] = state.original;
-            } else if (state.originalDesc && Object.keys(state.originalDesc).length) {
-                attempt(() => Object.defineProperty(target, prop, state.originalDesc), null)
-                    ?? attempt(() => { target[prop] = state.originalDesc.value; });
-            } else {
-                attempt(() => { delete target[prop]; });
+            if (state.type === 'method' && target[prop] !== state.wrapper) {
+                wrapMethod(target, prop, state);
+            } else if (state.type === 'property' || opts.getter || opts.setter) {
+                applyPropertyPatch(target, prop, state);
             }
 
-            targetMap.delete(prop);
-            if (targetMap.size === 0) this._patches.delete(target);
-            return true;
-        },
-        restoreAll() {
-            for (const [target, map] of Array.from(this._patches)) {
-                for (const prop of Array.from(map.keys())) this.restore(target, prop);
-            }
-            this._patches.clear();
-        },
-        isPatched(target, prop) {
-            const state = this._patches.get(target)?.get(prop);
+            const unpatchFn = () => unpatch(target, prop, hook.id);
+            unpatchFn.unpatch = unpatchFn;
+            unpatchFn.restore = unpatchFn;
+            return unpatchFn;
+        };
+
+        const before = (t, p, fn, o = {}) => patch(t, p, { before: fn, ...o });
+        const after = (t, p, fn, o = {}) => patch(t, p, { after: fn, ...o });
+        const around = (t, p, fn, o = {}) => patch(t, p, { around: fn, ...o });
+        const instead = (t, p, fn, o = {}) => patch(t, p, { instead: fn, ...o });
+        const getter = (t, p, fn, o = {}) => patch(t, p, { getter: fn, ...o });
+        const setter = (t, p, fn, o = {}) => patch(t, p, { setter: fn, ...o });
+        const property = (t, p, o = {}) => patch(t, p, o);
+
+        const isPatched = (target, prop) => {
+            const state = patches.get(target)?.get(prop);
             return !!(state && state.hooks.length > 0);
-        },
-        getOriginal(target, prop) {
-            const state = this._patches.get(target)?.get(prop);
+        };
+
+        const getOriginal = (target, prop) => {
+            const state = patches.get(target)?.get(prop);
             if (state) return state.original;
             if (target?.[prop]?.__original) return target[prop].__original;
             return target ? target[prop] : undefined;
-        }
+        };
+
+        return { patch, before, after, around, instead, getter, setter, property, unpatch, restore, restoreAll, isPatched, getOriginal };
     };
 
-    const network = {
-        _intercepted: false,
-        _rules: [],
-        _d: createDisposer(),
-        _xhrUrls: new WeakMap(),
-        DB_NAME: 'novelia_qol_db',
-        DB_VERSION: 1,
-        STORE_NAME: 'network_cache',
-        TTL_MS: DAY,
-        BLANK_GIF: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-        IMG_EXT_RE: /\.(webp|png|jpe?g|gif|svg|avif|bmp|ico)$/i,
+    const createNodeWatcher = ({ patcher }) => {
+        let rules = [];
+        let installed = false;
+        const d = createDisposer();
 
-        _resolveDomain(domain) {
-            if (!domain) return '';
-            const s = String(domain);
-            return DOMAINS[s.toUpperCase()] || s;
-        },
-        _parseUrl(urlStr) { return attempt(() => new URL(urlStr, location.origin), null); },
-        _dbOpts() { return { dbName: this.DB_NAME, version: this.DB_VERSION, storeName: this.STORE_NAME, ttlMs: this.TTL_MS }; },
-        _unwrap(record) { return record.data !== undefined ? record.data : record; },
-        _saveToCache(cacheKey, data, meta = {}) {
-            return idb.set({ key: cacheKey, data, timestamp: Date.now(), ...meta }, this._dbOpts());
-        },
-        async getCached(queryKey) {
+        const testEl = (el) => {
+            if (!el || el.nodeType !== 1 || typeof el.matches !== 'function') return;
+            for (const r of rules) attempt(() => { if (el.matches(r.selector)) r.onMatch(el); });
+        };
+
+        const scanNode = (node) => {
+            if (!node) return;
+            if (node.nodeType === 11) { node.childNodes?.forEach((c) => scanNode(c)); return; }
+            if (node.nodeType !== 1) return;
+            testEl(node);
+            if (!node.firstElementChild || typeof node.querySelectorAll !== 'function') return;
+            for (const r of rules) {
+                attempt(() => node.querySelectorAll(r.selector).forEach((el) => attempt(() => r.onMatch(el))));
+            }
+        };
+
+        const enable = () => {
+            if (installed) return;
+            installed = true;
+            const add = (un) => d.add(un);
+            const rescan = function () {
+                const el = this;
+                if (typeof queueMicrotask === 'function') {
+                    queueMicrotask(() => scanNode(el.parentNode || el));
+                } else {
+                    setTimeout(() => scanNode(el.parentNode || el), 0);
+                }
+            };
+            const nodeProto = root?.Node?.prototype;
+            if (nodeProto) {
+                ['appendChild', 'insertBefore', 'replaceChild'].forEach((m) => {
+                    add(patcher.before(nodeProto, m, function (ctx) {
+                        if (this && !this.isConnected) return;
+                        scanNode(ctx.args[0]);
+                    }));
+                });
+            }
+            const elProto = root?.Element?.prototype;
+            if (elProto) {
+                ['append', 'prepend', 'before', 'after', 'replaceWith'].forEach((m) => {
+                    add(patcher.before(elProto, m, function (ctx) {
+                        if (this && !this.isConnected) return;
+                        ctx.args.forEach((a) => scanNode(a));
+                    }));
+                });
+                add(patcher.before(elProto, 'insertAdjacentElement', function (ctx) {
+                    if (this && !this.isConnected) return;
+                    scanNode(ctx.args[1]);
+                }));
+                add(patcher.before(elProto, 'insertAdjacentHTML', rescan));
+                ['innerHTML', 'outerHTML'].forEach((p) => add(patcher.setter(elProto, p, rescan)));
+            }
+            if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined' && document?.documentElement) {
+                const observer = new MutationObserver((ms) => {
+                    for (const m of ms) {
+                        if (m.type === 'attributes') testEl(m.target);
+                        else m.addedNodes?.forEach((n) => scanNode(n));
+                    }
+                });
+                observer.observe(document.documentElement, {
+                    childList: true, subtree: true, attributes: true,
+                    attributeFilter: ['src', 'class', 'href', 'style']
+                });
+                add(() => observer.disconnect());
+            }
+        };
+
+        const addRule = (rule) => {
+            if (!rule?.selector || typeof rule.onMatch !== 'function') return null;
+            rules.push(rule);
+            enable();
+            return () => { rules = rules.filter((r) => r !== rule); };
+        };
+
+        const destroy = () => {
+            d.run();
+            rules = [];
+            installed = false;
+        };
+
+        return { enable, add: addRule, destroy };
+    };
+
+    const createNetwork = ({ root: envRoot, patcher, idb, domains, db, ttlMs, gm }) => {
+        let intercepted = false;
+        const rules = [];
+        const d = createDisposer();
+        const xhrUrls = new WeakMap();
+        const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        const IMG_EXT_RE = /\.(webp|png|jpe?g|gif|svg|avif|bmp|ico)$/i;
+
+        const resolveDomain = (domainStr) => {
+            if (!domainStr) return '';
+            const s = String(domainStr);
+            const key = s.toUpperCase();
+            return domains[key] || domains[s.toLowerCase()] || s;
+        };
+
+        const parseUrl = (urlStr) => attempt(() => new URL(urlStr, typeof location !== 'undefined' ? location.origin : 'https://n.novelia.cc'), null);
+        const dbOpts = () => ({ dbName: db.name, version: db.version, storeName: 'network_cache', ttlMs });
+        const unwrap = (record) => (record.data !== undefined ? record.data : record);
+
+        const saveToCache = (cacheKey, data, meta = {}) => {
+            return idb.set({ key: cacheKey, data, timestamp: Date.now(), ...meta }, dbOpts());
+        };
+
+        const findByPrefix = async (queryKey) => {
             if (!queryKey) return null;
-            const opts = this._dbOpts();
-            const direct = await idb.checkIDbExpire(queryKey, opts);
-            if (!direct.expired && direct.record) return this._unwrap(direct.record);
+            const opts = dbOpts();
+            const direct = await idb.getWithExpiry(queryKey, opts);
+            if (!direct.expired && direct.record) return unwrap(direct.record);
 
             for (const r of await idb.getAll(opts)) {
                 const k = r.key || '';
                 const hit = k.includes(queryKey) || (k && queryKey.includes(k)) || r.capturedPrefix?.includes(queryKey);
                 if (!hit) continue;
-                const res = await idb.checkIDbExpire(k, opts);
-                if (!res.expired && res.record) return this._unwrap(res.record);
+                const res = await idb.getWithExpiry(k, opts);
+                if (!res.expired && res.record) return unwrap(res.record);
             }
             return null;
-        },
-        capture({ key, domain, onCapture } = {}) {
-            if (!key) return;
-            this._rules.push({ action: 'capture', key, domain: this._resolveDomain(domain), onCapture });
-            this.initInterception();
-        },
-        intercept(opts) { return this.capture(opts); },
+        };
 
-        reject(keyOrOptions, domain) {
-            const opts = typeof keyOrOptions === 'string' ? { key: keyOrOptions, domain } : (keyOrOptions || {});
-            const rule = { isImage: true, ...opts, action: 'reject' };
-            let key = rule.key || rule.url || '';
-            let host = this._resolveDomain(rule.domain);
-            if (!host && /^https?:/i.test(key)) {
-                const u = this._parseUrl(key);
-                if (u) { host = u.hostname; key = u.pathname + u.search; }
-            }
-            rule.domain = host;
-            rule.key = key.replace(/\*+$/, ''); // '' 代表全部符合
-            this._rules.push(rule);
-            this.initInterception();
-            return rule;
-        },
-        _matchCaptures(urlStr) {
-            const u = this._parseUrl(urlStr);
-            if (!u) return [];
-            const base = u.origin + u.pathname;
-            const hits = [];
-            for (const rule of this._rules) {
-                if (rule.action !== 'capture') continue;
-                if (rule.domain && u.hostname !== rule.domain) continue;
-                const idx = base.indexOf(rule.key);
-                if (idx === -1) continue;
-                const prefix = base.slice(0, idx + rule.key.length);
-                hits.push({ rule, cacheKey: prefix, capturedPrefix: prefix, url: u.href });
-            }
-            return hits;
-        },
-        async _storeCaptures(hits, rawText) {
-            const data = attempt(() => JSON.parse(rawText), rawText);
-            for (const { rule, cacheKey, capturedPrefix, url } of hits) {
-                await this._saveToCache(cacheKey, data, { url, capturedPrefix, key: rule.key, domain: rule.domain });
-                attempt(() => rule.onCapture?.({ cacheKey, data, url, capturedPrefix }));
-            }
-        },
-        _isRejected(urlStr, ctx) {
-            const u = this._parseUrl(urlStr);
+        const capture = ({ key, domain, onCapture } = {}) => {
+            if (!key) return;
+            rules.push({ action: 'capture', key, domain: resolveDomain(domain), onCapture });
+            initInterception();
+        };
+
+        const isBlocked = (urlStr, ctx) => {
+            const u = parseUrl(urlStr);
             if (!u) return false;
-            for (const rule of this._rules) {
+            for (const rule of rules) {
                 if (rule.action !== 'reject') continue;
                 if (rule.domain && u.hostname !== rule.domain) continue;
                 if (rule.key && !(u.origin + u.pathname).includes(rule.key)) continue;
                 if (rule.isImage) {
-                    const isImg = this.IMG_EXT_RE.test(u.pathname)
+                    const isImg = IMG_EXT_RE.test(u.pathname)
                         || ctx?.destination === 'image'
                         || String(ctx?.headers?.accept || '').includes('image')
                         || u.pathname.includes('/banners/');
@@ -506,59 +664,85 @@
                 return true;
             }
             return false;
-        },
-        initInterception() {
-            if (this._intercepted) return;
-            this._intercepted = true;
-            ['_patchFetch', '_patchXhr', '_patchGM', '_patchImage', '_observeImages'].forEach((name) => {
-                attempt(() => this[name](), null, `[Utils.network] ${name} failed:`);
-            });
-        },
-        destroy() {
-            this._d.run();
-            this._intercepted = false;
-        },
-        _fetchCtx(input, init) {
-            const h = init?.headers || input?.headers;
-            const accept = h && typeof h.get === 'function' ? h.get('accept') : (h?.accept || h?.Accept);
-            return { destination: input?.destination, headers: { accept } };
-        },
-        _patchFetch() {
-            if (!root || typeof root.fetch !== 'function') return;
-            const self = this;
+        };
+
+        const block = (keyOrOptions, domain) => {
+            const opts = typeof keyOrOptions === 'string' ? { key: keyOrOptions, domain } : (keyOrOptions || {});
+            const rule = { isImage: true, ...opts, action: 'reject' };
+            let key = rule.key || rule.url || '';
+            let host = resolveDomain(rule.domain);
+            if (!host && /^https?:/i.test(key)) {
+                const u = parseUrl(key);
+                if (u) { host = u.hostname; key = u.pathname + u.search; }
+            }
+            rule.domain = host;
+            rule.key = key.replace(/\*+$/, '');
+            rules.push(rule);
+            initInterception();
+            return rule;
+        };
+
+        const matchCaptures = (urlStr) => {
+            const u = parseUrl(urlStr);
+            if (!u) return [];
+            const base = u.origin + u.pathname;
+            const hits = [];
+            for (const rule of rules) {
+                if (rule.action !== 'capture') continue;
+                if (rule.domain && u.hostname !== rule.domain) continue;
+                const idx = base.indexOf(rule.key);
+                if (idx === -1) continue;
+                const prefix = base.slice(0, idx + rule.key.length);
+                hits.push({ rule, cacheKey: prefix, capturedPrefix: prefix, url: u.href });
+            }
+            return hits;
+        };
+
+        const storeCaptures = async (hits, rawText) => {
+            const data = attempt(() => JSON.parse(rawText), rawText);
+            for (const { rule, cacheKey, capturedPrefix, url } of hits) {
+                await saveToCache(cacheKey, data, { url, capturedPrefix, key: rule.key, domain: rule.domain });
+                attempt(() => rule.onCapture?.({ cacheKey, data, url, capturedPrefix }));
+            }
+        };
+
+        const patchFetch = () => {
+            if (!envRoot || typeof envRoot.fetch !== 'function') return;
             const urlOf = (input) => input?.url || String(input ?? '');
 
-            this._d.add(patcher.before(root, 'fetch', function (ctx) {
+            d.add(patcher.before(envRoot, 'fetch', function (ctx) {
                 const [input, init] = ctx.args;
                 const url = urlOf(input);
-                if (self._isRejected(url, self._fetchCtx(input, init))) {
+                const h = init?.headers || input?.headers;
+                const accept = h && typeof h.get === 'function' ? h.get('accept') : (h?.accept || h?.Accept);
+                if (isBlocked(url, { destination: input?.destination, headers: { accept } })) {
                     ctx.cancel(Promise.reject(new TypeError(`Failed to fetch: blocked by Utils.network (${url})`)));
                 }
             }));
 
-            this._d.add(patcher.after(root, 'fetch', function (ctx) {
+            d.add(patcher.after(envRoot, 'fetch', function (ctx) {
                 if (ctx.cancelled || typeof ctx.result?.then !== 'function') return;
-                const hits = self._matchCaptures(urlOf(ctx.args[0]));
+                const hits = matchCaptures(urlOf(ctx.args[0]));
                 if (!hits.length) return;
                 ctx.result
                     .then((res) => (res.ok ? res.clone().text() : null))
-                    .then((text) => (text !== null ? self._storeCaptures(hits, text) : undefined))
+                    .then((raw) => (raw !== null ? storeCaptures(hits, raw) : undefined))
                     .catch(() => {});
             }));
-        },
-        _patchXhr() {
-            const proto = root?.XMLHttpRequest?.prototype;
-            if (!proto) return;
-            const self = this;
+        };
 
-            this._d.add(patcher.before(proto, 'open', function (ctx) {
-                self._xhrUrls.set(this, String(ctx.args[1]));
+        const patchXhr = () => {
+            const proto = envRoot?.XMLHttpRequest?.prototype;
+            if (!proto) return;
+
+            d.add(patcher.before(proto, 'open', function (ctx) {
+                xhrUrls.set(this, String(ctx.args[1]));
             }));
 
-            this._d.add(patcher.before(proto, 'send', function (ctx) {
-                const url = self._xhrUrls.get(this);
+            d.add(patcher.before(proto, 'send', function (ctx) {
+                const url = xhrUrls.get(this);
                 if (!url) return;
-                if (self._isRejected(url)) {
+                if (isBlocked(url)) {
                     ctx.cancel();
                     setTimeout(() => {
                         this.dispatchEvent(new ProgressEvent('error'));
@@ -566,64 +750,144 @@
                     }, 0);
                     return;
                 }
-                const hits = self._matchCaptures(url);
+                const hits = matchCaptures(url);
                 if (hits.length) {
-                    this.addEventListener('load', () => attempt(() => self._storeCaptures(hits, this.responseText)), { once: true });
+                    this.addEventListener('load', () => attempt(() => storeCaptures(hits, this.responseText)), { once: true });
                 }
             }));
-        },
-        _patchGM() {
-            if (typeof GM_xmlhttpRequest !== 'function') return;
-            const self = this;
-            const candidates = [root, typeof globalThis !== 'undefined' ? globalThis : null, typeof window !== 'undefined' ? window : null];
+        };
+
+        const patchGM = () => {
+            const candidates = [envRoot, typeof globalThis !== 'undefined' ? globalThis : null, typeof window !== 'undefined' ? window : null];
             const target = candidates.find((t) => attempt(() => t && typeof t.GM_xmlhttpRequest === 'function', false));
             if (!target) return;
 
-            this._d.add(patcher.before(target, 'GM_xmlhttpRequest', function (ctx) {
+            d.add(patcher.before(target, 'GM_xmlhttpRequest', function (ctx) {
                 const details = ctx.args[0];
-                if (details?.url && self._isRejected(details.url)) {
+                if (details?.url && isBlocked(details.url)) {
                     ctx.cancel({ abort() {} });
                     setTimeout(() => details.onerror?.({ status: 0, statusText: 'Blocked by Utils.network' }), 0);
                 }
             }));
-        },
-        _patchImage() {
-            const self = this;
-            const imgProto = root?.HTMLImageElement?.prototype;
+        };
+
+        const patchImage = () => {
+            const imgProto = envRoot?.HTMLImageElement?.prototype;
             if (imgProto) {
-                this._d.add(patcher.patchSetter(imgProto, 'src', function (ctx) {
-                    if (ctx.value && self._isRejected(String(ctx.value))) ctx.value = self.BLANK_GIF;
+                d.add(patcher.setter(imgProto, 'src', function (ctx) {
+                    if (ctx.value && isBlocked(String(ctx.value))) ctx.value = BLANK_GIF;
                 }));
             }
-            const elProto = root?.Element?.prototype;
+            const elProto = envRoot?.Element?.prototype;
             if (elProto) {
-                this._d.add(patcher.before(elProto, 'setAttribute', function (ctx) {
+                d.add(patcher.before(elProto, 'setAttribute', function (ctx) {
                     if (this.tagName !== 'IMG' || String(ctx.args[0]).toLowerCase() !== 'src') return;
-                    if (self._isRejected(String(ctx.args[1]))) ctx.args[1] = self.BLANK_GIF;
+                    if (isBlocked(String(ctx.args[1]))) ctx.args[1] = BLANK_GIF;
                 }));
             }
-        },
-        _observeImages() {
-            if (typeof MutationObserver === 'undefined' || !document?.documentElement) return;
+        };
+
+        const observeImages = () => {
+            if (typeof MutationObserver === 'undefined' || typeof document === 'undefined' || !document?.documentElement) return;
             const observer = new MutationObserver((mutations) => {
                 for (const m of mutations) for (const n of m.addedNodes) {
                     if (n.nodeType !== 1) continue;
                     const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll('img[src]');
                     for (const img of imgs) {
-                        if (img.src && this._isRejected(img.src)) img.removeAttribute('src');
+                        if (img.src && isBlocked(img.src)) img.removeAttribute('src');
                     }
                 }
             });
             observer.observe(document.documentElement, { childList: true, subtree: true });
-            this._d.add(() => observer.disconnect());
-        }
+            d.add(() => observer.disconnect());
+        };
+
+        const initInterception = () => {
+            if (intercepted) return;
+            intercepted = true;
+            [patchFetch, patchXhr, patchGM, patchImage, observeImages].forEach((fn) => {
+                attempt(() => fn(), null, '[Utils.network] Patch failed:');
+            });
+        };
+
+        const destroy = () => {
+            d.run();
+            intercepted = false;
+        };
+
+        return { capture, block, isBlocked, getCached: findByPrefix, destroy };
+    };
+
+    const createImageCache = ({ isBlocked, cache, download, ttlMs, useCache = () => typeof window !== 'undefined' && window.top === window.self }) => {
+        const blobUrls = {};
+        const promises = {};
+
+        const getBlob = async (imageUrl, { ttlMs: customTtl = ttlMs, cacheKey = null, mimeType = null } = {}) => {
+            if (!imageUrl) throw new Error('Image URL is required');
+            if (isBlocked(imageUrl)) throw new Error(`Blocked by network (${imageUrl})`);
+
+            const key = cacheKey || `img_blob_${imageUrl}`;
+            const allowCache = useCache();
+
+            if (allowCache) {
+                try {
+                    const cached = await cache.idb.get(key, { ttlMs: customTtl });
+                    if (cached instanceof Blob) return cached;
+                    if (cached instanceof ArrayBuffer || ArrayBuffer.isView(cached)) {
+                        return new Blob([cached], { type: mimeType || 'image/webp' });
+                    }
+                } catch (e) { console.warn(`[Utils.imageCache] Error reading image cache from IDB (${key}):`, e); }
+            }
+
+            const blob = await download(imageUrl, { mimeType });
+            if (allowCache) {
+                try { await cache.idb.set(key, blob); } catch (e) { console.warn(`[Utils.imageCache] Error saving image cache to IDB (${key}):`, e); }
+            }
+            return blob;
+        };
+
+        const getUrl = (imageUrl, options = {}) => {
+            if (!imageUrl) return Promise.resolve('');
+            if (blobUrls[imageUrl]) return Promise.resolve(blobUrls[imageUrl]);
+            if (!promises[imageUrl]) {
+                promises[imageUrl] = (async () => {
+                    try {
+                        const url = URL.createObjectURL(await getBlob(imageUrl, options));
+                        blobUrls[imageUrl] = url;
+                        return url;
+                    } catch (e) {
+                        console.error(`[Utils.imageCache] Failed to fetch or load image (${imageUrl}):`, e);
+                        delete promises[imageUrl];
+                        return imageUrl;
+                    }
+                })();
+            }
+            return promises[imageUrl];
+        };
+
+        const getSyncUrl = (imageUrl) => (imageUrl ? (blobUrls[imageUrl] || imageUrl) : '');
+
+        return { getBlob, getUrl, getSyncUrl, DEFAULT_TTL: ttlMs };
+    };
+
+    const mascot = (imageCache, cfg) => {
+        const url = `https://${cfg.domains.main}${cfg.assets.mascotPath}`;
+        const opts = { cacheKey: cfg.keys.mascotBlob, ttlMs: cfg.ttl.image };
+        return {
+            url,
+            CACHE_KEY: cfg.keys.mascotBlob,
+            CACHE_TTL: cfg.ttl.image,
+            getBlob: () => imageCache.getBlob(url, opts),
+            getUrl: () => imageCache.getUrl(url, opts),
+            getSyncUrl: () => imageCache.getSyncUrl(url)
+        };
     };
 
     const icon14 = (inner) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;">${inner}</svg>`;
     const mdIcon = (size, path) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${size}" height="${size}"><path d="${path}" fill="currentColor"></path></svg>`;
     const POPOUT_PATH = 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z';
 
-    const svg = {
+    const icons = {
         REFRESH: icon14('<polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>'),
         BULK: icon14('<rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>'),
         CLEAR: icon14('<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>'),
@@ -637,115 +901,131 @@
 
     const LIST_PREFIXES = ['/novel', '/favorite', '/wenku', '/search', '/read-history'];
 
-    const route = {
-        _initDone: false,
+    const createRouter = ({ root: envRoot, patcher, domains, events }) => {
+        let initDone = false;
 
-        init() {
-            if (this._initDone) return;
-            this._initDone = true;
-            ['pushState', 'replaceState'].forEach((m) => patcher.after(root.history, m, () => emit('tm-locationchange')));
-            window.addEventListener('popstate', () => emit('tm-locationchange'));
-        },
-
-        getRouter() {
-            return attempt(() => {
-                const appEl = document.querySelector('#app') || document.querySelector('[data-v-app]');
-                const app = appEl?.__vue_app__;
-                const direct = [
-                    app?.config?.globalProperties?.$router,
-                    appEl?._vnode?.component?.proxy?.$router,
-                    app?._instance?.proxy?.$router
-                ].find(Boolean);
-                if (direct) return direct;
-
-                const provides = app?._context?.provides;
-                if (provides) {
-                    for (const key of [...Object.getOwnPropertySymbols(provides), ...Object.keys(provides)]) {
-                        const val = provides[key];
-                        if (val && typeof val.push === 'function' && (val.currentRoute || val.options)) return val;
-                    }
-                }
-                return root.__vue_app__?.config?.globalProperties?.$router
-                    || (typeof root.router?.push === 'function' ? root.router : null);
-            }, null);
-        },
-
-        push(path) {
-            if (!path) return;
-            const fallback = () => {
-                if (route.getPath() !== path) {
-                    history.pushState({}, '', path);
-                    emit('popstate');
-                }
-            };
-
-            if (route.isForumPage() && route.isForumUrl(path)) {
-                if (route.getPath() !== path) history.pushState({}, '', path);
-                emit('tm-locationchange');
-                return;
+        const init = () => {
+            if (initDone) return;
+            initDone = true;
+            if (envRoot?.history) {
+                ['pushState', 'replaceState'].forEach((m) => patcher.after(envRoot.history, m, () => fireWindowEvent(events.locationChange)));
             }
-
-            const router = this.getRouter();
-            if (router && typeof router.push === 'function') {
-                try {
-                    const res = router.push(path);
-                    if (res && typeof res.catch === 'function') res.catch(fallback);
-                } catch (e) { history.pushState({}, '', path); emit('popstate'); }
-            } else {
-                history.pushState({}, '', path);
-                emit('popstate');
+            if (typeof window !== 'undefined') {
+                window.addEventListener('popstate', () => fireWindowEvent(events.locationChange));
             }
-            emit('tm-locationchange');
-        },
+        };
 
-        getPath() { return root.__noveliaMockPath || (location.pathname + location.search + location.hash); },
-        _cleanPath() { return route.getPath().split('?')[0].split('#')[0]; },
+        const getPath = () => {
+            if (envRoot?.__noveliaMockPath) return envRoot.__noveliaMockPath;
+            if (typeof location !== 'undefined') return location.pathname + location.search + location.hash;
+            return '/';
+        };
 
-        matchNovelPath(pathname) {
+        const getPathname = () => getPath().split('?')[0].split('#')[0];
+
+        const getRouter = () => attempt(() => {
+            if (typeof document === 'undefined') return null;
+            const appEl = document.querySelector('#app') || document.querySelector('[data-v-app]');
+            const app = appEl?.__vue_app__;
+            const direct = [
+                app?.config?.globalProperties?.$router,
+                appEl?._vnode?.component?.proxy?.$router,
+                app?._instance?.proxy?.$router
+            ].find(Boolean);
+            if (direct) return direct;
+
+            const provides = app?._context?.provides;
+            if (provides) {
+                for (const key of [...Object.getOwnPropertySymbols(provides), ...Object.keys(provides)]) {
+                    const val = provides[key];
+                    if (val && typeof val.push === 'function' && (val.currentRoute || val.options)) return val;
+                }
+            }
+            return envRoot.__vue_app__?.config?.globalProperties?.$router
+                || (typeof envRoot.router?.push === 'function' ? envRoot.router : null);
+        }, null);
+
+        const parseNovelPath = (pathname) => {
             const novel = pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)\/?$/i);
             if (novel) return { source: novel[1], id: novel[2] };
             const wenku = pathname.match(/^\/wenku\/([^\/?#]+)\/?$/i);
             return wenku ? { source: 'wenku', id: wenku[1] } : null;
-        },
-        isForumPage() {
-            const p = route.getPath();
+        };
+
+        const isForumPage = () => {
+            const p = getPath();
             return p === '/forum' || p.startsWith('/forum/') || p.startsWith('/forum?');
-        },
-        isForumUrl(href) {
+        };
+
+        const isForumUrl = (href) => {
             if (!href) return false;
             try {
-                const u = new URL(href, location.origin);
-                return u.hostname === DOMAINS.FORUM
-                    || (u.hostname === location.hostname && (u.pathname === '/forum' || u.pathname.startsWith('/forum/')));
+                const u = new URL(href, typeof location !== 'undefined' ? location.origin : 'https://n.novelia.cc');
+                return u.hostname === domains.forum
+                    || (typeof location !== 'undefined' && u.hostname === location.hostname && (u.pathname === '/forum' || u.pathname.startsWith('/forum/')));
             } catch (e) {
-                return new RegExp('^https?:\\/\\/' + DOMAINS.FORUM.replace(/\./g, '\\.'), 'i').test(href)
+                return new RegExp('^https?:\\/\\/' + domains.forum.replace(/\./g, '\\.'), 'i').test(href)
                     || href === '/forum' || href.startsWith('/forum/');
             }
-        },
-        /** 列表型頁面（排除 /novel/:src/:id/:chapter 等 3 段以上路徑） */
-        isCommentCountPage() {
-            const p = route._cleanPath();
+        };
+
+        const isListPage = () => {
+            const p = getPathname();
             if (/^\/novel\/[^\/]+\/[^\/]+\/[^\/]+/i.test(p)) return false;
             return p === '/' || LIST_PREFIXES.some((pre) => p.startsWith(pre));
-        },
-        /** 同上，但再排除小說詳情頁 /novel/:src/:id */
-        isSharePage() {
-            return route.isCommentCountPage() && !/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(route._cleanPath());
-        },
-        isCommentNotifyPage() {
-            const p = route._cleanPath();
-            const host = location.hostname;
-            if (host === DOMAINS.HOST) {
+        };
+
+        const isListPageExceptNovelDetail = () => {
+            return isListPage() && !/^\/novel\/[^\/]+\/[^\/]+\/?$/.test(getPathname());
+        };
+
+        const isCommentableDetailPage = () => {
+            const p = getPathname();
+            const host = typeof location !== 'undefined' ? location.hostname : '';
+            if (host === domains.main) {
                 return /^\/novel\/[^\/]+\/[^\/]+\/?$/i.test(p)
                     || /^\/wenku\/[^\/]+\/?$/i.test(p)
                     || /^\/forum\/p\/[^\/]+\/?$/i.test(p);
             }
-            return host === DOMAINS.FORUM && /^\/p\/[^\/]+\/?$/i.test(p);
-        },
-        onChange(callback) {
-            this.init();
-            ['popstate', 'hashchange', 'tm-locationchange'].forEach((ev) => window.addEventListener(ev, callback));
-        }
+            return host === domains.forum && /^\/p\/[^\/]+\/?$/i.test(p);
+        };
+
+        const push = (path) => {
+            if (!path) return;
+            const fallback = () => {
+                if (getPath() !== path) {
+                    history.pushState({}, '', path);
+                    fireWindowEvent('popstate');
+                }
+            };
+
+            if (isForumPage() && isForumUrl(path)) {
+                if (getPath() !== path) history.pushState({}, '', path);
+                fireWindowEvent(events.locationChange);
+                return;
+            }
+
+            const r = getRouter();
+            if (r && typeof r.push === 'function') {
+                try {
+                    const res = r.push(path);
+                    if (res && typeof res.catch === 'function') res.catch(fallback);
+                } catch (e) { history.pushState({}, '', path); fireWindowEvent('popstate'); }
+            } else {
+                history.pushState({}, '', path);
+                fireWindowEvent('popstate');
+            }
+            fireWindowEvent(events.locationChange);
+        };
+
+        const onChange = (callback) => {
+            init();
+            if (typeof window !== 'undefined') {
+                ['popstate', 'hashchange', events.locationChange].forEach((ev) => window.addEventListener(ev, callback));
+            }
+        };
+
+        return { init, push, getPath, getPathname, parseNovelPath, isForumPage, isForumUrl, isListPage, isListPageExceptNovelDetail, isCommentableDetailPage, onChange, getRouter };
     };
 
     const SIDEBAR_SEL = '.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside';
@@ -754,22 +1034,23 @@
     const SIDEBAR_CONTAINER_SEL = 'aside, .web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, .n-menu, .n-drawer, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav[aria-label="侧边栏"], nav[aria-label="側邊欄"]';
     const INJECT_MODES = { replace: 'replaceWith', before: 'before', after: 'after', append: 'appendChild', prepend: 'prepend' };
 
-    const sidebar = {
-        get() { return document.querySelector(SIDEBAR_SEL); },
+    const createSidebar = ({ isForumUrl }) => {
+        const getElement = () => (typeof document !== 'undefined' ? document.querySelector(SIDEBAR_SEL) : null);
 
-        isMenuItem(a) {
+        const isMenuItem = (a) => {
             if (!a) return false;
             if (!a.closest('.n-drawer') && a.closest(NON_SIDEBAR_SEL)) return false;
             return !!(a.closest(MENU_ITEM_SEL) || a.closest(SIDEBAR_CONTAINER_SEL));
-        },
-        getButtons(container = null) {
-            const rootEl = container || sidebar.get() || document.querySelector('.n-drawer');
+        };
+
+        const getMenuItems = (container = null) => {
+            const rootEl = container || getElement() || (typeof document !== 'undefined' ? document.querySelector('.n-drawer') : null);
             if (!rootEl) return [];
 
             const items = [];
             const seen = new Set();
             for (const rawEl of rootEl.querySelectorAll(`${MENU_ITEM_SEL}, a[href], button`)) {
-                if (!container && !sidebar.isMenuItem(rawEl)) continue;
+                if (!container && !isMenuItem(rawEl)) continue;
                 const menuEl = rawEl.closest(MENU_ITEM_SEL) || rawEl;
                 if (seen.has(menuEl)) continue;
                 seen.add(menuEl);
@@ -784,15 +1065,17 @@
                 });
             }
             return items;
-        },
-        findForumMenuItem() {
-            const buttons = sidebar.getButtons();
-            return buttons.find((i) => route.isForumUrl(i.href))
+        };
+
+        const findForumMenuItem = () => {
+            const buttons = getMenuItems();
+            return buttons.find((i) => isForumUrl(i.href))
                 || buttons.find((i) => i.name.includes('论坛') || i.name.includes('論壇'))
                 || null;
-        },
-        findMenuItem(target = null) {
-            if (!target) return sidebar.findForumMenuItem();
+        };
+
+        const findMenuItem = (target = null) => {
+            if (!target) return findForumMenuItem();
             const has = (v, q) => v.toLowerCase().includes(String(q).toLowerCase());
             let matcher = null;
             if (typeof target === 'function') matcher = target;
@@ -803,41 +1086,47 @@
                     && !(target.href && !has(i.href, target.href))
                     && !(target.el && i.el !== target.el);
             }
-            return matcher ? (sidebar.getButtons().find(matcher) || null) : sidebar.findForumMenuItem();
-        },
-        inject(targetElement, contentElement, mode = 'replace') {
+            return matcher ? (getMenuItems().find(matcher) || null) : findForumMenuItem();
+        };
+
+        const inject = (targetElement, contentElement, mode = 'replace') => {
             if (!targetElement || !contentElement) return false;
             return attempt(() => {
                 targetElement[INJECT_MODES[mode] || INJECT_MODES.replace](contentElement);
                 return true;
             }, false, '[Utils.sidebar.inject] Injection failed:');
-        },
-        isAvailable() {
-            const el = sidebar.get();
+        };
+
+        const isAvailable = () => {
+            const el = getElement();
             if (!el || !el.isConnected) return false;
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
             return style.display !== 'none' && style.visibility !== 'hidden' && (rect.width > 0 || rect.height > 0);
-        },
-        observeAvailability(callback) {
-            if (typeof callback !== 'function') return () => {};
-            let last = sidebar.isAvailable();
-            callback(last, sidebar.get());
+        };
+
+        const observeAvailability = (callback) => {
+            if (typeof callback !== 'function' || typeof document === 'undefined') return () => {};
+            let last = isAvailable();
+            callback(last, getElement());
             const observer = new MutationObserver(() => {
-                const now = sidebar.isAvailable();
-                if (now !== last) { last = now; callback(now, sidebar.get()); }
+                const now = isAvailable();
+                if (now !== last) { last = now; callback(now, getElement()); }
             });
             observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
             return () => observer.disconnect();
-        }
+        };
+
+        return { getElement, isMenuItem, getMenuItems, findForumMenuItem, findMenuItem, inject, isAvailable, observeAvailability };
     };
+
     const CLOSE_BTN_SEL = 'button[aria-label*="关闭导航菜单"], button[aria-label*="關閉導航菜單"], button[aria-label*="关闭"], button[aria-label*="關閉"]';
     const OPEN_TOGGLE_SEL = 'button.layout-toggle[aria-expanded="true"], button[aria-label*="导航菜单"][aria-expanded="true"], button[aria-label*="導航菜單"][aria-expanded="true"]';
     const ANY_TOGGLE_SEL = 'button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse';
 
-    const collapse = {
-        isSidebarCollapsed(sider = null) {
-            const el = sider || sidebar.get();
+    const createSidebarState = ({ sidebar, store, key }) => {
+        const isCollapsed = (sider = null) => {
+            const el = sider || sidebar.getElement();
             if (el) {
                 if (el.classList.contains('web-kit-sidebar')) return el.classList.contains('is-collapsed');
                 if (el.classList.contains('n-layout-sider--collapsed') || el.offsetWidth < 120) return true;
@@ -847,8 +1136,9 @@
                     || btn.getAttribute('title')?.includes('展开'))) return true;
             }
             return !!document.querySelector('.n-menu.n-menu--collapsed');
-        },
-        autoCollapseSidebar() {
+        };
+
+        const closeOnMobile = () => {
             if (typeof window === 'undefined' || window.innerWidth > 768) return;
             const closeBtn = document.querySelector(CLOSE_BTN_SEL);
             if (closeBtn) return closeBtn.click();
@@ -858,11 +1148,12 @@
             const openDrawer = document.querySelector('.n-drawer, [role="dialog"][class*="drawer"]');
             const openToggle = document.querySelector(OPEN_TOGGLE_SEL);
             if (openDrawer || openToggle) (openToggle || document.querySelector(ANY_TOGGLE_SEL))?.click();
-        },
-        syncSidebarCollapsedState(submenuDiv = null) {
+        };
+
+        const syncSubmenu = (submenuDiv = null) => {
             const submenu = submenuDiv || document.querySelector('.novelia-forum-submenu');
             if (!submenu) return;
-            const collapsed = collapse.isSidebarCollapsed();
+            const collapsed = isCollapsed();
 
             if (submenu.classList.contains('n-submenu')) {
                 const content = submenu.querySelector('.n-menu-item-content');
@@ -879,389 +1170,31 @@
             }
             const children = submenu.querySelector('.sidebar-submenu');
             if (!children) return;
-            const wantExpanded = !collapsed && ls.getRaw('novelia_forum_submenu_expanded') === 'true';
+            const wantExpanded = !collapsed && store.getString(key) === 'true';
             children.classList.toggle('flex', wantExpanded);
             children.classList.toggle('hidden', !wantExpanded);
             submenu.querySelector('button')?.setAttribute('aria-expanded', String(wantExpanded));
-        },
-        observeSidebarToggle(sider = null, callback = null) {
-            const target = sider || sidebar.get();
+        };
+
+        const observeToggle = (sider = null, callback = null) => {
+            const target = sider || sidebar.getElement();
             if (!target || target.dataset.noveliaSiderObserverAttached) return;
             target.dataset.noveliaSiderObserverAttached = '1';
             new MutationObserver(() => {
-                collapse.syncSidebarCollapsedState();
-                if (typeof callback === 'function') callback(collapse.isSidebarCollapsed(target));
+                syncSubmenu();
+                if (typeof callback === 'function') callback(isCollapsed(target));
             }).observe(target, { attributes: true, attributeFilter: ['class', 'style', 'aria-expanded'] });
-        },
-        createWrapper({ anchorCard, repliesArea, isCollapsedState, replyCount, onToggleState }) {
-            if (!anchorCard || !repliesArea) return null;
-            const label = (c) => `${c ? '展開回覆' : '收起回覆'} (${replyCount})`;
-            const stateCls = (c) => (c ? 'collapsed' : 'expanded');
+        };
 
-            const btnWrapper = document.createElement('div');
-            btnWrapper.className = 'novelia-collapse-btn-wrapper';
-            const btn = document.createElement('button');
-            btn.className = 'novelia-collapse-btn';
-            btn.type = 'button';
-            btn.innerHTML = `<span class="novelia-collapse-icon ${stateCls(isCollapsedState)}">${svg.CHEVRON}</span>
-                             <span class="novelia-collapse-btn-text">${label(isCollapsedState)}</span>`;
-            btnWrapper.appendChild(btn);
-            anchorCard.after(btnWrapper);
-
-            const wrapper = document.createElement('div');
-            wrapper.className = `novelia-collapse-replies-wrapper ${stateCls(isCollapsedState)}`;
-            const inner = document.createElement('div');
-            inner.className = 'novelia-collapse-replies-inner';
-            repliesArea.parentNode.insertBefore(wrapper, repliesArea);
-            inner.appendChild(repliesArea);
-            wrapper.appendChild(inner);
-
-            btn.addEventListener('click', () => {
-                const next = !wrapper.classList.contains('collapsed');
-                wrapper.classList.toggle('collapsed', next);
-                wrapper.classList.toggle('expanded', !next);
-                const icon = btn.querySelector('.novelia-collapse-icon');
-                icon?.classList.toggle('collapsed', next);
-                icon?.classList.toggle('expanded', !next);
-                const text = btn.querySelector('.novelia-collapse-btn-text');
-                if (text) text.innerText = label(next);
-                if (typeof onToggleState === 'function') onToggleState(next);
-            });
-            btn.addEventListener('mouseup', () => btn.blur());
-
-            const nativeReplyBtn = Array.from(anchorCard.querySelectorAll('button'))
-                .find((b) => b.innerText.includes('回复') || b.innerText.includes('回覆'));
-            nativeReplyBtn?.addEventListener('click', () => {
-                if (wrapper.classList.contains('collapsed')) btn.click();
-            });
-            return { btnWrapper, wrapper, inner };
-        }
-    };
-
-    const guard = {
-        _rules: [],
-        _installed: false,
-        _d: createDisposer(),
-
-        add(rule) {
-            if (!rule?.selector || typeof rule.onMatch !== 'function') return null;
-            guard._rules.push(rule);
-            guard._install();
-            return () => { guard._rules = guard._rules.filter((r) => r !== rule); };
-        },
-        _test(el) {
-            if (!el || el.nodeType !== 1 || typeof el.matches !== 'function') return;
-            for (const r of guard._rules) attempt(() => { if (el.matches(r.selector)) r.onMatch(el); });
-        },
-        _scan(node) {
-            if (!node) return;
-            if (node.nodeType === 11) { node.childNodes?.forEach((c) => guard._scan(c)); return; }
-            if (node.nodeType !== 1) return;
-            guard._test(node);
-            if (!node.firstElementChild || typeof node.querySelectorAll !== 'function') return;
-            for (const r of guard._rules) {
-                attempt(() => node.querySelectorAll(r.selector).forEach((el) => attempt(() => r.onMatch(el))));
-            }
-        },
-        _install() {
-            if (guard._installed) return;
-            guard._installed = true;
-            const add = (un) => guard._d.add(un);
-            const rescan = function () {
-                const el = this;
-                queueMicrotask(() => guard._scan(el.parentNode || el));
-            };
-            const nodeProto = root?.Node?.prototype;
-            if (nodeProto) {
-                ['appendChild', 'insertBefore', 'replaceChild'].forEach((m) => {
-                    add(patcher.before(nodeProto, m, function (ctx) {
-                        if (this && !this.isConnected) return;
-                        guard._scan(ctx.args[0]);
-                    }));
-                });
-            }
-            const elProto = root?.Element?.prototype;
-            if (elProto) {
-                ['append', 'prepend', 'before', 'after', 'replaceWith'].forEach((m) => {
-                    add(patcher.before(elProto, m, function (ctx) {
-                        if (this && !this.isConnected) return;
-                        ctx.args.forEach((a) => guard._scan(a));
-                    }));
-                });
-                add(patcher.before(elProto, 'insertAdjacentElement', function (ctx) {
-                    if (this && !this.isConnected) return;
-                    guard._scan(ctx.args[1]);
-                }));
-                add(patcher.before(elProto, 'insertAdjacentHTML', rescan));
-                ['innerHTML', 'outerHTML'].forEach((p) => add(patcher.patchSetter(elProto, p, rescan)));
-            }
-            if (typeof MutationObserver !== 'undefined' && document?.documentElement) {
-                const observer = new MutationObserver((ms) => {
-                    for (const m of ms) {
-                        if (m.type === 'attributes') guard._test(m.target);
-                        else m.addedNodes?.forEach((n) => guard._scan(n));
-                    }
-                });
-                observer.observe(document.documentElement, {
-                    childList: true, subtree: true, attributes: true,
-                    attributeFilter: ['src', 'class', 'href', 'style']
-                });
-                add(() => observer.disconnect());
-            }
-        },
-        destroy() {
-            guard._d.run();
-            guard._rules = [];
-            guard._installed = false;
-        }
-    };
-
-    const dom = {
-        isNoveliaOwnNode(node) {
-            if (!node) return false;
-            if (node.nodeType === Node.TEXT_NODE) return dom.isNoveliaOwnNode(node.parentElement);
-            if (node.nodeType !== Node.ELEMENT_NODE) return false;
-            if (typeof node.className === 'string' && /(^|\s)novelia-/.test(node.className)) return true;
-            return !!node.closest?.('[class*="novelia-"]');
-        },
-        isSelfCausedMutation(mutation) {
-            if (dom.isNoveliaOwnNode(mutation.target)) return true;
-            const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
-            return nodes.length > 0 && nodes.every(dom.isNoveliaOwnNode);
-        },
-        isMobile() {
-            if (typeof window === 'undefined') return false;
-            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '')
-                || window.innerWidth <= 768;
-        },
-        guard
-    };
-
-    const TIME_PATTERNS = [
-        { regex: /(\d+)\s*秒/, mult: 1 },
-        { regex: /(\d+)\s*(?:分钟|分鐘|分)/, mult: 60 },
-        { regex: /(\d+)\s*(?:小时|小時|時|时)/, mult: 3600 },
-        { regex: /(\d+)\s*(?:天|日)/, mult: 86400 },
-        { regex: /(\d+)\s*(?:个?月|個?月)/, mult: 2592000 },
-        { regex: /(\d+)\s*年/, mult: 31536000 }
-    ];
-
-    const time = {
-        parseToSecondsAgo(text) {
-            const s = text?.trim();
-            if (!s) return Infinity;
-            if (/^(刚刚|剛剛|just now)$/i.test(s)) return 0;
-            for (const { regex, mult } of TIME_PATTERNS) {
-                const m = s.match(regex);
-                if (m) return parseInt(m[1], 10) * mult;
-            }
-            const parsed = Date.parse(s);
-            return isNaN(parsed) ? Infinity : Math.max(0, (Date.now() - parsed) / 1000);
-        },
-        formatRelativeTime(timestamp) {
-            if (!timestamp) return '';
-            let ms = typeof timestamp === 'number' ? timestamp : Date.parse(timestamp);
-            if (isNaN(ms)) return '';
-            if (ms < 1e11) ms *= 1000;
-
-            const date = new Date(ms);
-            const diff = Math.floor((Date.now() - ms) / 1000);
-            if (diff < 60) return '剛剛';
-            if (diff < 3600) return `${Math.floor(diff / 60)} 分鐘前`;
-            if (diff < 86400) return `${Math.floor(diff / 3600)} 小時前`;
-            if (diff < 2592000) return `${Math.floor(diff / 86400)} 天前`;
-            const pad = (n) => String(n).padStart(2, '0');
-            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-        }
-    };
-
-    const hash = {
-        hashString(s) {
-            let h = 0;
-            for (let i = 0; i < s.length; i++) h = (((h << 5) - h) + s.charCodeAt(i)) | 0;
-            return Math.abs(h).toString(36);
-        }
-    };
-
-    const limiter = {
-        createConcurrencyLimiter(limit) {
-            let active = 0;
-            const queue = [];
-            const next = () => {
-                if (active >= limit || !queue.length) return;
-                active++;
-                const { task, resolve, reject } = queue.shift();
-                task().then(resolve, reject).finally(() => { active--; next(); });
-            };
-            return (task) => new Promise((resolve, reject) => { queue.push({ task, resolve, reject }); next(); });
-        }
-    };
-
-    const ui = {
-        getSidebar: () => sidebar.get(),
-        getSidebarButtons: (container = null) => sidebar.getButtons(container),
-        isSidebarMenuItem: (a) => sidebar.isMenuItem(a),
-        findForumMenuItem: () => sidebar.findForumMenuItem(),
-
-        getForumHeader() {
-            return document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav');
-        },
-        getThemeButton(container = null) {
-            return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
-        },
-        createHeaderButton({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) {
-            const btn = document.createElement('button');
-            btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
-            btn.type = 'button';
-            if (title) {
-                btn.title = title;
-                btn.setAttribute('aria-label', title);
-            }
-            btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding-top: 6px;`;
-            if (marginRight) btn.style.marginRight = marginRight;
-            btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: ${iconSize}px; display: inline-flex;">${iconSvg}</i></span>`;
-            if (typeof onClick === 'function') {
-                btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(e); });
-            }
-            return btn;
-        },
-        createToastManager(className = 'novelia-toast') {
-            let toastEl = document.querySelector(`.${className}`);
-            let timer = null;
-            if (!toastEl) {
-                toastEl = document.createElement('div');
-                toastEl.className = className;
-                document.body.appendChild(toastEl);
-            }
-            return {
-                show(message, duration = 2200) {
-                    clearTimeout(timer);
-                    toastEl.textContent = message;
-                    toastEl.classList.add('show');
-                    timer = setTimeout(() => toastEl.classList.remove('show'), duration);
-                }
-            };
-        },
-        isDark() { return ui.isHostDarkTheme(); },
-        isHostDarkTheme() {
-            const de = document.documentElement, body = document.body;
-            if (de.classList.contains('dark') || body.classList.contains('dark')
-                || de.getAttribute('data-theme') === 'dark' || document.querySelector('.n-config-provider--dark')) return true;
-            if (de.classList.contains('light') || body.classList.contains('light')
-                || de.getAttribute('data-theme') === 'light') return false;
-
-            const darkByBg = attempt(() => {
-                const targets = [body, de, document.getElementById('app'), document.querySelector('.n-layout'), document.querySelector('.n-config-provider')].filter(Boolean);
-                for (const el of targets) {
-                    const bg = window.getComputedStyle(el).backgroundColor;
-                    const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-                    if (!m || (bg.includes('rgba(') && bg.endsWith(', 0)'))) continue;
-                    return (m[1] * 299 + m[2] * 587 + m[3] * 114) / 1000 < 128;
-                }
-                return null;
-            }, null);
-            if (darkByBg !== null) return darkByBg;
-            return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-        },
-        getOrCreateDropdownPopover(subItems, onItemClick = null) {
-            let popover = document.getElementById('novelia-forum-popover');
-            if (popover) return popover;
-
-            popover = document.createElement('div');
-            popover.id = 'novelia-forum-popover';
-            popover.className = 'novelia-forum-dropdown-popover';
-
-            subItems.forEach((item) => {
-                const div = document.createElement('div');
-                div.className = 'novelia-forum-dropdown-item';
-                div.innerHTML = `${item.icon}<span>${item.name}</span>`;
-                div.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    popover.style.display = 'none';
-                    if (item.path && location.pathname !== item.path) route.push(item.path);
-                    if (typeof onItemClick === 'function') onItemClick(item, e);
-                });
-                popover.appendChild(div);
-            });
-            document.body.appendChild(popover);
-            return popover;
-        },
-        createWebKitPopoutButton({ href = '', onClick = null, title = '前往論壇 (取代當前頁面)', ariaLabel = '前往論壇' } = {}) {
-            const btn = document.createElement('a');
-            btn.href = href;
-            btn.target = '_self';
-            btn.title = title;
-            btn.className = 'novelia-forum-popout-btn grid size-5 place-items-center rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10 text-muted hover:text-ink transition-colors';
-            btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-3.5"><path d="${POPOUT_PATH}" fill="currentColor"></path></svg>`;
-            btn.dataset.noveliaPopout = '1';
-            btn.setAttribute('aria-label', ariaLabel);
-            btn.addEventListener('click', (e) => {
-                if (!isPlainClick(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                if (typeof onClick === 'function') onClick(e);
-                else if (href) window.location.assign(href);
-            }, true);
-            return btn;
-        },
-        createWebKitSidebarHeader({ label = '论坛', isExpanded = false, origIcon = null, actionElements = [] } = {}) {
-            const headerBtn = document.createElement('button');
-            headerBtn.type = 'button';
-            headerBtn.className = 'web-kit-sidebar-item text-ink hover:bg-hover w-full flex items-center justify-between cursor-pointer !pr-1.5';
-            headerBtn.setAttribute('aria-label', label);
-            headerBtn.setAttribute('aria-expanded', String(!!isExpanded));
-
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'grid size-5 flex-none place-items-center';
-            iconSpan.setAttribute('aria-hidden', 'true');
-            iconSpan.innerHTML = origIcon
-                ? (typeof origIcon === 'string' ? origIcon : origIcon.outerHTML)
-                : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M15 4v7H5.17L4 12.17V4h11m1-2H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm5 4h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1z" fill="currentColor"></path></svg>';
-
-            const labelSpan = document.createElement('span');
-            labelSpan.className = 'web-kit-sidebar-label flex-1 text-left truncate opacity-100';
-            labelSpan.setAttribute('aria-hidden', 'false');
-            labelSpan.textContent = label;
-
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'flex items-center gap-1.5 flex-none ml-auto';
-            [].concat(actionElements).forEach((el) => el && actionsDiv.appendChild(el));
-
-            headerBtn.append(iconSpan, labelSpan, actionsDiv);
-            return headerBtn;
-        },
-        createWebKitSubmenuItem({ name = '', path = '', icon = '', onClick = null } = {}) {
-            const link = document.createElement('a');
-            link.href = path;
-            link.className = 'web-kit-sidebar-item text-ink hover:bg-hover flex items-center gap-2 py-1.5 px-2 rounded-md text-sm';
-
-            const subIcon = document.createElement('span');
-            subIcon.className = 'grid size-4 flex-none place-items-center';
-            subIcon.setAttribute('aria-hidden', 'true');
-            subIcon.innerHTML = icon;
-
-            const subLabel = document.createElement('span');
-            subLabel.className = 'web-kit-sidebar-label truncate';
-            subLabel.textContent = name;
-
-            link.append(subIcon, subLabel);
-            link.addEventListener('click', (e) => {
-                if (!isPlainClick(e)) return;
-                e.preventDefault();
-                e.stopPropagation();
-                if (path && location.pathname !== path) route.push(path);
-                if (typeof onClick === 'function') onClick(e);
-            });
-            return link;
-        }
+        return { isCollapsed, closeOnMobile, syncSubmenu, observeToggle };
     };
 
     const COMMENT_SECTION_SEL = 'section.comment-list, section[aria-label*="评论"], section[aria-label*="評論"]';
     const REPLY_INDENT_SEL = 'div[style*="margin-left: 32px"]';
 
-    const comments = {
-        getNovelCommentPane() {
+    const createComments = ({ icons }) => {
+        const getNovelPane = () => {
+            if (typeof document === 'undefined') return null;
             const section = document.querySelector(COMMENT_SECTION_SEL);
             if (section) return section;
 
@@ -1276,9 +1209,10 @@
                 if (pane) return pane;
             }
             return activeTabIsComment ? document.querySelector('.n-tab-pane') : null;
-        },
-        getNovelCommentFloors(paneElement = null) {
-            const pane = paneElement || comments.getNovelCommentPane();
+        };
+
+        const getNovelFloors = (paneElement = null) => {
+            const pane = paneElement || getNovelPane();
             if (!pane) return [];
 
             const allHeaders = Array.from(pane.querySelectorAll('.n-flex'))
@@ -1323,8 +1257,10 @@
                 floors.push({ originalIndex: index, headerFlex, commentHeader: headerFlex.querySelector('b'), card, commonParent, nodes, repliesArea });
             });
             return floors;
-        },
-        getForumCommentFloors() {
+        };
+
+        const getForumFloors = () => {
+            if (typeof document === 'undefined') return { floorContainer: null, candidateFloors: [], floors: [] };
             const commentsEl = document.getElementById('comments') || document.querySelector(COMMENT_SECTION_SEL);
             if (!commentsEl) return { floorContainer: null, candidateFloors: [], floors: [] };
 
@@ -1343,105 +1279,463 @@
                 return { originalIndex: index, element, section: element, rootArticle, repliesArea };
             });
             return { floorContainer, candidateFloors, floors };
+        };
+
+        const createCollapsibleReplies = ({ anchorCard, repliesArea, isCollapsedState, replyCount, onToggleState }) => {
+            if (!anchorCard || !repliesArea) return null;
+            const label = (c) => `${c ? '展開回覆' : '收起回覆'} (${replyCount})`;
+            const stateCls = (c) => (c ? 'collapsed' : 'expanded');
+
+            const btnWrapper = document.createElement('div');
+            btnWrapper.className = 'novelia-collapse-btn-wrapper';
+            const btn = Object.assign(document.createElement('button'), {
+                className: 'novelia-collapse-btn',
+                type: 'button',
+                innerHTML: `<span class="novelia-collapse-icon ${stateCls(isCollapsedState)}">${icons.CHEVRON}</span>
+                             <span class="novelia-collapse-btn-text">${label(isCollapsedState)}</span>`
+            });
+            btnWrapper.appendChild(btn);
+            anchorCard.after(btnWrapper);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = `novelia-collapse-replies-wrapper ${stateCls(isCollapsedState)}`;
+            const inner = document.createElement('div');
+            inner.className = 'novelia-collapse-replies-inner';
+            repliesArea.parentNode.insertBefore(wrapper, repliesArea);
+            inner.appendChild(repliesArea);
+            wrapper.appendChild(inner);
+
+            btn.addEventListener('click', () => {
+                const next = !wrapper.classList.contains('collapsed');
+                wrapper.classList.toggle('collapsed', next);
+                wrapper.classList.toggle('expanded', !next);
+                const icon = btn.querySelector('.novelia-collapse-icon');
+                icon?.classList.toggle('collapsed', next);
+                icon?.classList.toggle('expanded', !next);
+                const txt = btn.querySelector('.novelia-collapse-btn-text');
+                if (txt) txt.innerText = label(next);
+                if (typeof onToggleState === 'function') onToggleState(next);
+            });
+            btn.addEventListener('mouseup', () => btn.blur());
+
+            const nativeReplyBtn = Array.from(anchorCard.querySelectorAll('button'))
+                .find((b) => b.innerText.includes('回复') || b.innerText.includes('回覆'));
+            nativeReplyBtn?.addEventListener('click', () => {
+                if (wrapper.classList.contains('collapsed')) btn.click();
+            });
+            return { btnWrapper, wrapper, inner };
+        };
+
+        return {
+            novel: { getPane: getNovelPane, getFloors: getNovelFloors },
+            forum: { getFloors: getForumFloors },
+            createCollapsibleReplies
+        };
+    };
+
+    const initModalStyles = (gm) => {
+        gm.addStyle(`
+            .novelia-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 99999; display: none; align-items: center; justify-content: center; }
+            .novelia-modal-backdrop.show { display: flex; }
+            .novelia-modal-dialog { background: #fff; color: #333; border-radius: 8px; width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto; padding: 20px; box-sizing: border-box; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-size: 13px; font-family: system-ui, -apple-system, sans-serif; position: relative; }
+            .dark .novelia-modal-dialog, [data-theme="dark"] .novelia-modal-dialog, body.dark .novelia-modal-dialog { background: #1e1e22; color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.15); }
+            .novelia-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
+            .dark .novelia-modal-header, [data-theme="dark"] .novelia-modal-header, body.dark .novelia-modal-header { border-bottom-color: rgba(255,255,255,0.15); }
+            .novelia-modal-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+            .novelia-modal-close { cursor: pointer; background: transparent; border: none; font-size: 20px; line-height: 1; color: #888; }
+            .dark .novelia-modal-close, [data-theme="dark"] .novelia-modal-close, body.dark .novelia-modal-close { color: #aaa; }
+            .novelia-modal-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); }
+            .dark .novelia-modal-tabs, [data-theme="dark"] .novelia-modal-tabs, body.dark .novelia-modal-tabs { border-bottom-color: rgba(255,255,255,0.15); }
+            .novelia-modal-tab { padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500; }
+            .novelia-modal-tab.active { border-bottom-color: #63e2b7; color: #63e2b7; }
+        `, 'novelia-utils-modal-styles');
+    };
+
+    const createGenericUi = (gm) => {
+        let modalStylesInitialized = false;
+
+        const createToast = (className = 'novelia-toast') => {
+            if (typeof document === 'undefined') return { show() {} };
+            let toastEl = document.querySelector(`.${className}`);
+            let timer = null;
+            if (!toastEl) {
+                toastEl = document.createElement('div');
+                toastEl.className = className;
+                document.body.appendChild(toastEl);
+            }
+            return {
+                show(message, duration = 2200) {
+                    clearTimeout(timer);
+                    toastEl.textContent = message;
+                    toastEl.classList.add('show');
+                    timer = setTimeout(() => toastEl.classList.remove('show'), duration);
+                }
+            };
+        };
+
+        const createModal = ({ id = '', title = '', tabs = [], onClose = null } = {}) => {
+            if (typeof document === 'undefined') return null;
+            if (!modalStylesInitialized) {
+                initModalStyles(gm);
+                modalStylesInitialized = true;
+            }
+
+            const backdrop = document.createElement('div');
+            backdrop.className = `novelia-modal-backdrop ${id}`.trim();
+
+            let tabsHtml = '';
+            if (Array.isArray(tabs) && tabs.length > 0) {
+                tabsHtml = `<div class="novelia-modal-tabs">` + tabs.map((t, idx) => `
+                    <div class="novelia-modal-tab ${idx === 0 ? 'active' : ''}" data-tab="${t.id}">${text.escapeHtml(t.label)}</div>
+                `).join('') + `</div>`;
+            }
+
+            backdrop.innerHTML = `
+                <div class="novelia-modal-dialog">
+                    <div class="novelia-modal-header">
+                        <div class="novelia-modal-title"><span>${text.escapeHtml(title)}</span></div>
+                        <button type="button" class="novelia-modal-close">&times;</button>
+                    </div>
+                    ${tabsHtml}
+                    <div class="novelia-modal-content"></div>
+                </div>
+            `;
+
+            document.body.appendChild(backdrop);
+
+            const closeBtn = backdrop.querySelector('.novelia-modal-close');
+            const close = () => {
+                backdrop.classList.remove('show');
+                if (typeof onClose === 'function') onClose();
+            };
+
+            if (closeBtn) closeBtn.addEventListener('click', close);
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) close();
+            });
+
+            return {
+                backdrop,
+                container: backdrop.querySelector('.novelia-modal-content'),
+                show(activeTabId) {
+                    backdrop.classList.add('show');
+                    if (activeTabId && tabs.length > 0) {
+                        backdrop.querySelectorAll('.novelia-modal-tab').forEach((t) => {
+                            t.classList.toggle('active', t.dataset.tab === activeTabId);
+                        });
+                    }
+                },
+                close,
+                onTabClick(fn) {
+                    backdrop.querySelectorAll('.novelia-modal-tab').forEach((t) => {
+                        t.addEventListener('click', () => {
+                            backdrop.querySelectorAll('.novelia-modal-tab').forEach((el) => el.classList.remove('active'));
+                            t.classList.add('active');
+                            fn(t.dataset.tab);
+                        });
+                    });
+                }
+            };
+        };
+
+        return { createToast, createModal };
+    };
+
+    const createSiteUi = ({ domains, router }) => {
+        const isDark = () => {
+            if (typeof document === 'undefined') return false;
+            const de = document.documentElement, body = document.body;
+            if (de.classList.contains('dark') || body.classList.contains('dark')
+                || de.getAttribute('data-theme') === 'dark' || document.querySelector('.n-config-provider--dark')) return true;
+            if (de.classList.contains('light') || body.classList.contains('light')
+                || de.getAttribute('data-theme') === 'light') return false;
+
+            const darkByBg = attempt(() => {
+                const targets = [body, de, document.getElementById('app'), document.querySelector('.n-layout'), document.querySelector('.n-config-provider')].filter(Boolean);
+                for (const el of targets) {
+                    const bg = window.getComputedStyle(el).backgroundColor;
+                    const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+                    if (!m || (bg.includes('rgba(') && bg.endsWith(', 0)'))) continue;
+                    return (m[1] * 299 + m[2] * 587 + m[3] * 114) / 1000 < 128;
+                }
+                return null;
+            }, null);
+            if (darkByBg !== null) return darkByBg;
+            return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+        };
+
+        const theme = { isDark };
+
+        const getForumHeader = () => (typeof document !== 'undefined' ? document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav') : null);
+
+        const getThemeButton = (container = null) => {
+            if (typeof document === 'undefined') return null;
+            return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
+        };
+
+        const createNaiveHeaderButton = ({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) => {
+            if (typeof document === 'undefined') return null;
+            const btn = document.createElement('button');
+            btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
+            btn.type = 'button';
+            if (title) {
+                btn.title = title;
+                btn.setAttribute('aria-label', title);
+            }
+            btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding-top: 6px;`;
+            if (marginRight) btn.style.marginRight = marginRight;
+            btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: ${iconSize}px; display: inline-flex;">${iconSvg}</i></span>`;
+            if (typeof onClick === 'function') {
+                btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(e); });
+            }
+            return btn;
+        };
+
+        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', onClick = null } = {}) => {
+            if (typeof document === 'undefined') return null;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover text-muted hover:text-ink transition-colors ${className}`.trim();
+            if (title) {
+                btn.title = title;
+                btn.setAttribute('aria-label', title);
+            }
+            btn.innerHTML = iconSvg || '';
+            if (typeof onClick === 'function') {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onClick(e);
+                });
+            }
+            return btn;
+        };
+
+        const injectMainHeaderButton = (buttonOrOptions, position = 'prepend') => {
+            if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
+            const headerEl = document.querySelector('header');
+            if (!headerEl) return null;
+            const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
+            if (!rightContainer) return null;
+
+            let btnElement = null;
+            let btnId = '';
+
+            if (buttonOrOptions instanceof Element) {
+                btnElement = buttonOrOptions;
+                btnId = btnElement.className ? btnElement.className.split(/\s+/)[0] : '';
+            } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
+                btnId = buttonOrOptions.id || '';
+                const pos = buttonOrOptions.position || position;
+                position = pos;
+                btnElement = createMainHeaderButton(buttonOrOptions);
+            }
+
+            if (!btnElement) return null;
+
+            if (btnId) {
+                const existing = rightContainer.querySelector(`.${btnId}`);
+                if (existing) return existing;
+            }
+
+            if (position === 'append') rightContainer.appendChild(btnElement);
+            else rightContainer.prepend(btnElement);
+            return btnElement;
+        };
+
+        const getForumDropdown = (subItems, onItemClick = null) => {
+            if (typeof document === 'undefined') return null;
+            let popover = document.getElementById('novelia-forum-popover');
+            if (popover) return popover;
+
+            popover = Object.assign(document.createElement('div'), {
+                id: 'novelia-forum-popover',
+                className: 'novelia-forum-dropdown-popover'
+            });
+
+            subItems.forEach((item) => {
+                const div = Object.assign(document.createElement('div'), {
+                    className: 'novelia-forum-dropdown-item',
+                    innerHTML: `${item.icon}<span>${item.name}</span>`
+                });
+                div.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    popover.style.display = 'none';
+                    if (item.path && location.pathname !== item.path) router.push(item.path);
+                    if (typeof onItemClick === 'function') onItemClick(item, e);
+                });
+                popover.appendChild(div);
+            });
+            document.body.appendChild(popover);
+            return popover;
+        };
+
+        const createSidebarPopoutButton = ({ href = '', onClick = null, title = '前往論壇 (取代當前頁面)', ariaLabel = '前往論壇' } = {}) => {
+            if (typeof document === 'undefined') return null;
+            const btn = Object.assign(document.createElement('a'), {
+                href,
+                target: '_self',
+                title,
+                className: 'novelia-forum-popout-btn grid size-5 place-items-center rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10 text-muted hover:text-ink transition-colors',
+                innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-3.5"><path d="${POPOUT_PATH}" fill="currentColor"></path></svg>`
+            });
+            btn.dataset.noveliaPopout = '1';
+            btn.setAttribute('aria-label', ariaLabel);
+            btn.addEventListener('click', (e) => {
+                if (!isPlainClick(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof onClick === 'function') onClick(e);
+                else if (href) window.location.assign(href);
+            }, true);
+            return btn;
+        };
+
+        const createSidebarGroupHeader = ({ label = '论坛', isExpanded = false, origIcon = null, actionElements = [] } = {}) => {
+            if (typeof document === 'undefined') return null;
+            const headerBtn = Object.assign(document.createElement('button'), {
+                type: 'button',
+                className: 'web-kit-sidebar-item text-ink hover:bg-hover w-full flex items-center justify-between cursor-pointer !pr-1.5'
+            });
+            headerBtn.setAttribute('aria-label', label);
+            headerBtn.setAttribute('aria-expanded', String(!!isExpanded));
+
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'grid size-5 flex-none place-items-center';
+            iconSpan.setAttribute('aria-hidden', 'true');
+            iconSpan.innerHTML = origIcon
+                ? (typeof origIcon === 'string' ? origIcon : origIcon.outerHTML)
+                : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M15 4v7H5.17L4 12.17V4h11m1-2H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1V3c0-.55-.45-1-1-1zm5 4h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1z" fill="currentColor"></path></svg>';
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'web-kit-sidebar-label flex-1 text-left truncate opacity-100';
+            labelSpan.setAttribute('aria-hidden', 'false');
+            labelSpan.textContent = label;
+
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'flex items-center gap-1.5 flex-none ml-auto';
+            [].concat(actionElements).forEach((el) => el && actionsDiv.appendChild(el));
+
+            headerBtn.append(iconSpan, labelSpan, actionsDiv);
+            return headerBtn;
+        };
+
+        const createSidebarSubmenuItem = ({ name = '', path = '', icon = '', onClick = null } = {}) => {
+            if (typeof document === 'undefined') return null;
+            const link = Object.assign(document.createElement('a'), {
+                href: path,
+                className: 'web-kit-sidebar-item text-ink hover:bg-hover flex items-center gap-2 py-1.5 px-2 rounded-md text-sm'
+            });
+
+            const subIcon = document.createElement('span');
+            subIcon.className = 'grid size-4 flex-none place-items-center';
+            subIcon.setAttribute('aria-hidden', 'true');
+            subIcon.innerHTML = icon;
+
+            const subLabel = document.createElement('span');
+            subLabel.className = 'web-kit-sidebar-label truncate';
+            subLabel.textContent = name;
+
+            link.append(subIcon, subLabel);
+            link.addEventListener('click', (e) => {
+                if (!isPlainClick(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (path && location.pathname !== path) router.push(path);
+                if (typeof onClick === 'function') onClick(e);
+            });
+            return link;
+        };
+
+        return {
+            theme,
+            getForumHeader,
+            getThemeButton,
+            createNaiveHeaderButton,
+            createMainHeaderButton,
+            injectMainHeaderButton,
+            getForumDropdown,
+            createSidebarPopoutButton,
+            createSidebarGroupHeader,
+            createSidebarSubmenuItem
+        };
+    };
+
+    const dom = {
+        isNoveliaOwnNode(node) {
+            if (!node) return false;
+            if (node.nodeType === Node.TEXT_NODE) return dom.isNoveliaOwnNode(node.parentElement);
+            if (node.nodeType !== Node.ELEMENT_NODE) return false;
+            if (typeof node.className === 'string' && /(^|\s)novelia-/.test(node.className)) return true;
+            return !!node.closest?.('[class*="novelia-"]');
+        },
+        isSelfCausedMutation(mutation) {
+            if (dom.isNoveliaOwnNode(mutation.target)) return true;
+            const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
+            return nodes.length > 0 && nodes.every(dom.isNoveliaOwnNode);
+        },
+        isMobile() {
+            if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '')
+                || window.innerWidth <= 768;
         }
     };
 
-    const IMG_TTL = 7 * DAY;
-    const MASCOT_KEY = 'mascot_image_blob';
+    const cfg = { ...defaultConfig };
+    const gm = createGm(root);
+    const patcher = createPatcher();
+    const idb = createIdb(cfg.db);
+    const localStore = createLocalStore();
+    const cache = createCache({ ls: localStore, idb });
+    const network = createNetwork({ root, patcher, idb, gm, domains: cfg.domains, db: cfg.db, ttlMs: cfg.ttl.default });
+    const imageCache = createImageCache({ isBlocked: network.isBlocked, cache, download: gm.downloadBlob, ttlMs: cfg.ttl.image });
+    const mascotAsset = mascot(imageCache, cfg);
+    const nodeWatcher = createNodeWatcher({ patcher });
+    const router = createRouter({ root, patcher, domains: cfg.domains, events: cfg.events });
+    const sidebar = createSidebar({ isForumUrl: router.isForumUrl });
+    const sidebarState = createSidebarState({ sidebar, store: localStore, key: cfg.keys.forumSubmenuExpanded });
+    const comments = createComments({ icons });
+    const genericUi = createGenericUi(gm);
+    const siteUi = createSiteUi({ domains: cfg.domains, router });
 
-    const gmDownloadBlob = (url, mimeType) => new Promise((resolve, reject) => {
-        if (typeof GM_xmlhttpRequest === 'function') {
-            GM_xmlhttpRequest({
-                method: 'GET', url, responseType: 'blob', timeout: 15000,
-                headers: { 'Cache-Control': 'max-age=3600' },
-                onload: (r) => {
-                    if (r.status >= 200 && r.status < 300 && r.response) {
-                        resolve(r.response instanceof Blob ? r.response : new Blob([r.response], { type: mimeType || 'image/webp' }));
-                    } else reject(new Error(`HTTP ${r.status}`));
-                },
-                onerror: reject,
-                ontimeout: () => reject(new Error('Request timed out'))
-            });
-        } else if (typeof fetch === 'function') {
-            fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); }).then(resolve, reject);
-        } else {
-            reject(new Error('No network request method available'));
-        }
+    const Utils = Object.freeze({
+        text,
+        fireWindowEvent,
+        isPlainClick,
+        attempt,
+        createDisposer,
+        gm,
+        localStore,
+        idb,
+        cache,
+        patcher,
+        nodeWatcher,
+        network,
+        imageCache,
+        icons,
+        router,
+        sidebar,
+        sidebarState,
+        comments,
+        time,
+        createLimiter,
+        ui: Object.freeze({
+            ...genericUi,
+            site: siteUi
+        }),
+        dom: Object.freeze({
+            ...dom,
+            nodeWatcher
+        }),
+        assets: Object.freeze({
+            mascot: mascotAsset
+        })
     });
 
-    const img = {
-        _blobUrls: {},
-        _promises: {},
-        DEFAULT_TTL: IMG_TTL,
-
-        async getBlob(imageUrl, { ttlMs = IMG_TTL, cacheKey = null, mimeType = null } = {}) {
-            if (!imageUrl) throw new Error('Image URL is required');
-            if (network._isRejected(imageUrl)) throw new Error(`Blocked by Utils.network (${imageUrl})`);
-
-            const key = cacheKey || `img_blob_${imageUrl}`;
-            const useCache = !(typeof window !== 'undefined' && window.top !== window.self); // iframe 不讀寫快取
-
-            if (useCache) {
-                try {
-                    const cached = await cache.getIDB(key, { ttlMs });
-                    if (cached instanceof Blob) return cached;
-                    if (cached instanceof ArrayBuffer || ArrayBuffer.isView(cached)) {
-                        return new Blob([cached], { type: mimeType || 'image/webp' });
-                    }
-                } catch (e) { console.warn(`[Utils.img] Error reading image cache from IDB (${key}):`, e); }
-            }
-            const blob = await gmDownloadBlob(imageUrl, mimeType);
-            if (useCache) {
-                try { await cache.setIDB(key, blob); } catch (e) { console.warn(`[Utils.img] Error saving image cache to IDB (${key}):`, e); }
-            }
-            return blob;
-        },
-        getUrl(imageUrl, options = {}) {
-            if (!imageUrl) return Promise.resolve('');
-            if (img._blobUrls[imageUrl]) return Promise.resolve(img._blobUrls[imageUrl]);
-            if (!img._promises[imageUrl]) {
-                img._promises[imageUrl] = (async () => {
-                    try {
-                        const url = URL.createObjectURL(await img.getBlob(imageUrl, options));
-                        img._blobUrls[imageUrl] = url;
-                        return url;
-                    } catch (e) {
-                        console.error(`[Utils.img] Failed to fetch or load image (${imageUrl}):`, e);
-                        delete img._promises[imageUrl];
-                        return imageUrl;
-                    }
-                })();
-            }
-            return img._promises[imageUrl];
-        },
-        getSyncUrl(imageUrl) { return imageUrl ? (img._blobUrls[imageUrl] || imageUrl) : ''; },
-        getMascot() {
-            const url = `https://${DOMAINS.HOST}/assets/mascot-DSVGgW05.webp`;
-            const opts = { cacheKey: MASCOT_KEY, ttlMs: IMG_TTL };
-            return {
-                url,
-                CACHE_KEY: MASCOT_KEY,
-                CACHE_TTL: IMG_TTL,
-                getBlob: () => img.getBlob(url, opts),
-                getUrl: () => img.getUrl(url, opts),
-                getSyncUrl: () => img.getSyncUrl(url)
-            };
-        },
-        getMascotUrl() { return img.getMascot().getUrl(); },
-        getMascotSyncUrl() { return img.getMascot().getSyncUrl(); }
-    };
-
-    const Utils = {
-        gm, str, ls, idb, cache, network, dom, collapse, sidebar, route, time, ui,
-        comments, hash, limiter, img, patcher, svg,
-        get mascot() { return img.getMascot(); },
-        hook: patcher,
-        patch: patcher
-    };
-
-    if (root !== window) { attempt(() => { window.DOMAINS = DOMAINS; window.Utils = Utils; }); } // Debug
-    root.DOMAINS = DOMAINS;
+    if (typeof window !== 'undefined' && root !== window) {
+        attempt(() => { window.NoveliaConfig = cfg; window.Utils = Utils; });
+    }
+    root.NoveliaConfig = cfg;
     root.Utils = Utils;
-    // Firefox Alt.
-    // root.Utils = cloneInto(Utils, root, { cloneFunctions: true });
 })();
