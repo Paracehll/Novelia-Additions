@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.1
+// @version      2.1.2
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -27,7 +27,7 @@
         'novelia-bulk-update-button',
         'novelia-share-clear-btn',
         'novelia-share-view-btn',
-        'novelia-share-copy-novel-btn',
+        'novelia-share-copy-btn',
         'novelia-sync-ls-btn'
     ];
 
