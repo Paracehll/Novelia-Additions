@@ -1097,7 +1097,8 @@
         }
     };
 
-    const ui = {
+    const ui = {};
+    Object.assign(ui, {
         getSidebar: () => sidebar.get(),
         getSidebarButtons: (container = null) => sidebar.getButtons(container),
         isSidebarMenuItem: (a) => sidebar.isMenuItem(a),
@@ -1109,7 +1110,7 @@
         getThemeButton(container = null) {
             return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
         },
-        createHeaderButton({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) {
+        createForumHeaderButton({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) {
             const btn = document.createElement('button');
             btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
             btn.type = 'button';
@@ -1254,8 +1255,131 @@
                 if (typeof onClick === 'function') onClick(e);
             });
             return link;
+        },
+        createHostHeaderButton({ id = '', className = '', title = '', iconSvg = '', onClick = null } = {}) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover text-muted hover:text-ink transition-colors ${className}`.trim();
+            if (title) {
+                btn.title = title;
+                btn.setAttribute('aria-label', title);
+            }
+            btn.innerHTML = iconSvg || '';
+            if (typeof onClick === 'function') {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onClick(e);
+                });
+            }
+            return btn;
+        },
+        injectHostHeaderButton(buttonOrOptions, position = 'prepend') {
+            if (location.hostname !== DOMAINS.HOST) return null;
+            const headerEl = document.querySelector('header');
+            if (!headerEl) return null;
+            const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
+            if (!rightContainer) return null;
+
+            let btnElement = null;
+            let btnId = '';
+
+            if (buttonOrOptions instanceof Element) {
+                btnElement = buttonOrOptions;
+                btnId = btnElement.className ? btnElement.className.split(/\s+/)[0] : '';
+            } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
+                btnId = buttonOrOptions.id || '';
+                const pos = buttonOrOptions.position || position;
+                position = pos;
+                btnElement = ui.createHostHeaderButton(buttonOrOptions);
+            }
+
+            if (!btnElement) return null;
+
+            if (btnId) {
+                const existing = rightContainer.querySelector(`.${btnId}`);
+                if (existing) return existing;
+            }
+
+            if (position === 'append') rightContainer.appendChild(btnElement);
+            else rightContainer.prepend(btnElement);
+            return btnElement;
+        },
+        createModal({ id = '', title = '', tabs = [], onClose = null } = {}) {
+            gm.addStyle(`
+                .novelia-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 99999; display: none; align-items: center; justify-content: center; }
+                .novelia-modal-backdrop.show { display: flex; }
+                .novelia-modal-dialog { background: #fff; color: #333; border-radius: 8px; width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto; padding: 20px; box-sizing: border-box; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-size: 13px; font-family: system-ui, -apple-system, sans-serif; position: relative; }
+                .dark .novelia-modal-dialog, [data-theme="dark"] .novelia-modal-dialog, body.dark .novelia-modal-dialog { background: #1e1e22; color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.15); }
+                .novelia-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
+                .dark .novelia-modal-header, [data-theme="dark"] .novelia-modal-header, body.dark .novelia-modal-header { border-bottom-color: rgba(255,255,255,0.15); }
+                .novelia-modal-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+                .novelia-modal-close { cursor: pointer; background: transparent; border: none; font-size: 20px; line-height: 1; color: #888; }
+                .dark .novelia-modal-close, [data-theme="dark"] .novelia-modal-close, body.dark .novelia-modal-close { color: #aaa; }
+                .novelia-modal-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); }
+                .dark .novelia-modal-tabs, [data-theme="dark"] .novelia-modal-tabs, body.dark .novelia-modal-tabs { border-bottom-color: rgba(255,255,255,0.15); }
+                .novelia-modal-tab { padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500; }
+                .novelia-modal-tab.active { border-bottom-color: #63e2b7; color: #63e2b7; }
+            `, 'novelia-utils-modal-styles');
+
+            const backdrop = document.createElement('div');
+            backdrop.className = `novelia-modal-backdrop ${id}`.trim();
+
+            let tabsHtml = '';
+            if (Array.isArray(tabs) && tabs.length > 0) {
+                tabsHtml = `<div class="novelia-modal-tabs">` + tabs.map((t, idx) => `
+                    <div class="novelia-modal-tab ${idx === 0 ? 'active' : ''}" data-tab="${t.id}">${str.escapeHtml(t.label)}</div>
+                `).join('') + `</div>`;
+            }
+
+            backdrop.innerHTML = `
+                <div class="novelia-modal-dialog">
+                    <div class="novelia-modal-header">
+                        <div class="novelia-modal-title"><span>${str.escapeHtml(title)}</span></div>
+                        <button type="button" class="novelia-modal-close">&times;</button>
+                    </div>
+                    ${tabsHtml}
+                    <div class="novelia-modal-content"></div>
+                </div>
+            `;
+
+            document.body.appendChild(backdrop);
+
+            const closeBtn = backdrop.querySelector('.novelia-modal-close');
+            const close = () => {
+                backdrop.classList.remove('show');
+                if (typeof onClose === 'function') onClose();
+            };
+
+            if (closeBtn) closeBtn.addEventListener('click', close);
+            backdrop.addEventListener('click', (e) => {
+                if (e.target === backdrop) close();
+            });
+
+            return {
+                backdrop,
+                container: backdrop.querySelector('.novelia-modal-content'),
+                show(activeTabId) {
+                    backdrop.classList.add('show');
+                    if (activeTabId && tabs.length > 0) {
+                        backdrop.querySelectorAll('.novelia-modal-tab').forEach((t) => {
+                            t.classList.toggle('active', t.dataset.tab === activeTabId);
+                        });
+                    }
+                },
+                close,
+                onTabClick(fn) {
+                    backdrop.querySelectorAll('.novelia-modal-tab').forEach((t) => {
+                        t.addEventListener('click', () => {
+                            backdrop.querySelectorAll('.novelia-modal-tab').forEach((el) => el.classList.remove('active'));
+                            t.classList.add('active');
+                            fn(t.dataset.tab);
+                        });
+                    });
+                }
+            };
         }
-    };
+    });
 
     const COMMENT_SECTION_SEL = 'section.comment-list, section[aria-label*="评论"], section[aria-label*="評論"]';
     const REPLY_INDENT_SEL = 'div[style*="margin-left: 32px"]';

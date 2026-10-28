@@ -546,7 +546,7 @@
                         const targetContainer = forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild;
                         if (!targetContainer) return null;
 
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.createForumHeaderButton({
                             className: 'novelia-host-drawer-btn',
                             title: '切換側邊欄',
                             iconSize: 24,
@@ -570,7 +570,7 @@
                     const refBtn = drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-popout-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.createForumHeaderButton({
                             className: 'novelia-forum-popout-btn',
                             title: '前往論壇 (取代當前頁面)',
                             iconSize: 20,
@@ -600,7 +600,7 @@
                     const refBtn = popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-fav-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.createForumHeaderButton({
                             className: 'novelia-forum-fav-btn',
                             title: '我的收藏',
                             iconSize: 20,
@@ -619,7 +619,7 @@
                         const themeBtn = Utils.ui.getThemeButton(forumHeader);
                         const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild);
                         if (targetContainer) {
-                            btn = Utils.ui.createHeaderButton({
+                            btn = Utils.ui.createForumHeaderButton({
                                 className: 'novelia-forum-fav-btn',
                                 title: '我的收藏',
                                 iconSize: 20,
@@ -648,7 +648,7 @@
                     const refBtn = favBtn || forumHeader.querySelector('.novelia-forum-fav-btn') || popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-reload-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.createForumHeaderButton({
                             className: 'novelia-forum-reload-btn',
                             title: '重新載入',
                             iconSize: 20,
@@ -3012,7 +3012,11 @@
 
             const PREFIX = 'lssync-';
             const TIMEOUT = 120_000;
-            const PEERJS_URL = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+            const CDN_URLS = [
+                'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js',
+                'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js'
+            ];
 
             const ALL_KNOWN_KEYS = [
                 { key: 'novelia_comment_count', desc: 'Web 評論數追蹤快取', domain: 'HOST' },
@@ -3033,17 +3037,98 @@
                 ALL_KNOWN_KEYS.push({ key: `feature_${f.id}`, desc: `模組關閉/開啟設定 (${f.name})`, domain: 'HOST + FORUM' });
             });
 
+            function getPeerClass() {
+                if (typeof window !== 'undefined' && typeof window.Peer !== 'undefined') return window.Peer;
+                if (typeof unsafeWindow !== 'undefined' && typeof unsafeWindow.Peer !== 'undefined') return unsafeWindow.Peer;
+                if (typeof globalThis !== 'undefined' && typeof globalThis.Peer !== 'undefined') return globalThis.Peer;
+                return null;
+            }
+
             function loadPeerJS() {
-                if (window.Peer) return Promise.resolve(window.Peer);
-                return new Promise((resolve, reject) => {
-                    const script = document.createElement('script');
-                    script.src = PEERJS_URL;
-                    script.onload = () => {
-                        if (window.Peer) resolve(window.Peer);
-                        else reject(new Error('PeerJS 載入失敗'));
-                    };
-                    script.onerror = () => reject(new Error('PeerJS 網絡載入失敗'));
-                    document.head.appendChild(script);
+                const existing = getPeerClass();
+                if (existing) return Promise.resolve(existing);
+
+                function fetchAndEval(url) {
+                    return new Promise((resolve, reject) => {
+                        const handleCode = (code) => {
+                            try {
+                                const script = document.createElement('script');
+                                script.textContent = code;
+                                (document.head || document.documentElement).appendChild(script);
+                                script.remove();
+
+                                const cls = getPeerClass();
+                                if (cls) return resolve(cls);
+
+                                if (typeof unsafeWindow !== 'undefined') {
+                                    try {
+                                        const fn = new unsafeWindow.Function('code', 'eval(code)');
+                                        fn(code);
+                                    } catch (e) {
+                                        (0, eval)(code);
+                                    }
+                                } else {
+                                    (0, eval)(code);
+                                }
+
+                                const cls2 = getPeerClass();
+                                if (cls2) return resolve(cls2);
+                                reject(new Error('Evaluation failed'));
+                            } catch (e) {
+                                reject(e);
+                            }
+                        };
+
+                        if (typeof GM_xmlhttpRequest === 'function') {
+                            GM_xmlhttpRequest({
+                                method: 'GET',
+                                url: url,
+                                timeout: 10000,
+                                onload: (res) => {
+                                    if (res.status >= 200 && res.status < 300 && res.responseText) {
+                                        handleCode(res.responseText);
+                                    } else reject(new Error(`HTTP ${res.status}`));
+                                },
+                                onerror: reject,
+                                ontimeout: () => reject(new Error('Timeout'))
+                            });
+                        } else {
+                            fetch(url).then(r => {
+                                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                                return r.text();
+                            }).then(handleCode).catch(reject);
+                        }
+                    });
+                }
+
+                function loadScriptTag(url) {
+                    return new Promise((resolve, reject) => {
+                        const script = document.createElement('script');
+                        script.src = url;
+                        script.onload = () => {
+                            const cls = getPeerClass();
+                            if (cls) resolve(cls);
+                            else reject(new Error('Missing Peer class'));
+                        };
+                        script.onerror = () => reject(new Error('Script error'));
+                        (document.head || document.documentElement).appendChild(script);
+                    });
+                }
+
+                return new Promise(async (resolve, reject) => {
+                    for (const url of CDN_URLS) {
+                        try {
+                            const peerCls = await fetchAndEval(url);
+                            if (peerCls) return resolve(peerCls);
+                        } catch (e) {}
+                    }
+                    for (const url of CDN_URLS) {
+                        try {
+                            const peerCls = await loadScriptTag(url);
+                            if (peerCls) return resolve(peerCls);
+                        } catch (e) {}
+                    }
+                    reject(new Error('無法載入 PeerJS 函式庫，請檢查網路連線或 CSP 限制'));
                 });
             }
 
@@ -3054,24 +3139,11 @@
 
             function injectStyles() {
                 Utils.gm.addStyle(`
-                    .novelia-sync-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 99999; display: none; align-items: center; justify-content: center; }
-                    .novelia-sync-backdrop.show { display: flex; }
-                    .novelia-sync-modal { background: #fff; color: #333; border-radius: 8px; width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto; padding: 20px; box-sizing: border-box; box-shadow: 0 8px 30px rgba(0,0,0,0.3); font-size: 13px; font-family: system-ui, -apple-system, sans-serif; position: relative; }
-                    .dark .novelia-sync-modal, [data-theme="dark"] .novelia-sync-modal, body.dark .novelia-sync-modal { background: #1e1e22; color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.15); }
-                    .novelia-sync-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 10px; }
-                    .dark .novelia-sync-header, [data-theme="dark"] .novelia-sync-header, body.dark .novelia-sync-header { border-bottom-color: rgba(255,255,255,0.15); }
-                    .novelia-sync-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-                    .novelia-sync-close { cursor: pointer; background: transparent; border: none; font-size: 20px; line-height: 1; color: #888; }
-                    .dark .novelia-sync-close, [data-theme="dark"] .novelia-sync-close, body.dark .novelia-sync-close { color: #aaa; }
-                    .novelia-sync-tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.1); }
-                    .dark .novelia-sync-tabs, [data-theme="dark"] .novelia-sync-tabs, body.dark .novelia-sync-tabs { border-bottom-color: rgba(255,255,255,0.15); }
-                    .novelia-sync-tab { padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500; }
-                    .novelia-sync-tab.active { border-bottom-color: #63e2b7; color: #63e2b7; }
                     .novelia-sync-sec { display: flex; flex-direction: column; gap: 12px; }
                     .novelia-sync-code-box { font-size: 24px; font-weight: 700; letter-spacing: 2px; text-align: center; background: rgba(99,226,183,0.1); color: #63e2b7; padding: 12px; border-radius: 6px; user-select: all; }
                     .novelia-sync-input { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2); box-sizing: border-box; background: transparent; color: inherit; font-size: 14px; text-transform: uppercase; }
                     .dark .novelia-sync-input, [data-theme="dark"] .novelia-sync-input, body.dark .novelia-sync-input { border-color: rgba(255,255,255,0.25); }
-                    .novelia-sync-key-list { max-height: 180px; overflow-y: auto; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+                    .novelia-sync-key-list { max-height: 200px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; }
                     .dark .novelia-sync-key-list, [data-theme="dark"] .novelia-sync-key-list, body.dark .novelia-sync-key-list { border-color: rgba(255,255,255,0.15); }
                     .novelia-sync-key-item { display: flex; align-items: center; gap: 8px; padding: 4px; font-size: 12px; }
                     .novelia-sync-key-item input { cursor: pointer; }
@@ -3084,7 +3156,7 @@
                 `, 'novelia-sync-ls-styles');
             }
 
-            let modalBackdrop = null;
+            let modalObj = null;
             let currentTab = 'send';
             let activePeer = null;
 
@@ -3102,66 +3174,43 @@
                 return Array.from(present.values());
             }
 
-            function createModal() {
-                if (modalBackdrop) return modalBackdrop;
+            function getOrCreateModal() {
+                if (modalObj) return modalObj;
                 injectStyles();
 
-                modalBackdrop = document.createElement('div');
-                modalBackdrop.className = 'novelia-sync-backdrop';
-                modalBackdrop.innerHTML = `
-                    <div class="novelia-sync-modal">
-                        <div class="novelia-sync-header">
-                            <div class="novelia-sync-title"><span>🔄 快取資料 PeerJS 同步</span></div>
-                            <button type="button" class="novelia-sync-close">&times;</button>
-                        </div>
-                        <div class="novelia-sync-tabs">
-                            <div class="novelia-sync-tab active" data-tab="send">發送端 (推送)</div>
-                            <div class="novelia-sync-tab" data-tab="receive">接收端 (接收)</div>
-                        </div>
-                        <div class="novelia-sync-content"></div>
-                    </div>
-                `;
-
-                document.body.appendChild(modalBackdrop);
-
-                modalBackdrop.querySelector('.novelia-sync-close').addEventListener('click', closeModal);
-                modalBackdrop.addEventListener('click', (e) => {
-                    if (e.target === modalBackdrop) closeModal();
+                modalObj = Utils.ui.createModal({
+                    id: 'novelia-sync-ls-modal',
+                    title: '🔄 快取資料 PeerJS 同步',
+                    tabs: [
+                        { id: 'send', label: '發送端 (推送)' },
+                        { id: 'receive', label: '接收端 (接收)' }
+                    ],
+                    onClose: () => {
+                        if (activePeer) {
+                            try { activePeer.destroy(); } catch (e) {}
+                            activePeer = null;
+                        }
+                    }
                 });
 
-                modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(tabEl => {
-                    tabEl.addEventListener('click', () => {
-                        modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(t => t.classList.remove('active'));
-                        tabEl.classList.add('active');
-                        currentTab = tabEl.dataset.tab;
-                        renderTabContent();
-                    });
+                modalObj.onTabClick((tabId) => {
+                    currentTab = tabId;
+                    renderTabContent();
                 });
 
-                return modalBackdrop;
-            }
-
-            function closeModal() {
-                if (activePeer) {
-                    try { activePeer.destroy(); } catch (e) {}
-                    activePeer = null;
-                }
-                if (modalBackdrop) modalBackdrop.classList.remove('show');
+                return modalObj;
             }
 
             function showModal(defaultTab = 'send') {
-                createModal();
+                const m = getOrCreateModal();
                 currentTab = defaultTab;
-                modalBackdrop.querySelectorAll('.novelia-sync-tab').forEach(t => {
-                    t.classList.toggle('active', t.dataset.tab === currentTab);
-                });
-                modalBackdrop.classList.add('show');
+                m.show(currentTab);
                 renderTabContent();
             }
 
             function renderTabContent() {
-                const container = modalBackdrop.querySelector('.novelia-sync-content');
-                if (!container) return;
+                const m = getOrCreateModal();
+                if (!m.container) return;
 
                 if (activePeer) {
                     try { activePeer.destroy(); } catch (e) {}
@@ -3169,9 +3218,9 @@
                 }
 
                 if (currentTab === 'send') {
-                    renderSendSubmodule(container);
+                    renderSendSubmodule(m.container);
                 } else {
-                    renderReceiveSubmodule(container);
+                    renderReceiveSubmodule(m.container);
                 }
             }
 
@@ -3451,26 +3500,13 @@
             }
 
             function injectHeaderSyncButton() {
-                if (location.hostname !== DOMAINS.HOST) return;
-                const headerEl = document.querySelector('header');
-                if (!headerEl) return;
-                const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
-                if (!rightContainer || rightContainer.querySelector('.novelia-sync-header-btn')) return;
-
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'novelia-sync-header-btn grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover text-muted hover:text-ink transition-colors';
-                btn.title = 'LocalStorage 快取同步';
-                btn.setAttribute('aria-label', 'LocalStorage 快取同步');
-                btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"></path></svg>`;
-
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showModal('send');
+                Utils.ui.injectHostHeaderButton({
+                    id: 'novelia-sync-header-btn',
+                    title: 'LocalStorage 快取同步',
+                    iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-5"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"></path></svg>`,
+                    onClick: () => showModal('send'),
+                    position: 'prepend'
                 });
-
-                rightContainer.prepend(btn);
             }
 
             injectHeaderSyncButton();
