@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.7
+// @version      3.5.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1976412/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1978635/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -429,51 +429,51 @@
                         if (badgeElement) this.renderH1Badge(badgeElement, storedEntry);
                     });
                 },
-                createBulkUpdateButton() {
-                    const buttonElement = document.createElement('button');
-                    Object.assign(buttonElement, { className: 'novelia-bundle-btn novelia-bulk-update-button', innerHTML: `${Utils.icons.BULK}<span>${UPDATE_BUTTON_LABEL}</span>`, title: '手動更新本頁所有留言數'});
-                    buttonElement.addEventListener('click', async () => {
-                        if (buttonElement.disabled) return;
-                        buttonElement.disabled = true;
-                        const originalContent = buttonElement.innerHTML;
-                        buttonElement.innerHTML = '<span>⏳ 批次更新中</span>';
-                        try {
-                            const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
-                            const groupsMap = new Map();
-                            anchors.forEach((anchorElement) => {
-                                const novelInfo = this.parseNovelPath(anchorElement);
-                                if (!novelInfo) return;
-                                const key = `${novelInfo.source}/${novelInfo.id}`;
-                                if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
-                                groupsMap.get(key).targets.add(this.getListTarget(anchorElement));
-                            });
-                            await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
-                                try {
-                                    const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
-                                    if (result) novelGroup.targets.forEach((targetElement) => this.forceRenderCountBadge(targetElement, result.count, result.diff));
-                                } catch (error) {
-                                    novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
-                                }
-                            })));
-                            buttonElement.innerHTML = originalContent;
-                        } catch (error) {
-                            buttonElement.innerHTML = '<span>⚠️ 失敗</span>';
-                            setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
-                        } finally {
-                            buttonElement.disabled = false;
+                injectBulkUpdateButtons() {
+                    if (!this.isAllowedPage()) {
+                        const existing = document.querySelector('.novelia-bulk-update-button');
+                        if (existing) existing.remove();
+                        return;
+                    }
+
+                    Utils.ui.site.injectMainHeaderButton({
+                        id: 'novelia-bulk-update-button',
+                        title: '手動更新本頁所有留言數',
+                        iconSvg: Utils.icons.BULK,
+                        position: 'right',
+                        onClick: async (e) => {
+                            const btnElement = e.currentTarget;
+                            if (btnElement.disabled) return;
+                            btnElement.disabled = true;
+                            const originalContent = btnElement.innerHTML;
+                            btnElement.innerHTML = '<span style="font-size:12px;">⏳</span>';
+                            try {
+                                const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
+                                const groupsMap = new Map();
+                                anchors.forEach((anchorElement) => {
+                                    const novelInfo = this.parseNovelPath(anchorElement);
+                                    if (!novelInfo) return;
+                                    const key = `${novelInfo.source}/${novelInfo.id}`;
+                                    if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
+                                    groupsMap.get(key).targets.add(this.getListTarget(anchorElement));
+                                });
+                                await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
+                                    try {
+                                        const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
+                                        if (result) novelGroup.targets.forEach((targetElement) => this.forceRenderCountBadge(targetElement, result.count, result.diff));
+                                    } catch (error) {
+                                        novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
+                                    }
+                                })));
+                                btnElement.innerHTML = originalContent;
+                            } catch (error) {
+                                btnElement.innerHTML = '<span style="font-size:12px;">⚠️</span>';
+                                setTimeout(() => { btnElement.innerHTML = originalContent; }, 1500);
+                            } finally {
+                                btnElement.disabled = false;
+                            }
                         }
                     });
-                    return buttonElement;
-                },
-                injectBulkUpdateButtons() {
-                    const h1Element = document.querySelector('h1');
-                    if (!h1Element || h1Element.closest('.n-drawer') || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
-
-                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-                    const bulkButton = this.createBulkUpdateButton();
-                    const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
-                    if (lastHeaderButton) lastHeaderButton.after(bulkButton);
-                    else h1Element.appendChild(bulkButton);
                 },
                 scanPage({ isInitial = false } = {}) {
                     if (!this.isAllowedPage()) return;
@@ -545,7 +545,7 @@
                         const targetContainer = forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild;
                         if (!targetContainer) return null;
 
-                        btn = Utils.ui.site.createNaiveHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-host-drawer-btn',
                             title: '切換側邊欄',
                             iconSize: 24,
@@ -569,7 +569,7 @@
                     const refBtn = drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-popout-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-popout-btn',
                             title: '前往論壇 (取代當前頁面)',
                             iconSize: 20,
@@ -599,7 +599,7 @@
                     const refBtn = popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-fav-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-fav-btn',
                             title: '我的收藏',
                             iconSize: 20,
@@ -618,7 +618,7 @@
                         const themeBtn = Utils.ui.site.getThemeButton(forumHeader);
                         const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild);
                         if (targetContainer) {
-                            btn = Utils.ui.site.createNaiveHeaderButton({
+                            btn = Utils.ui.site.createNaiveButton({
                                 className: 'novelia-forum-fav-btn',
                                 title: '我的收藏',
                                 iconSize: 20,
@@ -647,7 +647,7 @@
                     const refBtn = favBtn || forumHeader.querySelector('.novelia-forum-fav-btn') || popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-reload-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-reload-btn',
                             title: '重新載入',
                             iconSize: 20,
@@ -1553,7 +1553,6 @@
             const CACHE_CHANGE_EVENT_NAME = "novelia-cache-change",
                 COPY_BUTTON_CLASS = "novelia-copy-btn",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
-                HEADER_INJECTION_MARK = "noveliaHeaderInjected",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
@@ -1711,38 +1710,37 @@
             }
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
-                const existingButtons = document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`);
 
                 if (!Utils.router.isListPageExceptNovelDetail()) {
-                    existingButtons.forEach(button => button.remove());
-                    document.querySelectorAll("h1").forEach((h1) => delete h1.dataset[HEADER_INJECTION_MARK]);
+                    document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
                     return;
                 }
 
-                const h1Elements = document.querySelectorAll("h1");
-                if (!h1Elements.length) return;
+                Utils.ui.site.injectMainHeaderButton({
+                    id: "novelia-share-view-btn",
+                    className: HEADER_BUTTON_CLASS,
+                    title: "查看快取",
+                    iconSvg: Utils.icons.VIEW,
+                    position: "right",
+                    onClick: (e) => { viewLinkCache(); }
+                });
 
-                h1Elements.forEach((h1Element) => {
-                    if (h1Element.closest('.n-drawer') || h1Element.dataset[HEADER_INJECTION_MARK] || h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;
+                Utils.ui.site.injectMainHeaderButton({
+                    id: "novelia-share-clear-btn",
+                    className: HEADER_BUTTON_CLASS,
+                    title: "清除快取",
+                    iconSvg: Utils.icons.CLEAR,
+                    position: "right",
+                    onClick: (e) => { clearLinkCache(); }
+                });
 
-                    h1Element.dataset[HEADER_INJECTION_MARK] = "1";
-                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-
-                    const refreshBtn = document.createElement("button");
-                    Object.assign(refreshBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.icons.REFRESH}<span>刷新</span>` });
-                    refreshBtn.addEventListener("click", (e) => { e.preventDefault(); triggerUIRefresh(); });
-
-                    const clearBtn = document.createElement("button");
-                    Object.assign(clearBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.icons.CLEAR}<span>清除快取</span>` });
-                    clearBtn.addEventListener("click", (e) => { e.preventDefault(); clearLinkCache(); });
-
-                    const viewBtn = document.createElement("button");
-                    Object.assign(viewBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.icons.VIEW}<span>查看快取</span>`  });
-                    viewBtn.addEventListener("click", (e) => { e.preventDefault(); viewLinkCache(); });
-
-                    h1Element.appendChild(refreshBtn);
-                    h1Element.appendChild(clearBtn);
-                    h1Element.appendChild(viewBtn);
+                Utils.ui.site.injectMainHeaderButton({
+                    id: "novelia-share-refresh-btn",
+                    className: HEADER_BUTTON_CLASS,
+                    title: "刷新",
+                    iconSvg: Utils.icons.REFRESH,
+                    position: "right",
+                    onClick: (e) => { triggerUIRefresh(); }
                 });
             }
             function checkKeyboardShortcut(event, shortcutConfig) {
@@ -1782,7 +1780,6 @@
 
                 if (!skipHeaders) {
                     document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
-                    document.querySelectorAll("h1").forEach((h1Element) => delete h1Element.dataset[HEADER_INJECTION_MARK]);
                 }
             }
             function performFullScan() {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.0.0
+// @version      2.1.0
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -636,6 +636,19 @@
                 if (!hit) continue;
                 const res = await idb.getWithExpiry(k, opts);
                 if (!res.expired && res.record) return unwrap(res.record);
+            }
+            return null;
+        };
+
+        const getRightAnchorEl = (container) => {
+            if (!container) return null;
+            const favEl = container.querySelector('a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"]');
+            if (favEl) {
+                return favEl.closest('.flex.flex-none, div') || favEl;
+            }
+            const accountEl = container.querySelector('.account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]');
+            if (accountEl) {
+                return accountEl.closest('.relative, div') || accountEl;
             }
             return null;
         };
@@ -1473,11 +1486,67 @@
             return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
         };
 
-        const createNaiveHeaderButton = ({ className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, onClick = null } = {}) => {
+        const HEADER_BUTTON_ORDER = [
+            'novelia-host-drawer-btn',
+            'novelia-forum-popout-btn',
+            'novelia-forum-fav-btn',
+            'novelia-forum-reload-btn',
+            'novelia-bulk-update-button',
+            'novelia-share-refresh-btn',
+            'novelia-share-clear-btn',
+            'novelia-share-view-btn',
+            'novelia-sync-ls-btn'
+        ];
+
+        const getHeaderButtonId = (el) => {
+            if (!el) return '';
+            if (el.id) return el.id;
+            if (typeof el.className === 'string') {
+                const classes = el.className.split(/\s+/);
+                for (const cls of classes) {
+                    if (cls && HEADER_BUTTON_ORDER.includes(cls)) return cls;
+                }
+                return classes[0] || '';
+            }
+            return '';
+        };
+
+        const findNextOrderedHeaderButton = (container, btnId) => {
+            if (!container || !btnId) return null;
+            const targetIndex = HEADER_BUTTON_ORDER.indexOf(btnId);
+            if (targetIndex === -1) return null;
+
+            const existingButtons = Array.from(container.querySelectorAll('button, a'));
+            for (const existingBtn of existingButtons) {
+                const existingId = getHeaderButtonId(existingBtn);
+                const existingIndex = HEADER_BUTTON_ORDER.indexOf(existingId);
+                if (existingIndex > targetIndex) {
+                    return existingBtn;
+                }
+            }
+            return null;
+        };
+
+        const getRightAnchorEl = (container) => {
+            if (!container) return null;
+            const favEl = container.querySelector('a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"]');
+            if (favEl) {
+                return favEl.closest('.flex.flex-none, div') || favEl;
+            }
+            const accountEl = container.querySelector('.account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]');
+            if (accountEl) {
+                return accountEl.closest('.relative, div') || accountEl;
+            }
+            return null;
+        };
+
+        const createNaiveButton = ({ id = '', className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, position = 'right', onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
             const btn = document.createElement('button');
-            btn.className = `__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
+            if (id) btn.id = id;
+            btn.className = `${id} __button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
             btn.type = 'button';
+            btn.dataset.position = position;
             if (title) {
                 btn.title = title;
                 btn.setAttribute('aria-label', title);
@@ -1491,11 +1560,92 @@
             return btn;
         };
 
-        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', onClick = null } = {}) => {
+        const injectNaiveHeaderButton = (buttonOrOptions, position = 'right') => {
+            if (typeof document === 'undefined') return null;
+            const forumHeader = getForumHeader();
+            if (!forumHeader) return null;
+
+            let btnElement = null;
+            let btnId = '';
+
+            if (buttonOrOptions instanceof Element) {
+                btnElement = buttonOrOptions;
+                btnId = getHeaderButtonId(btnElement);
+                if (btnElement.dataset.position) position = btnElement.dataset.position;
+            } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
+                btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
+                if (buttonOrOptions.position) position = buttonOrOptions.position;
+                btnElement = createNaiveButton(buttonOrOptions);
+            }
+
+            if (!btnElement) return null;
+
+            if (position !== 'left' && position !== 'center' && position !== 'right') {
+                position = 'right';
+            }
+            btnElement.dataset.position = position;
+
+            if (btnId) {
+                const existing = forumHeader.querySelector(`#${btnId}, .${btnId}`);
+                if (existing) return existing;
+            }
+
+            if (position === 'left') {
+                let leftContainer = forumHeader.querySelector('.novelia-header-left');
+                if (!leftContainer) {
+                    leftContainer = document.createElement('div');
+                    leftContainer.className = 'novelia-header-left';
+                    leftContainer.style.cssText = 'display: flex; align-items: center; gap: 4px;';
+                    forumHeader.prepend(leftContainer);
+                }
+                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, btnId);
+                if (nextOrderedBtn) {
+                    leftContainer.insertBefore(btnElement, nextOrderedBtn);
+                } else {
+                    leftContainer.appendChild(btnElement);
+                }
+            } else if (position === 'center') {
+                let centerContainer = forumHeader.querySelector('.novelia-header-center');
+                if (!centerContainer) {
+                    centerContainer = document.createElement('div');
+                    centerContainer.className = 'novelia-header-center';
+                    centerContainer.style.cssText = 'display: flex; align-items: center; justify-content: center; gap: 4px; margin: 0 auto;';
+                    const accountEl = forumHeader.querySelector('.account-trigger, [class*="account-trigger"], .n-avatar, [class*="user-menu"]')?.closest('.relative, div') || forumHeader.querySelector('.account-trigger, [class*="account-trigger"], .n-avatar');
+                    if (accountEl) forumHeader.insertBefore(centerContainer, accountEl);
+                    else forumHeader.appendChild(centerContainer);
+                }
+                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, btnId);
+                if (nextOrderedBtn) {
+                    centerContainer.insertBefore(btnElement, nextOrderedBtn);
+                } else {
+                    centerContainer.appendChild(btnElement);
+                }
+            } else {
+                const rightAnchorEl = getRightAnchorEl(forumHeader);
+                const nextOrderedBtn = findNextOrderedHeaderButton(forumHeader, btnId);
+
+                if (nextOrderedBtn) {
+                    forumHeader.insertBefore(btnElement, nextOrderedBtn);
+                } else if (rightAnchorEl && rightAnchorEl.parentElement === forumHeader) {
+                    forumHeader.insertBefore(btnElement, rightAnchorEl);
+                } else if (rightAnchorEl && rightAnchorEl.closest('header, nav') === forumHeader) {
+                    rightAnchorEl.before(btnElement);
+                } else {
+                    const themeBtn = getThemeButton(forumHeader);
+                    if (themeBtn) themeBtn.before(btnElement);
+                    else forumHeader.appendChild(btnElement);
+                }
+            }
+            return btnElement;
+        };
+
+        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover text-muted hover:text-ink transition-colors ${className}`.trim();
+            if (id) btn.id = id;
+            btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim();
+            btn.dataset.position = position;
             if (title) {
                 btn.title = title;
                 btn.setAttribute('aria-label', title);
@@ -1511,35 +1661,72 @@
             return btn;
         };
 
-        const injectMainHeaderButton = (buttonOrOptions, position = 'prepend') => {
+        const injectMainHeaderButton = (buttonOrOptions, position = 'right') => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
             const headerEl = document.querySelector('header');
             if (!headerEl) return null;
-            const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
-            if (!rightContainer) return null;
 
             let btnElement = null;
             let btnId = '';
 
             if (buttonOrOptions instanceof Element) {
                 btnElement = buttonOrOptions;
-                btnId = btnElement.className ? btnElement.className.split(/\s+/)[0] : '';
+                btnId = getHeaderButtonId(btnElement);
+                if (btnElement.dataset.position) position = btnElement.dataset.position;
             } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
-                btnId = buttonOrOptions.id || '';
-                const pos = buttonOrOptions.position || position;
-                position = pos;
+                btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
+                if (buttonOrOptions.position) position = buttonOrOptions.position;
                 btnElement = createMainHeaderButton(buttonOrOptions);
             }
-
             if (!btnElement) return null;
+            if (position !== 'left' && position !== 'center' && position !== 'right') position = 'right';
+            btnElement.dataset.position = position;
 
             if (btnId) {
-                const existing = rightContainer.querySelector(`.${btnId}`);
+                const existing = headerEl.querySelector(`#${btnId}, .${btnId}`);
                 if (existing) return existing;
             }
 
-            if (position === 'append') rightContainer.appendChild(btnElement);
-            else rightContainer.prepend(btnElement);
+            if (position === 'left') {
+                let leftContainer = headerEl.querySelector('.novelia-header-left');
+                if (!leftContainer) {
+                    leftContainer = document.createElement('div');
+                    leftContainer.className = 'novelia-header-left flex items-center gap-1 flex-none';
+                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
+                    if (rightContainer) headerEl.insertBefore(leftContainer, rightContainer);
+                    else headerEl.prepend(leftContainer);
+                }
+                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, btnId);
+                if (nextOrderedBtn) leftContainer.insertBefore(btnElement, nextOrderedBtn);
+                else leftContainer.appendChild(btnElement);
+
+            } else if (position === 'center') {
+                let centerContainer = headerEl.querySelector('.novelia-header-center');
+                if (!centerContainer) {
+                    centerContainer = document.createElement('div');
+                    centerContainer.className = 'novelia-header-center flex items-center justify-center gap-1 mx-auto flex-1';
+                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
+                    if (rightContainer) headerEl.insertBefore(centerContainer, rightContainer);
+                    else headerEl.appendChild(centerContainer);
+                }
+                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, btnId);
+                if (nextOrderedBtn) centerContainer.insertBefore(btnElement, nextOrderedBtn);
+                else centerContainer.appendChild(btnElement);
+            } else {
+                const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
+                const nextOrderedBtn = findNextOrderedHeaderButton(rightContainer, btnId);
+                const rightAnchorEl = getRightAnchorEl(rightContainer);
+
+                if (nextOrderedBtn) {
+                    rightContainer.insertBefore(btnElement, nextOrderedBtn);
+                } else if (rightAnchorEl && rightAnchorEl.parentElement === rightContainer) {
+                    rightContainer.insertBefore(btnElement, rightAnchorEl);
+                } else if (rightAnchorEl) {
+                    rightAnchorEl.before(btnElement);
+                } else {
+                    rightContainer.appendChild(btnElement);
+                }
+            }
             return btnElement;
         };
 
@@ -1652,7 +1839,7 @@
             theme,
             getForumHeader,
             getThemeButton,
-            createNaiveHeaderButton,
+            createNaiveButton,
             createMainHeaderButton,
             injectMainHeaderButton,
             getForumDropdown,
