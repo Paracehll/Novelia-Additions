@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.5.0.1
+// @version      3.5.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1978635/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1978720/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -283,7 +283,7 @@
                 renderPlainBadge(targetElement, text, opts) { this.renderBadge(targetElement, { text, isError: opts?.isError }); },
                 renderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff }); },
                 forceRenderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff, force: true }); },
-                isAllowedPage() { return Utils.router.isListPage(); },
+                isAllowedPage() { return Utils.router.isListPage() || Utils.router.isNovelPage() },
                 getListTarget(anchorElement) {
                     const flexParent = anchorElement.closest('.n-flex') || anchorElement.closest('.n-grid > div');
                     if (!flexParent) return anchorElement;
@@ -1546,7 +1546,6 @@
 
             const CLEAR_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "q" };
             const VIEW_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "v" };
-            const REFRESH_UI_KEY = { ctrl: false, alt: false, shift: true, key: "r" };
             const BUTTON_WIDTH = "36px";
             const SHOW_HEADER_BTNS = true;
 
@@ -1555,6 +1554,12 @@
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
+
+            const HEADER_BUTTONS = [
+                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'] },
+                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'] },
+                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'] },
+            ];
 
             Utils.gm.addStyle(`
                 .${COPY_BUTTON_CLASS} { position: relative; overflow: hidden; margin-right: 6px; padding: 1px 0; width: ${BUTTON_WIDTH}; font-size: 12px; cursor: pointer; background: transparent; border: 1px solid #aaa; border-radius: 4px; vertical-align: middle; opacity: .6; text-align: center; flex-shrink: 0; line-height: 1.4; transition: opacity .15s, background .15s, border-color .15s; }
@@ -1589,7 +1594,6 @@
                     document.dispatchEvent(new CustomEvent(CACHE_CHANGE_EVENT_NAME, { detail: { cache: [...this.items] } }));
                 }
             };
-
             function writeToClipboard(text, buttonElement) {
                 Utils.gm.setClipboard(text).then((success) => {
                     if (success) {
@@ -1617,13 +1621,6 @@
             function viewLinkCache() {
                 if (LinkCache.items.length === 0) toast.show("ℹ️ 當前快取中沒有任何連結。");
                 else toast.show(`📂 當前快取連結 (共 ${LinkCache.items.length} 條)：\n${LinkCache.items.join("\n")}`, 3500);
-            }
-            function triggerUIRefresh() {
-                removeStaleButtons(true);
-                setTimeout(() => {
-                    performFullScan();
-                    toast.show("🔄 已重新偵測當前頁面並重新注入按鈕！");
-                }, 200);
             }
             function createCopyButton(formattedLink) {
                 const buttonElement = document.createElement("button");
@@ -1701,6 +1698,19 @@
                     gridWrapperDiv.appendChild(textSpanElement);
                 });
             }
+            function copyCurrentNovelLink() {
+                const pathname = Utils.router.getPathname();
+                const isWenku = pathname.startsWith('/wenku/');
+                const titleEl = isWenku ? document.querySelector('h2') : document.querySelector('h3');
+                const titleText = titleEl ? titleEl.textContent.trim() : '';
+                if (!titleText) {
+                    toast.show("⚠️ 未能找到小說標題！");
+                    return;
+                }
+                const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${pathname})`;
+                writeToClipboard(formattedLink);
+                toast.show(`📋 已複製小說連結：\n${formattedLink}`);
+            }
             function shouldDisplayHeaderButtons() {
                 return (
                     !0 === SHOW_HEADER_BTNS ||
@@ -1711,36 +1721,25 @@
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
 
-                if (!Utils.router.isListPageExceptNovelDetail()) {
-                    document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
-                    return;
-                }
+                const pageType = Utils.router.isNovelPage() ? 'novel'
+                    : Utils.router.isListPageExceptNovelDetail() ? 'list'
+                    : null;
 
-                Utils.ui.site.injectMainHeaderButton({
-                    id: "novelia-share-view-btn",
-                    className: HEADER_BUTTON_CLASS,
-                    title: "查看快取",
-                    iconSvg: Utils.icons.VIEW,
-                    position: "left",
-                    onClick: (e) => { viewLinkCache(); }
-                });
+                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
+                    const cls = `novelia-share-${key}-btn`;
 
-                Utils.ui.site.injectMainHeaderButton({
-                    id: "novelia-share-clear-btn",
-                    className: HEADER_BUTTON_CLASS,
-                    title: "清除快取",
-                    iconSvg: Utils.icons.CLEAR,
-                    position: "left",
-                    onClick: (e) => { clearLinkCache(); }
-                });
-
-                Utils.ui.site.injectMainHeaderButton({
-                    id: "novelia-share-refresh-btn",
-                    className: HEADER_BUTTON_CLASS,
-                    title: "刷新",
-                    iconSvg: Utils.icons.REFRESH,
-                    position: "left",
-                    onClick: (e) => { triggerUIRefresh(); }
+                    if (!pages.includes(pageType)) {
+                        document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
+                        return;
+                    }
+                    Utils.ui.site.injectMainHeaderButton({
+                        id: cls,
+                        className: `${HEADER_BUTTON_CLASS} ${cls}`,
+                        title,
+                        iconSvg: icon,
+                        position: 'left',
+                        onClick: () => action()
+                    });
                 });
             }
             function checkKeyboardShortcut(event, shortcutConfig) {
@@ -1754,7 +1753,6 @@
             window.addEventListener("keydown", (event) => {
                 if (checkKeyboardShortcut(event, CLEAR_CACHE_KEY)) { event.preventDefault(); clearLinkCache(); }
                 if (checkKeyboardShortcut(event, VIEW_CACHE_KEY)) { event.preventDefault(); viewLinkCache(); }
-                if (checkKeyboardShortcut(event, REFRESH_UI_KEY)) { event.preventDefault(); triggerUIRefresh(); }
             });
 
             function removeStaleButtons(skipHeaders = false) {
@@ -1783,6 +1781,11 @@
                 }
             }
             function performFullScan() {
+                if (Utils.router.isNovelPage()) {
+                    removeStaleButtons(true);
+                    injectHeaderActionButtons();
+                    return;
+                }
                 if (!Utils.router.isListPageExceptNovelDetail()) {
                     removeStaleButtons();
                     return;
@@ -1794,6 +1797,10 @@
             window.addEventListener("tm-locationchange", () => { setTimeout(performFullScan, 200); });
 
             const mutationObserver = new MutationObserver((mutations) => {
+                if (Utils.router.isNovelPage()) {
+                    injectHeaderActionButtons();
+                    return;
+                }
                 if (!Utils.router.isListPageExceptNovelDetail()) {
                     if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) removeStaleButtons();
                     return;
