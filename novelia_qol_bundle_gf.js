@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.5.2
+// @version      3.5.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -44,7 +44,7 @@
 
     function initMenu() {
         FEATURES.forEach(feature => {
-            const enabled = Utils.gm.getValue(`feature_${feature.id}`, feature.default);
+            const enabled = GM_getValue(`feature_${feature.id}`, feature.default);
             config[feature.id] = enabled;
 
             const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
@@ -2419,15 +2419,15 @@
             const REMOVE_CYCLE_IMG_BTN = true;
             const FADEIN_ANIMATION = true;
 
-            function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
-            // function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
-            function getObjectPosition() { return Utils.gm.getValue('banner_object_position', IMG_POSITION); }
-            function getBannerSize() { return Utils.gm.getValue('banner_size', IMG_SIZE); }
-            function getBannerSizeMobile() { return Utils.gm.getValue('banner_size_mobile', IMG_SIZE_MOBILE); }
-            function getScrolling() { return Utils.gm.getValue('banner_scrolling', IMG_SCROLLING); }
-            function getScrollSpd() { return Number(Utils.gm.getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
-            function getRemoveCycleImgBtn() { return Utils.gm.getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
-            function getFadeInAnimation() { return Utils.gm.getValue('banner_fadein_animation', FADEIN_ANIMATION); }
+            function getBannerUrl() { return GM_getValue('banner_url', IMG_URL); }
+            // function getObjectFit() { return GM_getValue('banner_object_fit', IMG_FIT); }
+            function getObjectPosition() { return GM_getValue('banner_object_position', IMG_POSITION); }
+            function getBannerSize() { return GM_getValue('banner_size', IMG_SIZE); }
+            function getBannerSizeMobile() { return GM_getValue('banner_size_mobile', IMG_SIZE_MOBILE); }
+            function getScrolling() { return GM_getValue('banner_scrolling', IMG_SCROLLING); }
+            function getScrollSpd() { return Number(GM_getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
+            function getRemoveCycleImgBtn() { return GM_getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
+            function getFadeInAnimation() { return GM_getValue('banner_fadein_animation', FADEIN_ANIMATION); }
 
             let offsetY = 0;
             let lastTime = 0;

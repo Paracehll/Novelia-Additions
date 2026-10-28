@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.2
+// @version      2.1.3
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -152,15 +152,6 @@
             style.textContent = css;
             (document.head || document.documentElement).appendChild(style);
             return style;
-        },
-        getValue(key, defaultValue) {
-            return typeof g.GM_getValue === 'function' ? g.GM_getValue(key, defaultValue) : defaultValue;
-        },
-        setValue(key, value) {
-            if (typeof g.GM_setValue === 'function') g.GM_setValue(key, value);
-        },
-        registerMenuCommand(label, fn) {
-            if (typeof g.GM_registerMenuCommand === 'function') g.GM_registerMenuCommand(label, fn);
         },
         setClipboard(clipboardText) {
             if (typeof g.GM_setClipboard === 'function') {
