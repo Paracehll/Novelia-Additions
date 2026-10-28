@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.5.0
+// @version      3.5.0.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1721,7 +1721,7 @@
                     className: HEADER_BUTTON_CLASS,
                     title: "查看快取",
                     iconSvg: Utils.icons.VIEW,
-                    position: "right",
+                    position: "left",
                     onClick: (e) => { viewLinkCache(); }
                 });
 
@@ -1730,7 +1730,7 @@
                     className: HEADER_BUTTON_CLASS,
                     title: "清除快取",
                     iconSvg: Utils.icons.CLEAR,
-                    position: "right",
+                    position: "left",
                     onClick: (e) => { clearLinkCache(); }
                 });
 
@@ -1739,7 +1739,7 @@
                     className: HEADER_BUTTON_CLASS,
                     title: "刷新",
                     iconSvg: Utils.icons.REFRESH,
-                    position: "right",
+                    position: "left",
                     onClick: (e) => { triggerUIRefresh(); }
                 });
             }
