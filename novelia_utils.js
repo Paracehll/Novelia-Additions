@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.5
+// @version      2.2.0
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -33,7 +33,7 @@
 
     const defaultConfig = {
         domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
-        db: { name: 'novelia_qol_db', version: 1, stores: ['assets_cache', 'preview_cache', 'network_cache'], keyPath: 'key' },
+        db: { name: 'novelia_qol_db', version: 1, stores: ['assets_cache', 'capture_cache', 'network_cache'], keyPath: 'key' },
         keys: { forumSubmenuExpanded: 'novelia_forum_submenu_expanded', mascotBlob: 'mascot_image_blob' },
         assets: { mascotPath: '/assets/mascot-DSVGgW05.webp' },
         events: { locationChange: 'tm-locationchange' },
@@ -56,6 +56,12 @@
         };
     };
 
+    const createAbortError = (msg = 'Aborted') => {
+        const e = new Error(msg);
+        e.name = 'AbortError';
+        return e;
+    };
+
     const isPlainClick = (e) => !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || (e.button !== undefined && e.button !== 0));
 
     const fireWindowEvent = (name) => {
@@ -76,6 +82,20 @@
         return Math.abs(h).toString(36);
     };
 
+    const utrimmer = (urlStr, matchStr, query = false) => {
+        if (!urlStr) return '';
+        const urlObj = attempt(() => new URL(urlStr, typeof location !== 'undefined' ? location.origin : 'https://n.novelia.cc'), null);
+        let target = urlObj ? (urlObj.pathname + urlObj.search + urlObj.hash) : String(urlStr);
+
+        if (matchStr) {
+            const idx = target.indexOf(matchStr);
+            if (idx !== -1) target = target.slice(idx + matchStr.length);
+        }
+        if (target.startsWith('/')) target = target.slice(1);
+        if (!query) target = target.split('?')[0].split('#')[0];
+        return target;
+    };
+
     const text = {
         escapeHtml: makeEscaper('&#039;'),
         escapeXml: makeEscaper('&apos;'),
@@ -84,7 +104,8 @@
             const v = String(s);
             return v.length <= length ? v : v.slice(0, length) + suffix;
         },
-        hash: hashString
+        hash: hashString,
+        utrimmer
     };
 
     const createLimiter = (limit) => {
@@ -163,24 +184,38 @@
             }
             return Promise.resolve(false);
         },
-        downloadBlob(url, { mimeType, timeout = 15000 } = {}) {
+        downloadBlob(url, { mimeType, timeout = 15000, signal } = {}) {
             return new Promise((resolve, reject) => {
+                if (signal?.aborted) return reject(createAbortError());
+
+                let handle = null;
+                const cleanup = () => signal?.removeEventListener('abort', onAbort);
+                const onAbort = () => {
+                    attempt(() => handle?.abort?.());
+                    reject(createAbortError());
+                };
+                const ok = (v) => { cleanup(); resolve(v); };
+                const fail = (e) => { cleanup(); reject(e); };
+                signal?.addEventListener('abort', onAbort, { once: true });
+
                 if (typeof g.GM_xmlhttpRequest === 'function') {
-                    g.GM_xmlhttpRequest({
+                    handle = g.GM_xmlhttpRequest({
                         method: 'GET', url, responseType: 'blob', timeout,
                         headers: { 'Cache-Control': 'max-age=3600' },
                         onload: (r) => {
                             if (r.status >= 200 && r.status < 300 && r.response) {
-                                resolve(r.response instanceof Blob ? r.response : new Blob([r.response], { type: mimeType || 'image/webp' }));
-                            } else reject(new Error(`HTTP ${r.status}`));
+                                ok(r.response instanceof Blob ? r.response : new Blob([r.response], { type: mimeType || 'image/webp' }));
+                            } else fail(new Error(`HTTP ${r.status}`));
                         },
-                        onerror: reject,
-                        ontimeout: () => reject(new Error('Request timed out'))
+                        onerror: fail,
+                        ontimeout: () => fail(new Error('Request timed out'))
                     });
                 } else if (typeof fetch === 'function') {
-                    fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); }).then(resolve, reject);
+                    fetch(url, { signal })
+                        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+                        .then(ok, fail);
                 } else {
-                    reject(new Error('No network request method available'));
+                    fail(new Error('No network request method available'));
                 }
             });
         },
@@ -646,19 +681,53 @@
         const getRightAnchorEl = (container) => {
             if (!container) return null;
             const favEl = container.querySelector('a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"]');
-            if (favEl) {
-                return favEl.closest('.flex.flex-none, div') || favEl;
-            }
+            if (favEl) return favEl.closest('.flex.flex-none, div') || favEl;
             const accountEl = container.querySelector('.account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]');
-            if (accountEl) {
-                return accountEl.closest('.relative, div') || accountEl;
-            }
+            if (accountEl) return accountEl.closest('.relative, div') || accountEl;
             return null;
         };
 
-        const capture = ({ key, domain, onCapture } = {}) => {
-            if (!key) return;
-            rules.push({ action: 'capture', key, domain: resolveDomain(domain), onCapture });
+        const ensureStore = async (storeName, safe) => {
+            if (safe) {
+                return attempt(async () => {
+                    const req = indexedDB.open(db.name);
+                    return new Promise((resolve) => {
+                        req.onsuccess = () => {
+                            const dbInst = req.result;
+                            const exists = dbInst.objectStoreNames.contains(storeName);
+                            dbInst.close();
+                            resolve(exists);
+                        };
+                        req.onerror = () => resolve(false);
+                    });
+                }, false);
+            }
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(db.name);
+                req.onupgradeneeded = (e) => {
+                    const dbInst = e.target.result;
+                    if (!dbInst.objectStoreNames.contains(storeName)) {
+                        dbInst.createObjectStore(storeName, { keyPath: db.keyPath || 'key' });
+                    }
+                };
+                req.onsuccess = () => { req.result.close(); resolve(true); };
+                req.onerror = () => reject(req.error);
+            });
+        };
+
+        const capture = ({ url, key, domain, as = 'json', save = 'capture_cache', safe = true, onCapture } = {}) => {
+            const targetUrl = url || key;
+            if (!targetUrl) return;
+            rules.push({
+                action: 'capture',
+                url: targetUrl,
+                key: key || targetUrl,
+                domain: resolveDomain(domain),
+                as,
+                save,
+                safe,
+                onCapture
+            });
             initInterception();
         };
 
@@ -668,7 +737,8 @@
             for (const rule of rules) {
                 if (rule.action !== 'reject') continue;
                 if (rule.domain && u.hostname !== rule.domain) continue;
-                if (rule.key && !(u.origin + u.pathname).includes(rule.key)) continue;
+                const matchPattern = rule.url || rule.key;
+                if (matchPattern && !u.href.includes(matchPattern) && !(u.origin + u.pathname).includes(matchPattern)) continue;
                 if (rule.isImage) {
                     const isImg = IMG_EXT_RE.test(u.pathname)
                         || ctx?.destination === 'image'
@@ -682,17 +752,17 @@
             return false;
         };
 
-        const block = (keyOrOptions, domain) => {
-            const opts = typeof keyOrOptions === 'string' ? { key: keyOrOptions, domain } : (keyOrOptions || {});
-            const rule = { isImage: true, ...opts, action: 'reject' };
-            let key = rule.key || rule.url || '';
+        const block = (opts = {}) => {
+            const options = typeof opts === 'string' ? { url: opts } : opts;
+            const rule = { isImage: true, ...options, action: 'reject' };
+            let targetUrl = rule.url || rule.key || '';
             let host = resolveDomain(rule.domain);
-            if (!host && /^https?:/i.test(key)) {
-                const u = parseUrl(key);
-                if (u) { host = u.hostname; key = u.pathname + u.search; }
+            if (!host && /^https?:/i.test(targetUrl)) {
+                const u = parseUrl(targetUrl);
+                if (u) { host = u.hostname; targetUrl = u.pathname + u.search; }
             }
             rule.domain = host;
-            rule.key = key.replace(/\*+$/, '');
+            rule.url = targetUrl.replace(/\*+$/, '');
             rules.push(rule);
             initInterception();
             return rule;
@@ -701,24 +771,50 @@
         const matchCaptures = (urlStr) => {
             const u = parseUrl(urlStr);
             if (!u) return [];
-            const base = u.origin + u.pathname;
             const hits = [];
             for (const rule of rules) {
                 if (rule.action !== 'capture') continue;
                 if (rule.domain && u.hostname !== rule.domain) continue;
-                const idx = base.indexOf(rule.key);
-                if (idx === -1) continue;
-                const prefix = base.slice(0, idx + rule.key.length);
-                hits.push({ rule, cacheKey: prefix, capturedPrefix: prefix, url: u.href });
+                const pattern = rule.url;
+                if (!pattern) continue;
+                if (!u.href.includes(pattern) && !(u.origin + u.pathname).includes(pattern)) continue;
+
+                const cacheKey = typeof rule.key === 'function'
+                    ? rule.key(utrimmer(u.href, pattern), u)   // rest = pattern 之後、去掉 query/hash 的字串
+                    : rule.key;
+                if (!cacheKey) continue;
+                hits.push({ rule, cacheKey, url: u.href });
             }
             return hits;
         };
 
-        const storeCaptures = async (hits, rawText) => {
-            const data = attempt(() => JSON.parse(rawText), rawText);
-            for (const { rule, cacheKey, capturedPrefix, url } of hits) {
-                await saveToCache(cacheKey, data, { url, capturedPrefix, key: rule.key, domain: rule.domain });
-                attempt(() => rule.onCapture?.({ cacheKey, data, url, capturedPrefix }));
+        const storeCaptures = async (hits, responseObj) => {
+            for (const { rule, cacheKey, url } of hits) {
+                let formattedData = responseObj;
+                if (rule.as === 'json') {
+                    if (typeof responseObj === 'string') {
+                        formattedData = attempt(() => JSON.parse(responseObj), responseObj);
+                    } else if (responseObj instanceof Blob) {
+                        const txt = await responseObj.text();
+                        formattedData = attempt(() => JSON.parse(txt), txt);
+                    }
+                } else if (rule.as === 'blob') {
+                    if (typeof responseObj === 'string') {
+                        formattedData = new Blob([responseObj], { type: 'application/octet-stream' });
+                    }
+                }
+
+                const exists = await ensureStore(rule.save, rule.safe);
+                if (rule.safe && !exists) {
+                    attempt(() => rule.onCapture?.({ cacheKey, data: formattedData, url }));
+                    continue;
+                }
+
+                await idb.set(
+                    { key: cacheKey, data: formattedData, timestamp: Date.now(), url, domain: rule.domain },
+                    { dbName: db.name, version: db.version, storeName: rule.save, ttlMs }
+                );
+                attempt(() => rule.onCapture?.({ cacheKey, data: formattedData, url }));
             }
         };
 
@@ -741,7 +837,11 @@
                 const hits = matchCaptures(urlOf(ctx.args[0]));
                 if (!hits.length) return;
                 ctx.result
-                    .then((res) => (res.ok ? res.clone().text() : null))
+                    .then(async (res) => {
+                        if (!res.ok) return null;
+                        const hasBlobRule = hits.some((h) => h.rule.as === 'blob');
+                        return hasBlobRule ? res.clone().blob() : res.clone().text();
+                    })
                     .then((raw) => (raw !== null ? storeCaptures(hits, raw) : undefined))
                     .catch(() => {});
             }));
@@ -768,7 +868,10 @@
                 }
                 const hits = matchCaptures(url);
                 if (hits.length) {
-                    this.addEventListener('load', () => attempt(() => storeCaptures(hits, this.responseText)), { once: true });
+                    this.addEventListener('load', () => attempt(() => {
+                        const resData = this.responseType === 'blob' ? this.response : this.responseText;
+                        storeCaptures(hits, resData);
+                    }), { once: true });
                 }
             }));
         };
@@ -834,68 +937,152 @@
         return { capture, block, isBlocked, getCached: findByPrefix, destroy };
     };
 
-    const createImageCache = ({ isBlocked, cache, download, ttlMs, useCache = () => typeof window !== 'undefined' && window.top === window.self }) => {
+    const createFetchRaceCache = () => {
+        const inflight = new Map();
+
+        const safeRead = async (readCache, enabled) => {
+            if (!enabled || typeof readCache !== 'function') return null;
+            try {
+                const v = await readCache();
+                return v === undefined ? null : v;
+            } catch (e) {
+                console.warn('[Utils.fetchRaceCache] readCache failed:', e);
+                return null;
+            }
+        };
+
+        const safeWrite = async (writeCache, enabled, data) => {
+            if (!enabled || typeof writeCache !== 'function') return;
+            try { await writeCache(data); } catch (e) {
+                console.warn('[Utils.fetchRaceCache] writeCache failed:', e);
+            }
+        };
+
+        /**
+         * @param {string} key
+         * @param {object} opts
+         * @param {() => Promise<any|null>} [opts.readCache]   命中回傳資料，未命中回傳 null
+         * @param {({signal}) => Promise<any>} opts.fetcher    實際請求，需支援 signal
+         * @param {(data) => Promise<any>} [opts.writeCache]
+         * @param {boolean|(() => boolean)} [opts.enabled=true] 是否使用快取
+         */
+        return (key, { readCache, fetcher, writeCache, enabled = true } = {}) => {
+            if (!key || typeof fetcher !== 'function') {
+                return Promise.reject(new Error('fetchRaceCache: key and fetcher are required'));
+            }
+            const useCache = typeof enabled === 'function' ? !!enabled() : !!enabled;
+            const existing = inflight.get(key);
+            if (existing) {
+                return safeRead(readCache, useCache).then((cached) => {
+                    if (cached !== null && existing.settle(cached, 'cache')) return cached;
+                    return existing.promise;
+                });
+            }
+            const controller = new AbortController();
+            let settled = false;
+            let resolve, reject;
+            const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+
+            const release = () => { if (inflight.get(key) === entry) inflight.delete(key); };
+            const entry = {
+                promise,
+                settle(value, source) {
+                    if (settled) return false;
+                    settled = true;
+                    release();
+                    if (source === 'cache') controller.abort();
+                    resolve(value);
+                    return true;
+                },
+                fail(err) {
+                    if (settled) return false;
+                    settled = true;
+                    release();
+                    reject(err);
+                    return true;
+                }
+            };
+            inflight.set(key, entry);
+
+            (async () => {
+                const cached = await safeRead(readCache, useCache);
+                if (settled) return;
+                if (cached !== null) { entry.settle(cached, 'cache'); return; }
+                try {
+                    const data = await fetcher({ signal: controller.signal });
+                    if (entry.settle(data, 'network')) await safeWrite(writeCache, useCache, data);
+                } catch (e) {
+                    entry.fail(e);
+                }
+            })();
+
+            return promise;
+        };
+    };
+
+    const createBlobFetcher = ({ fetchRaceCache, cache, download, isBlocked, ttlMs, useCache = () => typeof window !== 'undefined' && window.top === window.self }) => {
+        const toBlob = (v, mimeType) => {
+            if (v instanceof Blob) return v;
+            if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) return new Blob([v], { type: mimeType || 'image/webp' });
+            return null;
+        };
+
+        return (url, { ttlMs: customTtl = ttlMs, cacheKey = null, mimeType = null } = {}) => {
+            if (!url) return Promise.reject(new Error('URL is required'));
+            if (isBlocked?.(url)) return Promise.reject(new Error(`Blocked by network (${url})`));
+
+            const key = cacheKey || `img_blob_${url}`;
+            return fetchRaceCache(key, {
+                enabled: useCache,
+                readCache: async () => toBlob(await cache.idb.get(key, { ttlMs: customTtl }), mimeType),
+                fetcher: ({ signal }) => download(url, { mimeType, signal }),
+                writeCache: (blob) => cache.idb.set(key, blob)
+            });
+        };
+    };
+
+    const createBlobUrlStore = (getBlob, label = 'Utils.blobUrl') => {
         const blobUrls = {};
         const promises = {};
 
-        const getBlob = async (imageUrl, { ttlMs: customTtl = ttlMs, cacheKey = null, mimeType = null } = {}) => {
-            if (!imageUrl) throw new Error('Image URL is required');
-            if (isBlocked(imageUrl)) throw new Error(`Blocked by network (${imageUrl})`);
-
-            const key = cacheKey || `img_blob_${imageUrl}`;
-            const allowCache = useCache();
-
-            if (allowCache) {
-                try {
-                    const cached = await cache.idb.get(key, { ttlMs: customTtl });
-                    if (cached instanceof Blob) return cached;
-                    if (cached instanceof ArrayBuffer || ArrayBuffer.isView(cached)) {
-                        return new Blob([cached], { type: mimeType || 'image/webp' });
-                    }
-                } catch (e) { console.warn(`[Utils.imageCache] Error reading image cache from IDB (${key}):`, e); }
-            }
-
-            const blob = await download(imageUrl, { mimeType });
-            if (allowCache) {
-                try { await cache.idb.set(key, blob); } catch (e) { console.warn(`[Utils.imageCache] Error saving image cache to IDB (${key}):`, e); }
-            }
-            return blob;
-        };
-
-        const getUrl = (imageUrl, options = {}) => {
-            if (!imageUrl) return Promise.resolve('');
-            if (blobUrls[imageUrl]) return Promise.resolve(blobUrls[imageUrl]);
-            if (!promises[imageUrl]) {
-                promises[imageUrl] = (async () => {
+        const getUrl = (url, options = {}) => {
+            if (!url) return Promise.resolve('');
+            if (blobUrls[url]) return Promise.resolve(blobUrls[url]);
+            if (!promises[url]) {
+                promises[url] = (async () => {
                     try {
-                        const url = URL.createObjectURL(await getBlob(imageUrl, options));
-                        blobUrls[imageUrl] = url;
-                        return url;
+                        const objUrl = URL.createObjectURL(await getBlob(url, options));
+                        blobUrls[url] = objUrl;
+                        return objUrl;
                     } catch (e) {
-                        console.error(`[Utils.imageCache] Failed to fetch or load image (${imageUrl}):`, e);
-                        blobUrls[imageUrl] = imageUrl;
-                        return imageUrl;
+                        console.error(`[${label}] Failed to fetch or load (${url}):`, e);
+                        blobUrls[url] = url;
+                        return url;
                     }
                 })();
             }
-            return promises[imageUrl];
+            return promises[url];
         };
-
-        const getSyncUrl = (imageUrl) => (imageUrl ? (blobUrls[imageUrl] || imageUrl) : '');
-
-        return { getBlob, getUrl, getSyncUrl, DEFAULT_TTL: ttlMs };
+        const getSyncUrl = (url) => (url ? (blobUrls[url] || url) : '');
+        return { getUrl, getSyncUrl };
     };
 
-    const mascot = (imageCache, cfg) => {
+    const createImageCache = ({ getBlob, ttlMs }) => {
+        const urls = createBlobUrlStore(getBlob, 'Utils.imageCache');
+        return { getBlob, getUrl: urls.getUrl, getSyncUrl: urls.getSyncUrl, DEFAULT_TTL: ttlMs };
+    };
+
+    const mascot = (cfg, { getBlob }) => {
         const url = `https://${cfg.domains.main}${cfg.assets.mascotPath}`;
         const opts = { cacheKey: cfg.keys.mascotBlob, ttlMs: cfg.ttl.image };
+        const urls = createBlobUrlStore(getBlob, 'Utils.mascot');
         return {
             url,
             CACHE_KEY: cfg.keys.mascotBlob,
             CACHE_TTL: cfg.ttl.image,
-            getBlob: () => imageCache.getBlob(url, opts),
-            getUrl: () => imageCache.getUrl(url, opts),
-            getSyncUrl: () => imageCache.getSyncUrl(url)
+            getBlob: () => getBlob(url, opts),
+            getUrl: () => urls.getUrl(url, opts),
+            getSyncUrl: () => urls.getSyncUrl(url)
         };
     };
 
@@ -1020,13 +1207,11 @@
                     fireWindowEvent('popstate');
                 }
             };
-
             if (isForumPage() && isForumUrl(path)) {
                 if (getPath() !== path) history.pushState({}, '', path);
                 fireWindowEvent(events.locationChange);
                 return;
             }
-
             const r = getRouter();
             if (r && typeof r.push === 'function') {
                 try {
@@ -1039,15 +1224,13 @@
             }
             fireWindowEvent(events.locationChange);
         };
-
         const onChange = (callback) => {
             init();
             if (typeof window !== 'undefined') {
                 ['popstate', 'hashchange', events.locationChange].forEach((ev) => window.addEventListener(ev, callback));
             }
         };
-
-        return { init, push, getPath, getPathname, parseNovelPath, isNovelPage, isForumPage, isForumUrl, isListPage, isListPageExceptNovelDetail, isCommentableDetailPage, onChange, getRouter };
+        return { onChange, getRouter, parseNovelPath, isNovelPage, isForumPage, isForumUrl, isListPage, isListPageExceptNovelDetail, isCommentableDetailPage, push, getPath, getPathname, init, utrimmer };
     };
 
     const SIDEBAR_SEL = '.web-kit-sidebar, .sidebar-shell, .n-layout-sider, .n-layout-sidebar, aside';
@@ -1879,8 +2062,10 @@
     const localStore = createLocalStore();
     const cache = createCache({ ls: localStore, idb });
     const network = createNetwork({ root, patcher, idb, gm, domains: cfg.domains, db: cfg.db, ttlMs: cfg.ttl.default });
-    const imageCache = createImageCache({ isBlocked: network.isBlocked, cache, download: gm.downloadBlob, ttlMs: cfg.ttl.image });
-    const mascotAsset = mascot(imageCache, cfg);
+    const fetchRaceCache = createFetchRaceCache();
+    const fetchBlob = createBlobFetcher({ fetchRaceCache, cache, download: gm.downloadBlob, isBlocked: network.isBlocked, ttlMs: cfg.ttl.image });
+    const imageCache = createImageCache({ getBlob: fetchBlob, ttlMs: cfg.ttl.image });
+    const mascotAsset = mascot(cfg, { getBlob: fetchBlob });
     const nodeWatcher = createNodeWatcher({ patcher });
     const router = createRouter({ root, patcher, domains: cfg.domains, events: cfg.events });
     const sidebar = createSidebar({ isForumUrl: router.isForumUrl });
@@ -1903,6 +2088,8 @@
         nodeWatcher,
         network,
         imageCache,
+        fetchRaceCache,
+        fetchBlob,
         icons,
         router,
         sidebar,
@@ -1910,6 +2097,7 @@
         comments,
         time,
         createLimiter,
+        utrimmer,
         ui: Object.freeze({
             ...genericUi,
             site: siteUi

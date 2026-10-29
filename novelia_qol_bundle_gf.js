@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.6.0
+// @version      3.7.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1979455/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1979994/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -2460,11 +2460,15 @@
     Modules.banner_replace = {
         init: function() {
             // block og banner image request to avoid loading the original banner
-            if (Utils && Utils.network && typeof Utils.network.block === 'function') {
-                Utils.network.block({ domain: (typeof NoveliaConfig !== 'undefined' && NoveliaConfig.domains.cdn) || 'n-cdn.novelia.cc', key: '/banners/', isImage: true });
-            }
+            Utils.network.block({ domain: NoveliaConfig.domains.cdn, url: '/banners/', isImage: true });
+
             if (location.hostname !== NoveliaConfig.domains.main) return;
 
+            const IMG_CACHE_KEY = 'banner_image_blob';
+            Utils.cache.idb.get(IMG_CACHE_KEY, {dbName: "novelia_qol_db", storeName: "assets_cache"}).then(blob => {
+                if (blob && blob.size) Utils.network.block({ domain: NoveliaConfig.domains.main, url: '/files-extra/', isImage: true });
+            })
+            
             const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';
             // const IMG_FIT = 'cover';
             const IMG_POSITION = '50% 50%';
@@ -2503,17 +2507,14 @@
                 activeLayer.style.backgroundPosition = `${x} ${offsetY}px`;
                 rafId = requestAnimationFrame(tick);
             }
-
             function startScroll(layer) {
                 activeLayer = layer;
                 if (!rafId) { lastTime = 0; rafId = requestAnimationFrame(tick); }
             }
-
             function stopScroll() {
                 activeLayer = null;
                 if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
             }
-
             function replaceBanner() {
                 const cleanPath = Utils.router.getPath().split('?')[0].split('#')[0];
                 if (cleanPath !== '/') { stopScroll(); return; }
@@ -2541,38 +2542,39 @@
                 }
                 Object.assign(container.style, { position: 'relative', overflow: 'hidden', overflowAnchor: 'none' });
                 
-                // const targetFit = getObjectFit();
                 const targetPosition = getObjectPosition();
                 const targetSize = Utils.dom.isMobile() ? getBannerSizeMobile() : getBannerSize();
                 const scrolling = getScrolling();
 
                 let layer = container.querySelector(':scope > .banner-scroll-layer');
                 if (!layer) {
-                    layer = Object.assign(document.createElement('div'), {
-                        className: 'banner-scroll-layer'
-                    });
+                    layer = Object.assign(document.createElement('div'), { className: 'banner-scroll-layer' });
                     Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', willChange: 'background-position' });
                     container.appendChild(layer);
                 }
                 const bannerUrl = getBannerUrl();
-                const cssUrl = `url("${bannerUrl}")`;
-                if (layer.style.backgroundImage !== cssUrl) {
-                    layer.style.backgroundImage = cssUrl;
+                if (layer.dataset.bannerSrc !== bannerUrl) {
+                    layer.dataset.bannerSrc = bannerUrl;
+                    const fadeIn = getFadeInAnimation();
 
-                    if (getFadeInAnimation()) {
-                        Object.assign(layer.style, { transition: 'none', opacity: '0' });
-                        layer.dataset.bannerSrc = bannerUrl;
+                    if (fadeIn) Object.assign(layer.style, { transition: 'none', opacity: '0' });
+                    else Object.assign(layer.style, { transition: '', opacity: '1' });
 
-                        const reveal = () => {
-                            if (!layer.isConnected || layer.dataset.bannerSrc !== bannerUrl) return;
-                            void layer.offsetWidth;
-                            Object.assign(layer.style, { transition: 'opacity 0.1s ease', opacity: '1' });
-                        };
+                    const isStale = () => !layer.isConnected || layer.dataset.bannerSrc !== bannerUrl;
+                    const reveal = () => {
+                        if (isStale() || !fadeIn) return;
+                        void layer.offsetWidth;
+                        Object.assign(layer.style, { transition: 'opacity 0.1s ease', opacity: '1' });
+                    };
+                    Utils.imageCache.getUrl(bannerUrl, {
+                        cacheKey: IMG_CACHE_KEY,
+                        ttlMs: Utils.imageCache.DEFAULT_TTL
+                    }).then((src) => {
+                        if (isStale()) return;
+                        layer.style.backgroundImage = `url("${src}")`;
                         const preload = new Image();
-                        Object.assign(preload, { onload: reveal, onerror: reveal, src: bannerUrl });
-                    } else {
-                        Object.assign(layer.style, { transition: '', opacity: '1' });
-                    }
+                        Object.assign(preload, { onload: reveal, onerror: reveal, src });
+                    });
                 }
                 const computedBackgroundSize = (targetSize === 'cover' || targetSize === 'contain' || targetSize.includes(' ')) ? targetSize : `${targetSize} auto`;
                 layer.style.backgroundSize = computedBackgroundSize;
