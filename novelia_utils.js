@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.3
+// @version      2.1.4
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -873,7 +873,7 @@
                         return url;
                     } catch (e) {
                         console.error(`[Utils.imageCache] Failed to fetch or load image (${imageUrl}):`, e);
-                        delete promises[imageUrl];
+                        blobUrls[imageUrl] = imageUrl;
                         return imageUrl;
                     }
                 })();
@@ -1866,8 +1866,14 @@
         }
     };
 
+    const gmEnv = {
+        GM_addStyle: typeof GM_addStyle !== 'undefined' ? GM_addStyle : undefined,
+        GM_setClipboard: typeof GM_setClipboard !== 'undefined' ? GM_setClipboard : undefined,
+        GM_xmlhttpRequest: typeof GM_xmlhttpRequest !== 'undefined' ? GM_xmlhttpRequest : undefined
+    };
+
     const cfg = { ...defaultConfig };
-    const gm = createGm(root);
+    const gm = createGm(gmEnv);
     const patcher = createPatcher();
     const idb = createIdb(cfg.db);
     const localStore = createLocalStore();
