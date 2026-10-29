@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.1.4
+// @version      2.1.5
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -33,7 +33,7 @@
 
     const defaultConfig = {
         domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
-        db: { name: 'novelia_qol_db', version: 1, stores: ['cache_store', 'preview_cache', 'network_cache'], keyPath: 'key' },
+        db: { name: 'novelia_qol_db', version: 1, stores: ['assets_cache', 'preview_cache', 'network_cache'], keyPath: 'key' },
         keys: { forumSubmenuExpanded: 'novelia_forum_submenu_expanded', mascotBlob: 'mascot_image_blob' },
         assets: { mascotPath: '/assets/mascot-DSVGgW05.webp' },
         events: { locationChange: 'tm-locationchange' },
