@@ -24,6 +24,7 @@
         'novelia-forum-popout-btn',
         'novelia-forum-fav-btn',
         'novelia-forum-reload-btn',
+        'novelia-top-compress-btn',
         'novelia-bulk-update-button',
         'novelia-share-clear-btn',
         'novelia-share-view-btn',
@@ -913,7 +914,8 @@
         DRAWER: mdIcon(24, 'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z'),
         POPOUT: mdIcon(20, POPOUT_PATH),
         RELOAD_CIRCLE: mdIcon(20, 'M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z'),
-        STAR_OUTLINE: mdIcon(20, 'M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z')
+        STAR_OUTLINE: mdIcon(20, 'M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z'),
+        ZIP: mdIcon(20, 'M19 13H5v-2h14v2zM12 3L7.5 7.5h3V11h3V7.5h3L12 3zm0 18l4.5-4.5h-3V13h-3v3.5h-3L12 21z')
     };
 
     const LIST_PREFIXES = ['/novel', '/favorite', '/wenku', '/search', '/read-history'];
