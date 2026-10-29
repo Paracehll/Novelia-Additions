@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.7.0
+// @version      3.7.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1664,14 +1664,19 @@
                 });
                 return buttonElement;
             }
+            function getTitleTextFromAnchor(anchorElement) {
+                if (!anchorElement) return '';
+                const textSpanElement = anchorElement.querySelector('.n-text');
+                return textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
+            }
+
             function injectLinkButtonsToItems(parentElement) {
                 if (!Utils.router.isListPageExceptNovelDetail()) return;
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
                     if (itemElement.closest('.n-drawer') || itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const anchorElement = itemElement.querySelector("a[href^='/novel/']");
                     if (!anchorElement) return;
-                    const textSpanElement = itemElement.querySelector(".n-text");
-                    const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
+                    const titleText = getTitleTextFromAnchor(anchorElement);
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
 
@@ -1749,8 +1754,7 @@
                     if (itemElement.closest('.n-drawer')) return;
                     const anchorElement = itemElement.querySelector("a[href^='/novel/']");
                     if (!anchorElement) return;
-                    const textSpanElement = itemElement.querySelector(".n-text");
-                    const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
+                    const titleText = getTitleTextFromAnchor(anchorElement);
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
                     const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
