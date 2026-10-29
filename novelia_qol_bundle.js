@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.4.6
+// @version      3.5.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -45,12 +45,12 @@
 
     function initMenu() {
         FEATURES.forEach(feature => {
-            const enabled = Utils.gm.getValue(`feature_${feature.id}`, feature.default);
+            const enabled = GM_getValue(`feature_${feature.id}`, feature.default);
             config[feature.id] = enabled;
 
             const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
-            Utils.gm.registerMenuCommand(label, () => {
-                Utils.gm.setValue(`feature_${feature.id}`, !enabled);
+            GM_registerMenuCommand(label, () => {
+                GM_setValue(`feature_${feature.id}`, !enabled);
                 location.reload();
             });
         });
@@ -91,14 +91,14 @@
     }
     injectGlobalStyles();
 
-    Utils.route.init();
+    Utils.router.init();
 
     // ==========================================
     // 1. Web 評論數追蹤 (Modules.comment_count)
     // ==========================================
     Modules.comment_count = {
         init: function() {
-            if (location.hostname !== DOMAINS.HOST) return;
+            if (location.hostname !== NoveliaConfig.domains.main) return;
 
             const PAGE_SIZE = 100;
             const CONCURRENCY_LIMIT = 3;
@@ -117,8 +117,8 @@
             `);
 
             const CommentService = {
-                getFullStorage() { return Utils.ls.get('novelia_comment_count', {}); },
-                saveFullStorage(data) { Utils.ls.set('novelia_comment_count', data); },
+                getFullStorage() { return Utils.localStore.get('novelia_comment_count', {}); },
+                saveFullStorage(data) { Utils.localStore.set('novelia_comment_count', data); },
                 getStoredEntry(source, id) {
                     const storage = this.getFullStorage();
                     return (storage[source] && storage[source][id]) || null;
@@ -150,7 +150,7 @@
                 async fetchCommentPage(site, page, pageSize = PAGE_SIZE) {
                     const p = Math.max(1, page);
                     const ps = Math.max(1, pageSize);
-                    const url = `https://${DOMAINS.FORUM}/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
+                    const url = `https://${NoveliaConfig.domains.forum}/api/v1/external/comment/novel/${encodeURIComponent(site)}?page=${p}&page_size=${ps}`;
                     const response = await fetch(url, { credentials: 'same-origin' });
                     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
                     return response.json();
@@ -171,7 +171,7 @@
                     if (alreadyFetched.length > 1) results[totalPages - 1] = alreadyFetched[1];
                     const missingPages = [];
                     for (let index = 0; index < totalPages; index++) if (!results[index]) missingPages.push(index);
-                    const pageLimiter = Utils.limiter.createConcurrencyLimiter(PAGE_FETCH_CONCURRENCY);
+                    const pageLimiter = Utils.createLimiter(PAGE_FETCH_CONCURRENCY);
                     await Promise.all(missingPages.map((pageIndex) => pageLimiter(async () => { results[pageIndex] = await this.fetchCommentPage(site, pageIndex + 1); })));
                     return results;
                 },
@@ -224,17 +224,17 @@
                     if (!cached) return this.updateCommentCount(source, id);
                     const updatedAt = cached.update ?? cached.updated_at ?? 0;
                     const isStale = (Date.now() - updatedAt >= CACHE_REFRESH_INTERVAL_MS);
-                    const isNewInstall = !Utils.ls.has('novelia_comment_count');
+                    const isNewInstall = !Utils.localStore.has('novelia_comment_count');
                     if ((isInitial || isNewInstall) && isStale) return this.updateCommentCount(source, id);
                     return this.buildResultFromEntry(cached);
                 }
             };
-            const taskLimiter = Utils.limiter.createConcurrencyLimiter(CONCURRENCY_LIMIT);
+            const taskLimiter = Utils.createLimiter(CONCURRENCY_LIMIT);
 
             const CommentUI = {
                 parseNovelPath(anchorElement) {
                     try {
-                        return Utils.route.matchNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
+                        return Utils.router.parseNovelPath(new URL(anchorElement.getAttribute('href'), location.origin).pathname);
                     } catch (error) {
                         return null;
                     }
@@ -284,7 +284,7 @@
                 renderPlainBadge(targetElement, text, opts) { this.renderBadge(targetElement, { text, isError: opts?.isError }); },
                 renderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff }); },
                 forceRenderCountBadge(targetElement, count, diff) { this.renderBadge(targetElement, { count, diff, force: true }); },
-                isAllowedPage() { return Utils.route.isCommentCountPage(); },
+                isAllowedPage() { return Utils.router.isListPage() || Utils.router.isNovelPage() },
                 getListTarget(anchorElement) {
                     const flexParent = anchorElement.closest('.n-flex') || anchorElement.closest('.n-grid > div');
                     if (!flexParent) return anchorElement;
@@ -349,7 +349,7 @@
                 },
                 createUpdateButton(source, id, novelKey, badgeElement) {
                     const buttonElement = document.createElement('button');
-                    Object.assign(buttonElement, { className: 'novelia-bundle-btn novelia-update-button', innerHTML: `${Utils.svg.REFRESH}<span>刷新</span>`, title: '手動更新留言數' });
+                    Object.assign(buttonElement, { className: 'novelia-bundle-btn novelia-update-button', innerHTML: `${Utils.icons.REFRESH}<span>刷新</span>`, title: '手動更新留言數' });
                     buttonElement.dataset.noveliaNovelKey = novelKey;
                     buttonElement.addEventListener('click', async () => {
                         if (buttonElement.disabled) return;
@@ -381,7 +381,7 @@
                 },
                 injectUpdateButtonsForCurrentNovel() {
                     if (!this.isAllowedPage()) return;
-                    const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
+                    const novelInfo = Utils.router.parseNovelPath(Utils.router.getPath());
                     if (!novelInfo) return;
                     const h1Elements = document.querySelectorAll('h1');
                     if (!h1Elements.length) return;
@@ -410,7 +410,7 @@
                 },
                 injectH2CommentCount() {
                     if (!this.isAllowedPage()) return;
-                    const novelInfo = Utils.route.matchNovelPath(Utils.route.getPath());
+                    const novelInfo = Utils.router.parseNovelPath(Utils.router.getPath());
                     if (!novelInfo) return;
                     const h2Elements = Array.from(document.querySelectorAll('h2')).filter((h2) => {
                         const text = h2.textContent.trim();
@@ -430,51 +430,51 @@
                         if (badgeElement) this.renderH1Badge(badgeElement, storedEntry);
                     });
                 },
-                createBulkUpdateButton() {
-                    const buttonElement = document.createElement('button');
-                    Object.assign(buttonElement, { className: 'novelia-bundle-btn novelia-bulk-update-button', innerHTML: `${Utils.svg.BULK}<span>${UPDATE_BUTTON_LABEL}</span>`, title: '手動更新本頁所有留言數'});
-                    buttonElement.addEventListener('click', async () => {
-                        if (buttonElement.disabled) return;
-                        buttonElement.disabled = true;
-                        const originalContent = buttonElement.innerHTML;
-                        buttonElement.innerHTML = '<span>⏳ 批次更新中</span>';
-                        try {
-                            const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
-                            const groupsMap = new Map();
-                            anchors.forEach((anchorElement) => {
-                                const novelInfo = this.parseNovelPath(anchorElement);
-                                if (!novelInfo) return;
-                                const key = `${novelInfo.source}/${novelInfo.id}`;
-                                if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
-                                groupsMap.get(key).targets.add(this.getListTarget(anchorElement));
-                            });
-                            await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
-                                try {
-                                    const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
-                                    if (result) novelGroup.targets.forEach((targetElement) => this.forceRenderCountBadge(targetElement, result.count, result.diff));
-                                } catch (error) {
-                                    novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
-                                }
-                            })));
-                            buttonElement.innerHTML = originalContent;
-                        } catch (error) {
-                            buttonElement.innerHTML = '<span>⚠️ 失敗</span>';
-                            setTimeout(() => { buttonElement.innerHTML = originalContent; }, 1500);
-                        } finally {
-                            buttonElement.disabled = false;
+                injectBulkUpdateButtons() {
+                    if (!this.isAllowedPage()) {
+                        const existing = document.querySelector('.novelia-bulk-update-button');
+                        if (existing) existing.remove();
+                        return;
+                    }
+
+                    Utils.ui.site.injectMainHeaderButton({
+                        id: 'novelia-bulk-update-button',
+                        title: '手動更新本頁所有留言數',
+                        iconSvg: Utils.icons.BULK,
+                        position: 'right',
+                        onClick: async (e) => {
+                            const btnElement = e.currentTarget;
+                            if (btnElement.disabled) return;
+                            btnElement.disabled = true;
+                            const originalContent = btnElement.innerHTML;
+                            btnElement.innerHTML = '<span style="font-size:12px;">⏳</span>';
+                            try {
+                                const anchors = document.querySelectorAll('a[href][data-novelia-comment-tracked]');
+                                const groupsMap = new Map();
+                                anchors.forEach((anchorElement) => {
+                                    const novelInfo = this.parseNovelPath(anchorElement);
+                                    if (!novelInfo) return;
+                                    const key = `${novelInfo.source}/${novelInfo.id}`;
+                                    if (!groupsMap.has(key)) groupsMap.set(key, { source: novelInfo.source, id: novelInfo.id, targets: new Set() });
+                                    groupsMap.get(key).targets.add(this.getListTarget(anchorElement));
+                                });
+                                await Promise.all(Array.from(groupsMap.values()).map((novelGroup) => taskLimiter(async () => {
+                                    try {
+                                        const result = await CommentService.getCommentCount(novelGroup.source, novelGroup.id, { force: true });
+                                        if (result) novelGroup.targets.forEach((targetElement) => this.forceRenderCountBadge(targetElement, result.count, result.diff));
+                                    } catch (error) {
+                                        novelGroup.targets.forEach((targetElement) => this.renderPlainBadge(targetElement, `${COMMENT_ICON} ?`, { isError: true }));
+                                    }
+                                })));
+                                btnElement.innerHTML = originalContent;
+                            } catch (error) {
+                                btnElement.innerHTML = '<span style="font-size:12px;">⚠️</span>';
+                                setTimeout(() => { btnElement.innerHTML = originalContent; }, 1500);
+                            } finally {
+                                btnElement.disabled = false;
+                            }
                         }
                     });
-                    return buttonElement;
-                },
-                injectBulkUpdateButtons() {
-                    const h1Element = document.querySelector('h1');
-                    if (!h1Element || h1Element.closest('.n-drawer') || h1Element.querySelector(':scope > .novelia-bulk-update-button')) return;
-
-                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
-                    const bulkButton = this.createBulkUpdateButton();
-                    const lastHeaderButton = Array.from(h1Element.querySelectorAll('.novelia-header-btn')).pop();
-                    if (lastHeaderButton) lastHeaderButton.after(bulkButton);
-                    else h1Element.appendChild(bulkButton);
                 },
                 scanPage({ isInitial = false } = {}) {
                     if (!this.isAllowedPage()) return;
@@ -514,8 +514,8 @@
     // ==========================================
     Modules.forum_iframe = {
         init: function() {
-            const IS_HOST = (location.hostname === DOMAINS.HOST);
-            const IS_IFRAME_CONTEXT = (location.hostname === DOMAINS.FORUM);
+            const IS_HOST = (location.hostname === NoveliaConfig.domains.main);
+            const IS_IFRAME_CONTEXT = (location.hostname === NoveliaConfig.domains.forum);
             // =========================================================
             // IFRAME CLIENT CONTEXT (forum.novelia.cc)
             // =========================================================
@@ -546,13 +546,13 @@
                         const targetContainer = forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild;
                         if (!targetContainer) return null;
 
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-host-drawer-btn',
                             title: '切換側邊欄',
                             iconSize: 24,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             marginRight: HEADER_BTN_FST_GAP,
-                            iconSvg: Utils.svg.DRAWER,
+                            iconSvg: Utils.icons.DRAWER,
                             onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                         });
                         targetContainer.before(btn);
@@ -570,12 +570,12 @@
                     const refBtn = drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-popout-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-popout-btn',
                             title: '前往論壇 (取代當前頁面)',
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.svg.POPOUT,
+                            iconSvg: Utils.icons.POPOUT,
                             onClick: () => {
                                 const targetUrl = location.href;
                                 if (window.parent && window.parent !== window) {
@@ -600,36 +600,36 @@
                     const refBtn = popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-fav-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-fav-btn',
                             title: '我的收藏',
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.svg.STAR_OUTLINE,
+                            iconSvg: Utils.icons.STAR_OUTLINE,
                             onClick: () => {
                                 if (window.parent !== window) {
                                     window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
                                 } else {
-                                    window.location.href = `https://${DOMAINS.HOST}/favorite/web`;
+                                    window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
                                 }
                             }
                         });
                         refBtn.after(btn);
                     } else if (!btn) {
-                        const themeBtn = Utils.ui.getThemeButton(forumHeader);
+                        const themeBtn = Utils.ui.site.getThemeButton(forumHeader);
                         const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild);
                         if (targetContainer) {
-                            btn = Utils.ui.createHeaderButton({
+                            btn = Utils.ui.site.createNaiveButton({
                                 className: 'novelia-forum-fav-btn',
                                 title: '我的收藏',
                                 iconSize: 20,
                                 margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                                iconSvg: Utils.svg.STAR_OUTLINE,
+                                iconSvg: Utils.icons.STAR_OUTLINE,
                                 onClick: () => {
                                     if (window.parent !== window) {
                                         window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
                                     } else {
-                                        window.location.href = `https://${DOMAINS.HOST}/favorite/web`;
+                                        window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
                                     }
                                 }
                             });
@@ -648,12 +648,12 @@
                     const refBtn = favBtn || forumHeader.querySelector('.novelia-forum-fav-btn') || popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-reload-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.createHeaderButton({
+                        btn = Utils.ui.site.createNaiveButton({
                             className: 'novelia-forum-reload-btn',
                             title: '重新載入',
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.svg.RELOAD_CIRCLE,
+                            iconSvg: Utils.icons.RELOAD_CIRCLE,
                             onClick: () => window.location.reload()
                         });
                         refBtn.after(btn);
@@ -663,7 +663,7 @@
                     return btn;
                 }
                 function injectMobileHeaderButtons() {
-                    const forumHeader = Utils.ui.getForumHeader();
+                    const forumHeader = Utils.ui.site.getForumHeader();
                     if (!forumHeader) return;
 
                     ['.novelia-host-drawer-btn', '.novelia-forum-popout-btn', '.novelia-forum-fav-btn', '.novelia-forum-reload-btn'].forEach(selector => {
@@ -691,7 +691,7 @@
                         window.parent.postMessage({ type: 'NOVELIA_URL_CHANGE', path }, '*');
                     }
                 }
-                Utils.route.onChange(notifyHostUrlChange);
+                Utils.router.onChange(notifyHostUrlChange);
                 notifyHostUrlChange();
 
                 injectIframeStyles();
@@ -722,7 +722,7 @@
                         if (currentPath !== targetPath && currentCleanPath !== targetCleanPath) {
                             isNavigatingFromHost = true;
                             try {
-                                Utils.route.push(targetPath);
+                                Utils.router.push(targetPath);
                             } finally {
                                 setTimeout(() => { isNavigatingFromHost = false; }, 100);
                             }
@@ -731,7 +731,7 @@
                     }
                     if (messageEvent.data.type === 'NOVELIA_THEME_CHANGE') {
                         const isDark = !!messageEvent.data.isDark;
-                        const forumIsDarkBefore = Utils.ui.isDark();
+                        const forumIsDarkBefore = Utils.ui.site.theme.isDark();
                         if (isDark) {
                             document.documentElement.classList.add('dark');
                             document.body.classList.add('dark');
@@ -742,7 +742,7 @@
                             document.documentElement.removeAttribute('data-theme');
                         }
 
-                        const themeBtn = Utils.ui.getThemeButton();
+                        const themeBtn = Utils.ui.site.getThemeButton();
                         if (themeBtn) {
                             const btnText = ((themeBtn.textContent || '') + ' ' + (themeBtn.getAttribute('aria-label') || '') + ' ' + (themeBtn.getAttribute('title') || '')).toLowerCase();
                             const isCurrentlyDarkInForum = forumIsDarkBefore || btnText.includes('浅色') || btnText.includes('淺色') || btnText.includes('亮色') || btnText.includes('light');
@@ -763,12 +763,12 @@
             let hostObserver = null;
 
             function getIframeTargetUrl() {
-                const path = Utils.route.getPath();
+                const path = Utils.router.getPath();
                 if (path.startsWith('/forum/')) {
                     const sub = path.substring('/forum'.length);
-                    return `https://${DOMAINS.FORUM}${sub}`;
+                    return `https://${NoveliaConfig.domains.forum}${sub}`;
                 }
-                return `https://${DOMAINS.FORUM}/`;
+                return `https://${NoveliaConfig.domains.forum}/`;
             }
             function injectInlineStyles() {
                 Utils.gm.addStyle(`
@@ -801,7 +801,7 @@
             function sendThemeToIframe() {
                 const iframe = document.querySelector('iframe.novelia-forum-iframe');
                 if (!iframe || !iframe.contentWindow) return;
-                iframe.contentWindow.postMessage({ type: 'NOVELIA_THEME_CHANGE', isDark: Utils.ui.isHostDarkTheme() }, '*');
+                iframe.contentWindow.postMessage({ type: 'NOVELIA_THEME_CHANGE', isDark: Utils.ui.site.theme.isDark() }, '*');
             }
             function observeThemeChange() {
                 const observer = new MutationObserver(() => {
@@ -836,8 +836,8 @@
                 } catch (e) {}
             }
             function updateSelectedSubmenuItem() {
-                const currentPath = Utils.route.getPath();
-                const isForum = Utils.route.isForumPage();
+                const currentPath = Utils.router.getPath();
+                const isForum = Utils.router.isForumPage();
 
                 document.querySelectorAll('.novelia-forum-popout-btn').forEach(btn => { btn.setAttribute('href', getIframeTargetUrl()); });
 
@@ -891,17 +891,17 @@
                 if (e.data.type === 'NOVELIA_NAVIGATE_HOST') {
                     const rawPath = e.data.path || '/favorite/web';
                     const targetHostPath = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
-                    Utils.route.push(targetHostPath);
+                    Utils.router.push(targetHostPath);
                     handleForumPage();
                     updateSelectedSubmenuItem();
                 }
                 if (e.data.type === 'NOVELIA_URL_CHANGE') {
                     const innerPath = e.data.path || '/';
                     const targetHostPath = (innerPath === '/' || innerPath === '') ? '/forum' : '/forum' + (innerPath.startsWith('/') ? innerPath : '/' + innerPath);
-                    const currentHostPath = Utils.route.getPath();
+                    const currentHostPath = Utils.router.getPath();
                     const iframe = document.querySelector('iframe.novelia-forum-iframe');
                     if (iframe) iframe.dataset.lastSentPath = innerPath;
-                    if (currentHostPath !== targetHostPath && Utils.route.isForumPage()) {
+                    if (currentHostPath !== targetHostPath && Utils.router.isForumPage()) {
                         if (window.__noveliaMockPath) window.__noveliaMockPath = targetHostPath;
                         else history.replaceState({}, '', targetHostPath);
                         updateSelectedSubmenuItem();
@@ -912,18 +912,18 @@
                 injectInlineStyles();
                 if (document.querySelector('.novelia-forum-submenu')) {
                     updateSelectedSubmenuItem();
-                    Utils.collapse.syncSidebarCollapsedState();
+                    Utils.sidebarState.syncSubmenu();
                     return;
                 }
 
-                const found = Utils.ui.findForumMenuItem();
+                const found = Utils.sidebar.findForumMenuItem();
                 if (!found) return;
 
                 const menuItemDiv = found.el;
                 if (!menuItemDiv || menuItemDiv.dataset.noveliaSubmenuProcessed) return;
 
                 menuItemDiv.dataset.noveliaSubmenuProcessed = '1';
-                let isExpanded = Utils.ls.getRaw('novelia_forum_submenu_expanded') === 'true';
+                let isExpanded = Utils.localStore.getString('novelia_forum_submenu_expanded') === 'true';
 
                 const subItems = [
                     {
@@ -947,23 +947,24 @@
                         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-4"><path d="M20 3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V5h16v14z" fill-rule="evenodd" fill="currentColor"></path><path d="M19.41 10.42L17.99 9l-3.17 3.17l-1.41-1.42L12 12.16L14.82 15zM5 7h5v2H5zm0 4h5v2H5zm0 4h5v2H5z" fill-rule="evenodd" fill="currentColor"></path></svg>'
                     }
                 ];
-                const popover = Utils.ui.getOrCreateDropdownPopover(subItems, (item) => {
+                const popover = Utils.ui.site.getForumDropdown(subItems, (item) => {
                     handleForumPage();
                     updateSelectedSubmenuItem();
                 });
                 let hidePopoverTimer = null;
 
                 if (found.isWebKit) {
-                    const submenuContainer = document.createElement('div');
-                    submenuContainer.className = 'novelia-forum-submenu flex flex-col gap-1 w-full';
+                    const submenuContainer = Object.assign(document.createElement('div'), {
+                        className: 'novelia-forum-submenu flex flex-col gap-1 w-full'
+                    });
 
-                    const popoutBtn = Utils.ui.createWebKitPopoutButton({
+                    const popoutBtn = Utils.ui.site.createSidebarPopoutButton({
                         href: getIframeTargetUrl(),
                         onClick: () => window.location.assign(getIframeTargetUrl())
                     });
 
                     const origIcon = menuItemDiv.querySelector('.grid.size-5, svg, i');
-                    const headerBtn = Utils.ui.createWebKitSidebarHeader({
+                    const headerBtn = Utils.ui.site.createSidebarGroupHeader({
                         label: '论坛',
                         isExpanded,
                         origIcon,
@@ -972,11 +973,12 @@
 
                     submenuContainer.appendChild(headerBtn);
 
-                    const childrenDiv = document.createElement('div');
-                    childrenDiv.className = `sidebar-submenu ${isExpanded ? 'flex' : 'hidden'} flex-col gap-1 mt-0.5`;
+                    const childrenDiv = Object.assign(document.createElement('div'), {
+                        className: `sidebar-submenu ${isExpanded ? 'flex' : 'hidden'} flex-col gap-1 mt-0.5`
+                    });
 
                     subItems.forEach(item => {
-                        const link = Utils.ui.createWebKitSubmenuItem({
+                        const link = Utils.ui.site.createSidebarSubmenuItem({
                             name: item.name,
                             path: item.path,
                             icon: item.icon,
@@ -990,15 +992,15 @@
                     submenuContainer.appendChild(childrenDiv);
 
                     headerBtn.addEventListener('mouseenter', () => {
-                        Utils.collapse.syncSidebarCollapsedState();
-                        if (Utils.collapse.isSidebarCollapsed()) {
+                        Utils.sidebarState.syncSubmenu();
+                        if (Utils.sidebarState.isCollapsed()) {
                             clearTimeout(hidePopoverTimer);
                             const rect = headerBtn.getBoundingClientRect();
                             Object.assign(popover.style, { top: `${rect.top}px`, left: `${rect.right + 6}px`, display: 'flex' });
                         }
                     });
                     headerBtn.addEventListener('mouseleave', () => {
-                        if (Utils.collapse.isSidebarCollapsed()) {
+                        if (Utils.sidebarState.isCollapsed()) {
                             hidePopoverTimer = setTimeout(() => {
                                 if (!popover.matches(':hover')) popover.style.display = 'none';
                             }, 150);
@@ -1007,10 +1009,10 @@
                     headerBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        if (Utils.collapse.isSidebarCollapsed()) return;
+                        if (Utils.sidebarState.isCollapsed()) return;
 
-                        isExpanded = Utils.ls.getRaw('novelia_forum_submenu_expanded') !== 'true';
-                        Utils.ls.setRaw('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
+                        isExpanded = Utils.localStore.getString('novelia_forum_submenu_expanded') !== 'true';
+                        Utils.localStore.setString('novelia_forum_submenu_expanded', isExpanded ? 'true' : 'false');
                         headerBtn.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
 
                         childrenDiv.classList.toggle('flex', isExpanded);
@@ -1029,7 +1031,7 @@
                 popover.addEventListener('mouseenter', () => { clearTimeout(hidePopoverTimer); });
             }
             function handleForumPage() {
-                const currentlyForum = Utils.route.isForumPage();
+                const currentlyForum = Utils.router.isForumPage();
                 if (!currentlyForum) {
                     document.documentElement.classList.remove('novelia-forum-active');
                     document.body.classList.remove('novelia-forum-active');
@@ -1041,7 +1043,7 @@
                     return;
                 }
                 const justEntered = !lastIsForum;
-                if (justEntered) Utils.collapse.autoCollapseSidebar();
+                if (justEntered) Utils.sidebarState.closeOnMobile();
                 lastIsForum = true;
 
                 injectInlineStyles();
@@ -1067,9 +1069,9 @@
                     wrapper.id = 'novelia-forum-inline-container';
 
                     const loader = document.createElement('div');
-                    Object.assign(loader, { className: 'novelia-forum-spinner-wrapper', innerHTML: `<img src="${Utils.img.getMascotSyncUrl()}" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>` });
+                    Object.assign(loader, { className: 'novelia-forum-spinner-wrapper', innerHTML: `<img src="${Utils.assets.mascot.getSyncUrl()}" class="novelia-forum-mascot" alt="Loading..." /><span style="font-size: 18px; opacity: 0.8;">加载论坛中...</span>` });
 
-                    Utils.img.getMascotUrl().then(mascotUrl => {
+                    Utils.assets.mascot.getUrl().then(mascotUrl => {
                         const mascotImg = loader.querySelector('.novelia-forum-mascot');
                         if (mascotImg) mascotImg.src = mascotUrl;
                     });
@@ -1081,7 +1083,7 @@
                         iframe.classList.add('novelia-iframe-loaded');
                         if (loader) loader.classList.add('novelia-spinner-hidden');
                         sendThemeToIframe();
-                        const currentPath = Utils.route.getPath();
+                        const currentPath = Utils.router.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
                         iframe.dataset.lastSentPath = innerPath;
                         iframe.contentWindow.postMessage({ type: 'NOVELIA_NAVIGATE', path: innerPath }, '*');
@@ -1091,7 +1093,7 @@
                 } else {
                     const iframe = wrapper.querySelector('iframe');
                     if (iframe && iframe.contentWindow) {
-                        const currentPath = Utils.route.getPath();
+                        const currentPath = Utils.router.getPath();
                         const innerPath = currentPath.startsWith('/forum') ? (currentPath.substring('/forum'.length) || '/') : '/';
                         if (iframe.dataset.lastSentPath !== innerPath) {
                             iframe.dataset.lastSentPath = innerPath;
@@ -1120,7 +1122,7 @@
                     const anchor = menuItem.tagName === 'A' ? menuItem : menuItem.querySelector('a');
                     if (anchor) {
                         const href = anchor.getAttribute('href') || anchor.href;
-                        if (href && !Utils.route.isForumUrl(href)) {
+                        if (href && !Utils.router.isForumUrl(href)) {
                             let targetPath = href;
                             try {
                                 const parsed = new URL(href, location.origin);
@@ -1128,7 +1130,7 @@
                             } catch (err) {}
 
                             setTimeout(() => {
-                                if (location.pathname !== targetPath) Utils.route.push(targetPath);
+                                if (location.pathname !== targetPath) Utils.router.push(targetPath);
                                 handleForumPage();
                                 updateSelectedSubmenuItem();
                             }, 0);
@@ -1144,7 +1146,7 @@
                 const anchor = e.target.closest('a');
                 if (anchor) {
                     const href = anchor.getAttribute('href') || anchor.href;
-                    if (Utils.route.isForumUrl(href)) {
+                    if (Utils.router.isForumUrl(href)) {
                         e.preventDefault();
                         e.stopPropagation();
 
@@ -1153,7 +1155,7 @@
                             const parsed = new URL(href, location.origin);
                             if (parsed.hostname === location.hostname) {
                                 targetPath = parsed.pathname + parsed.search + parsed.hash;
-                            } else if (parsed.hostname === DOMAINS.FORUM) {
+                            } else if (parsed.hostname === NoveliaConfig.domains.forum) {
                                 targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                             }
                         } catch (err) {
@@ -1161,7 +1163,7 @@
                         }
 
                         if (location.pathname !== targetPath) {
-                            Utils.route.push(targetPath);
+                            Utils.router.push(targetPath);
                         }
                         handleForumPage();
                         updateSelectedSubmenuItem();
@@ -1177,16 +1179,16 @@
 
             // Override window.open for forum links
             window.open = function(url, target, features) {
-                if (typeof url === 'string' && Utils.route.isForumUrl(url)) {
+                if (typeof url === 'string' && Utils.router.isForumUrl(url)) {
                     let targetPath = '/forum';
                     try {
                         const parsed = new URL(url, location.origin);
                         if (parsed.hostname === location.hostname)  targetPath = parsed.pathname + parsed.search + parsed.hash;
-                        else if (parsed.hostname === DOMAINS.FORUM) targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
+                        else if (parsed.hostname === NoveliaConfig.domains.forum) targetPath = '/forum' + parsed.pathname + parsed.search + parsed.hash;
                     } catch (err) {
                         if (url.startsWith('/forum')) targetPath = url;
                     }
-                    if (location.pathname !== targetPath) Utils.route.push(targetPath);
+                    if (location.pathname !== targetPath) Utils.router.push(targetPath);
                     
                     handleForumPage();
                     updateSelectedSubmenuItem();
@@ -1206,20 +1208,20 @@
                 if (isUpdatingDom) return;
                 const hasChildList = mutations.some(m => m.type === 'childList');
                 if (hasChildList) {
-                    Utils.collapse.observeSidebarToggle();
+                    Utils.sidebarState.observeToggle();
                     transformForumSidebarMenu();
                     attachSidebarClassObserver();
-                    if (Utils.route.isForumPage()) handleForumPage();
+                    if (Utils.router.isForumPage()) handleForumPage();
                 }
-                Utils.collapse.syncSidebarCollapsedState();
+                Utils.sidebarState.syncSubmenu();
             });
             hostObserver.observe(document.body, { childList: true, subtree: true });
 
             const sidebarClassObserver = new MutationObserver(() => {
-                Utils.collapse.syncSidebarCollapsedState();
+                Utils.sidebarState.syncSubmenu();
             });
             function attachSidebarClassObserver() {
-                const sider = Utils.sidebar.get();
+                const sider = Utils.sidebar.getElement();
                 if (!sider || sider.dataset.noveliaClassObserved) return;
                 sider.dataset.noveliaClassObserved = '1';
                 sidebarClassObserver.observe(sider, { attributes: true, attributeFilter: ['class'] });
@@ -1237,9 +1239,9 @@
             `, 'novelia-utils-sidebar-collapse');
 
             window.addEventListener('click', (e) => {
-                if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button, .web-kit-sidebar button, .brand-header button')) {                    setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 10);
-                    setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 50);
-                    setTimeout(() => Utils.collapse.syncSidebarCollapsedState(), 150);
+                if (e.target.closest('.sidebar-collapse, .n-layout-sider-toggle-button, .n-layout-sider-trigger, .n-layout-toggle-button, .web-kit-sidebar button, .brand-header button')) {                    setTimeout(() => Utils.sidebarState.syncSubmenu(), 10);
+                    setTimeout(() => Utils.sidebarState.syncSubmenu(), 50);
+                    setTimeout(() => Utils.sidebarState.syncSubmenu(), 150);
                 }
             }, true);
 
@@ -1262,23 +1264,23 @@
     // ==========================================
     Modules.forum_shistory = {
         init: function() {
-            if (location.hostname !== DOMAINS.FORUM && location.hostname !== DOMAINS.HOST) return;
+            if (location.hostname !== NoveliaConfig.domains.forum && location.hostname !== NoveliaConfig.domains.main) return;
 
             const RECORD_LIMIT = 10;
 
             function isForumContext() {
                 const hostName = location.hostname;
-                if (hostName === DOMAINS.FORUM) return true;
-                if (hostName === DOMAINS.HOST) {
-                    const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
-                    if (cleanPath === '/' || !Utils.route.isForumPage()) return false;
+                if (hostName === NoveliaConfig.domains.forum) return true;
+                if (hostName === NoveliaConfig.domains.main) {
+                    const cleanPath = Utils.router.getPath().split('?')[0].split('#')[0];
+                    if (cleanPath === '/' || !Utils.router.isForumPage()) return false;
                     return true;
                 }
                 return false;
             }
 
-            function loadSearchHistory() { return Utils.ls.get('novelia_forum_search_history', []) }
-            function saveSearchHistory(historyList) { Utils.ls.set('novelia_forum_search_history', historyList); }
+            function loadSearchHistory() { return Utils.localStore.get('novelia_forum_search_history', []) }
+            function saveSearchHistory(historyList) { Utils.localStore.set('novelia_forum_search_history', historyList); }
             function clearSearchHistory() { saveSearchHistory([]) }
 
             function recordSearchEntry(boardName, queryContent, fullUrl) {
@@ -1315,7 +1317,7 @@
             function checkAndRecordCurrentUrl() {
                 if (!isForumContext()) return;
 
-                const currentPathname = Utils.route.getPath();
+                const currentPathname = Utils.router.getPath();
                 const currentSearch = location.search;
 
                 const boardMatch = currentPathname.match(/^\/c\/([^\/?#]+)/i) || currentPathname.match(/^\/forum\/c\/([^\/?#]+)/i);
@@ -1369,8 +1371,9 @@
                 let wrapperElement = inputElement.closest('.novelia-shistory-wrapper');
                 if (!wrapperElement && inputElement.parentNode) {
                     const wasFocused = document.activeElement === inputElement;
-                    wrapperElement = document.createElement('div');
-                    wrapperElement.className = 'novelia-shistory-wrapper';
+                    wrapperElement = Object.assign(document.createElement('div'), {
+                        className: 'novelia-shistory-wrapper'
+                    });
                     inputElement.parentNode.insertBefore(wrapperElement, inputElement);
                     wrapperElement.appendChild(inputElement);
                     if (wasFocused) { inputElement.focus() }
@@ -1387,12 +1390,14 @@
                 const wrapperElement = ensureInputWrapper(inputElement);
                 if (!wrapperElement) return;
 
-                const dropdownElement = document.createElement('div');
-                dropdownElement.className = 'novelia-shistory-dropdown';
+                const dropdownElement = Object.assign(document.createElement('div'), {
+                    className: 'novelia-shistory-dropdown'
+                });
 
                 historyList.forEach((entryItem, entryIndex) => {
-                    const itemElement = document.createElement('div');
-                    itemElement.className = 'novelia-shistory-item';
+                    const itemElement = Object.assign(document.createElement('div'), {
+                        className: 'novelia-shistory-item'
+                    });
                     itemElement.dataset.index = String(entryIndex);
 
                     const querySpan = document.createElement('span');
@@ -1520,7 +1525,7 @@
             });
             observer.observe(document.body, { childList: true, subtree: true });
 
-            Utils.route.onChange(() => {
+            Utils.router.onChange(() => {
                 closeDropdown();
                 if (document.activeElement && typeof document.activeElement.blur === 'function') {
                     document.activeElement.blur();
@@ -1538,20 +1543,24 @@
     // ==========================================
     Modules.share_btn = {
         init: function() {
-            if (location.hostname !== DOMAINS.HOST) return;
+            if (location.hostname !== NoveliaConfig.domains.main) return;
 
             const CLEAR_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "q" };
             const VIEW_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "v" };
-            const REFRESH_UI_KEY = { ctrl: false, alt: false, shift: true, key: "r" };
             const BUTTON_WIDTH = "36px";
             const SHOW_HEADER_BTNS = true;
 
             const CACHE_CHANGE_EVENT_NAME = "novelia-cache-change",
                 COPY_BUTTON_CLASS = "novelia-copy-btn",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
-                HEADER_INJECTION_MARK = "noveliaHeaderInjected",
                 LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
+
+            const HEADER_BUTTONS = [
+                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'] },
+                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'] },
+                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'] },
+            ];
 
             Utils.gm.addStyle(`
                 .${COPY_BUTTON_CLASS} { position: relative; overflow: hidden; margin-right: 6px; padding: 1px 0; width: ${BUTTON_WIDTH}; font-size: 12px; cursor: pointer; background: transparent; border: 1px solid #aaa; border-radius: 4px; vertical-align: middle; opacity: .6; text-align: center; flex-shrink: 0; line-height: 1.4; transition: opacity .15s, background .15s, border-color .15s; }
@@ -1564,13 +1573,19 @@
                 .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
             `);
 
-            const toast = Utils.ui.createToastManager('novelia-toast');
+            const toast = Utils.ui.createToast('novelia-toast');
+
+            const CACHE_KEY = "novelia_share_link_cache";
 
             const LinkCache = {
-                items: [],
+                items: Utils.localStore.get(CACHE_KEY, []),
+                save() {
+                    Utils.localStore.set(CACHE_KEY, this.items);
+                },
                 add(link) {
                     if (!this.items.includes(link)) {
                         this.items.push(link);
+                        this.save();
                         this.dispatch();
                         return true;
                     }
@@ -1578,15 +1593,29 @@
                 },
                 clear() {
                     this.items = [];
+                    this.save();
                     Utils.gm.setClipboard('');
                     this.dispatch();
                 },
-                has(link) { return this.items.includes(link); },
+                has(link) {
+                    if (!link) return false;
+                    return this.items.includes(link);
+                },
+                hasPath(pathname) {
+                    if (!pathname) return false;
+                    return this.items.some((item) => item.includes(pathname));
+                },
                 dispatch() {
                     document.dispatchEvent(new CustomEvent(CACHE_CHANGE_EVENT_NAME, { detail: { cache: [...this.items] } }));
                 }
             };
 
+            window.addEventListener("storage", (event) => {
+                if (event.key === CACHE_KEY) {
+                    LinkCache.items = Utils.localStore.get(CACHE_KEY, []);
+                    LinkCache.dispatch();
+                }
+            });
             function writeToClipboard(text, buttonElement) {
                 Utils.gm.setClipboard(text).then((success) => {
                     if (success) {
@@ -1615,21 +1644,9 @@
                 if (LinkCache.items.length === 0) toast.show("ℹ️ 當前快取中沒有任何連結。");
                 else toast.show(`📂 當前快取連結 (共 ${LinkCache.items.length} 條)：\n${LinkCache.items.join("\n")}`, 3500);
             }
-            function triggerUIRefresh() {
-                removeStaleButtons(true);
-                setTimeout(() => {
-                    performFullScan();
-                    toast.show("🔄 已重新偵測當前頁面並重新注入按鈕！");
-                }, 200);
-            }
             function createCopyButton(formattedLink) {
                 const buttonElement = document.createElement("button");
                 Object.assign(buttonElement, { className: COPY_BUTTON_CLASS, title: "點擊累加複製：" + formattedLink, textContent: "📋" });
-                if (LinkCache.has(formattedLink)) buttonElement.style.display = "none";
-
-                document.addEventListener(CACHE_CHANGE_EVENT_NAME, (event) => {
-                    buttonElement.style.display = event.detail.cache.includes(formattedLink) ? "none" : "";
-                });
 
                 buttonElement.addEventListener("click", (event) => {
                     event.preventDefault();
@@ -1648,7 +1665,7 @@
                 return buttonElement;
             }
             function injectLinkButtonsToItems(parentElement) {
-                if (!Utils.route.isSharePage()) return;
+                if (!Utils.router.isListPageExceptNovelDetail()) return;
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
                     if (itemElement.closest('.n-drawer') || itemElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
                     const anchorElement = itemElement.querySelector("a[href^='/novel/']");
@@ -1658,12 +1675,15 @@
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
 
-                    const formattedLink = `[${titleText}](https://${DOMAINS.HOST}${linkHref})`;
+                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    if (LinkCache.has(formattedLink)) return;
+
                     const copyBtn = createCopyButton(formattedLink);
                     let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}`);
                     if (!wrapper) {
-                        wrapper = document.createElement('div');
-                        wrapper.className = LIST_WRAPPER_CLASS;
+                        wrapper = Object.assign(document.createElement('div'), {
+                            className: LIST_WRAPPER_CLASS
+                        });
                         anchorElement.replaceWith(wrapper);
                         wrapper.appendChild(copyBtn);
                         wrapper.appendChild(anchorElement);
@@ -1680,21 +1700,48 @@
                     const linkHref = anchorElement.getAttribute("href");
                     if (!titleText || !linkHref) return;
 
+                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    if (LinkCache.has(formattedLink)) return;
+
                     const parentPaddingDiv = textSpanElement.parentElement && textSpanElement.parentElement.style.padding ? textSpanElement.parentElement : textSpanElement.closest('div[style*="padding:"]');
                     if (parentPaddingDiv) {
                         parentPaddingDiv.dataset.noveliaOrigPadding = parentPaddingDiv.style.padding;
                         parentPaddingDiv.style.padding = "8px 0px 8px 0px";
                     }
 
-                    const formattedLink = `[${titleText}](https://${DOMAINS.HOST}${linkHref})`;
                     const copyBtn = createCopyButton(formattedLink);
 
-                    const gridWrapperDiv = document.createElement("div");
-                    gridWrapperDiv.className = "novelia-grid-wrapper";
+                    const gridWrapperDiv = Object.assign(document.createElement('div'), {
+                        className: 'novelia-grid-wrapper'
+                    });
                     textSpanElement.replaceWith(gridWrapperDiv);
                     gridWrapperDiv.appendChild(copyBtn);
                     gridWrapperDiv.appendChild(textSpanElement);
                 });
+            }
+            function getCurrentNovelFormattedLink() {
+                if (!Utils.router.isNovelPage()) return null;
+                const pathname = Utils.router.getPathname();
+                const isWenku = pathname.startsWith('/wenku/');
+                const titleEl = isWenku ? document.querySelector('h2') : document.querySelector('h3');
+                const titleText = titleEl ? titleEl.textContent.trim() : '';
+                if (!titleText) return null;
+                return `[${titleText}](https://${NoveliaConfig.domains.main}${pathname})`;
+            }
+            function copyCurrentNovelLink() {
+                const formattedLink = getCurrentNovelFormattedLink();
+                if (!formattedLink) {
+                    toast.show("⚠️ 未能找到小說標題！");
+                    return;
+                }
+                if (LinkCache.has(formattedLink)) {
+                    toast.show("ℹ️ 此小說連結已在快取清單中！");
+                    injectHeaderActionButtons();
+                } else {
+                    LinkCache.add(formattedLink);
+                    writeToClipboard(LinkCache.items.join("\n"));
+                    toast.show(`📋 已複製小說連結：\n${formattedLink}`);
+                }
             }
             function shouldDisplayHeaderButtons() {
                 return (
@@ -1705,38 +1752,38 @@
             }
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
-                const existingButtons = document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`);
 
-                if (!Utils.route.isSharePage()) {
-                    existingButtons.forEach(button => button.remove());
-                    document.querySelectorAll("h1").forEach((h1) => delete h1.dataset[HEADER_INJECTION_MARK]);
-                    return;
-                }
+                const pageType = Utils.router.isNovelPage() ? 'novel'
+                    : Utils.router.isListPageExceptNovelDetail() ? 'list'
+                    : null;
 
-                const h1Elements = document.querySelectorAll("h1");
-                if (!h1Elements.length) return;
+                const currentPath = Utils.router.getPathname();
+                const currentFormattedLink = getCurrentNovelFormattedLink();
 
-                h1Elements.forEach((h1Element) => {
-                    if (h1Element.closest('.n-drawer') || h1Element.dataset[HEADER_INJECTION_MARK] || h1Element.querySelector(`.${HEADER_BUTTON_CLASS}`)) return;
+                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
+                    const cls = `novelia-share-${key}-btn`;
 
-                    h1Element.dataset[HEADER_INJECTION_MARK] = "1";
-                    Object.assign(h1Element.style, { display: 'flex', alignItems: 'center', flexWrap: 'wrap' });
+                    if (!pages.includes(pageType)) {
+                        document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
+                        return;
+                    }
 
-                    const refreshBtn = document.createElement("button");
-                    Object.assign(refreshBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.svg.REFRESH}<span>刷新</span>` });
-                    refreshBtn.addEventListener("click", (e) => { e.preventDefault(); triggerUIRefresh(); });
+                    if (key === 'copy') {
+                        const isCached = (currentFormattedLink && LinkCache.has(currentFormattedLink)) || (currentPath && LinkCache.hasPath(currentPath));
+                        if (isCached) {
+                            document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
+                            return;
+                        }
+                    }
 
-                    const clearBtn = document.createElement("button");
-                    Object.assign(clearBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.svg.CLEAR}<span>清除快取</span>` });
-                    clearBtn.addEventListener("click", (e) => { e.preventDefault(); clearLinkCache(); });
-
-                    const viewBtn = document.createElement("button");
-                    Object.assign(viewBtn, { className: `novelia-bundle-btn ${HEADER_BUTTON_CLASS}`, innerHTML: `${Utils.svg.VIEW}<span>查看快取</span>`  });
-                    viewBtn.addEventListener("click", (e) => { e.preventDefault(); viewLinkCache(); });
-
-                    h1Element.appendChild(refreshBtn);
-                    h1Element.appendChild(clearBtn);
-                    h1Element.appendChild(viewBtn);
+                    Utils.ui.site.injectMainHeaderButton({
+                        id: cls,
+                        className: `${HEADER_BUTTON_CLASS} ${cls}`,
+                        title,
+                        iconSvg: icon,
+                        position: 'left',
+                        onClick: () => action()
+                    });
                 });
             }
             function checkKeyboardShortcut(event, shortcutConfig) {
@@ -1750,7 +1797,12 @@
             window.addEventListener("keydown", (event) => {
                 if (checkKeyboardShortcut(event, CLEAR_CACHE_KEY)) { event.preventDefault(); clearLinkCache(); }
                 if (checkKeyboardShortcut(event, VIEW_CACHE_KEY)) { event.preventDefault(); viewLinkCache(); }
-                if (checkKeyboardShortcut(event, REFRESH_UI_KEY)) { event.preventDefault(); triggerUIRefresh(); }
+            });
+            document.addEventListener(CACHE_CHANGE_EVENT_NAME, () => {
+                if (Utils.router.isListPageExceptNovelDetail()) {
+                    removeStaleButtons(true);
+                }
+                performFullScan();
             });
 
             function removeStaleButtons(skipHeaders = false) {
@@ -1776,11 +1828,15 @@
 
                 if (!skipHeaders) {
                     document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
-                    document.querySelectorAll("h1").forEach((h1Element) => delete h1Element.dataset[HEADER_INJECTION_MARK]);
                 }
             }
             function performFullScan() {
-                if (!Utils.route.isSharePage()) {
+                if (Utils.router.isNovelPage()) {
+                    removeStaleButtons(true);
+                    injectHeaderActionButtons();
+                    return;
+                }
+                if (!Utils.router.isListPageExceptNovelDetail()) {
                     removeStaleButtons();
                     return;
                 }
@@ -1791,7 +1847,11 @@
             window.addEventListener("tm-locationchange", () => { setTimeout(performFullScan, 200); });
 
             const mutationObserver = new MutationObserver((mutations) => {
-                if (!Utils.route.isSharePage()) {
+                if (Utils.router.isNovelPage()) {
+                    injectHeaderActionButtons();
+                    return;
+                }
+                if (!Utils.router.isListPageExceptNovelDetail()) {
                     if (document.querySelector(`.${COPY_BUTTON_CLASS}`) || document.querySelector(`.${HEADER_BUTTON_CLASS}`)) removeStaleButtons();
                     return;
                 }
@@ -2154,11 +2214,11 @@
     // ==========================================
     Modules.source_link = {
         init: function() {
-            if (location.hostname.includes(DOMAINS.HOST) || location.hostname.includes(DOMAINS.FORUM)) return;
+            if (location.hostname.includes(NoveliaConfig.domains.main) || location.hostname.includes(NoveliaConfig.domains.forum)) return;
             const currentHostName = location.hostname;
 
             function parseSourceUrl(url, text) {
-                if (!url || url.includes(DOMAINS.HOST)) return null;
+                if (!url || url.includes(NoveliaConfig.domains.main)) return null;
                 const syosetuRegex = /https?:\/\/(ncode|novel18)\.syosetu\.com\/([^/]+)/;
                 const hamelnRegex = /https?:\/\/syosetu\.org\/novel\/(\d+)/;
 
@@ -2177,13 +2237,14 @@
                 if (!parsed) return;
                 anchorLink.dataset.noveliaSourceLinkProcessed = "1";
 
-                const jumpBtn = document.createElement('button');
-                jumpBtn.textContent = '↗';
+                const jumpBtn = Object.assign(document.createElement('button'), {
+                    textContent: '↗'
+                });
                 jumpBtn.style.cssText = 'margin-left:6px;border:none;background:none;cursor:pointer;font-size:14px;color:#007BFF;';
                 jumpBtn.addEventListener('click', e => {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.open(`https://${DOMAINS.HOST}/novel/${parsed.siteType}/${parsed.novelId}`, '_blank');
+                    window.open(`https://${NoveliaConfig.domains.main}/novel/${parsed.siteType}/${parsed.novelId}`, '_blank');
                 });
 
                 if (currentHostName.includes('syosetu.com')) anchorLink.appendChild(jumpBtn);
@@ -2214,7 +2275,7 @@
     // ==========================================
     Modules.comment_collapse = {
         init: function() {
-            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+            if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
 
             Utils.gm.addStyle(`
                 .novelia-collapse-btn-wrapper { margin-top: 8px; display: flex; align-items: center; }
@@ -2231,16 +2292,16 @@
             `);
 
             const LS_KEY = 'novelia_collapsed_comments';
-            let collapsedStore = Utils.ls.get(LS_KEY, {});
-            function saveStore() { Utils.ls.set(LS_KEY, collapsedStore); }
+            let collapsedStore = Utils.localStore.get(LS_KEY, {});
+            function saveStore() { Utils.localStore.set(LS_KEY, collapsedStore); }
 
             const CollapseUI = {
-                createCollapseWrapper: Utils.collapse.createWrapper
+                createCollapseWrapper: Utils.comments.createCollapsibleReplies
             };
 
             const NovelCommentCollapse = {
                 getContext() {
-                    const path = Utils.route.getPath();
+                    const path = Utils.router.getPath();
                     const matchNovel = path.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
                     if (matchNovel) return { provider: matchNovel[1], id: matchNovel[2] };
 
@@ -2327,7 +2388,7 @@
                         const author = commentHeader.innerText.trim();
                         const time = headerFlex.querySelector('time')?.innerText || "";
                         const rawId = author + time;
-                        const commentId = Utils.hash.hashString(rawId);
+                        const commentId = Utils.text.hash(rawId);
 
                         const context = NovelCommentCollapse.getContext();
                         const isCollapsedState = NovelCommentCollapse.isCollapsed(context, commentId);
@@ -2389,7 +2450,7 @@
                             const author = rootArticle.querySelector('header span')?.innerText.trim() || "";
                             const time = rootArticle.querySelector('time')?.innerText.trim() || "";
                             const rawId = author + time;
-                            commentId = Utils.hash.hashString(rawId);
+                            commentId = Utils.text.hash(rawId);
                         }
                         const context = NovelCommentCollapse.getContext();
                         const isCollapsedState = NovelCommentCollapse.isCollapsed(context, commentId);
@@ -2406,10 +2467,10 @@
                     }
                 },
                 scan() {
-                    const floors = Utils.comments.getNovelCommentFloors();
+                    const floors = Utils.comments.novel.getFloors();
                     floors.forEach(NovelCommentCollapse.processFloor);
 
-                    const { floors: sectionFloors } = Utils.comments.getForumCommentFloors();
+                    const { floors: sectionFloors } = Utils.comments.forum.getFloors();
                     sectionFloors.forEach(NovelCommentCollapse.processSectionFloor);
                 },
                 init() {
@@ -2427,7 +2488,7 @@
 
             const ForumCommentCollapse = {
                 getContext() {
-                    const path = Utils.route.getPath();
+                    const path = Utils.router.getPath();
                     const match = path.match(/^\/p\/([^\/?#]+)/i);
                     if (match) return { id: match[1] };
                     return null;
@@ -2498,7 +2559,7 @@
                             const author = rootArticle.querySelector('header span')?.innerText.trim() || "";
                             const time = rootArticle.querySelector('time')?.innerText.trim() || "";
                             const rawId = author + time;
-                            commentId = Utils.hash.hashString(rawId);
+                            commentId = Utils.text.hash(rawId);
                         }
                         const context = ForumCommentCollapse.getContext();
                         const isCollapsedState = ForumCommentCollapse.isCollapsed(context, commentId);
@@ -2515,7 +2576,7 @@
                     }
                 },
                 scan() {
-                    const { floors } = Utils.comments.getForumCommentFloors();
+                    const { floors } = Utils.comments.forum.getFloors();
                     floors.forEach(ForumCommentCollapse.processFloor);
                 },
                 init() {
@@ -2530,7 +2591,7 @@
                 }
             };
 
-            if (location.hostname.includes(DOMAINS.FORUM)) ForumCommentCollapse.init();
+            if (location.hostname.includes(NoveliaConfig.domains.forum)) ForumCommentCollapse.init();
             else NovelCommentCollapse.init();
         }
     };
@@ -2540,7 +2601,7 @@
     // ==========================================
     Modules.comment_notify = {
         init: function() {
-            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+            if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
 
             let isUpdatingDom = false;
             let lastUrl = location.href;
@@ -2551,7 +2612,7 @@
                     const times = Array.from(node.querySelectorAll('time'));
                     if (node.tagName === 'TIME') times.push(node);
                     times.forEach(timeElement => {
-                        const sec = Utils.time.parseToSecondsAgo(timeElement.textContent);
+                        const sec = Utils.time.parseRelativeToSeconds(timeElement.textContent);
                         if (sec < min) min = sec;
                     });
                 });
@@ -2561,12 +2622,12 @@
             function clearCurrentComments() {
                 isUpdatingDom = true;
                 try {
-                    const novelFloors = Utils.comments.getNovelCommentFloors();
+                    const novelFloors = Utils.comments.novel.getFloors();
                     novelFloors.forEach(floor => {
                         floor.nodes.forEach(node => node.remove());
                     });
 
-                    const { candidateFloors } = Utils.comments.getForumCommentFloors();
+                    const { candidateFloors } = Utils.comments.forum.getFloors();
                     candidateFloors.forEach(floor => floor.remove());
                 } finally {
                     isUpdatingDom = false;
@@ -2596,7 +2657,7 @@
             }
 
             function processNovelComments() {
-                const floors = Utils.comments.getNovelCommentFloors();
+                const floors = Utils.comments.novel.getFloors();
                 if (floors.length <= 1) return;
 
                 const commonParent = floors[0].commonParent;
@@ -2612,7 +2673,7 @@
             }
 
             function processForumComments() {
-                const { floorContainer, candidateFloors, floors } = Utils.comments.getForumCommentFloors();
+                const { floorContainer, candidateFloors, floors } = Utils.comments.forum.getFloors();
                 if (!floorContainer || candidateFloors.length <= 1) return;
 
                 floors.forEach(floor => {
@@ -2623,8 +2684,8 @@
             }
 
             function runSort() {
-                if (isUpdatingDom || !Utils.route.isCommentNotifyPage()) return;
-                const { candidateFloors } = Utils.comments.getForumCommentFloors();
+                if (isUpdatingDom || !Utils.router.isCommentableDetailPage()) return;
+                const { candidateFloors } = Utils.comments.forum.getFloors();
                 if (candidateFloors && candidateFloors.length > 0) processForumComments();
                 else processNovelComments();
             }
@@ -2636,7 +2697,7 @@
             }
 
             function setupSpaUrlObserver() {
-                Utils.route.onChange(onUrlChange);
+                Utils.router.onChange(onUrlChange);
                 window.addEventListener('message', event => {
                     if (event.data && (event.data.type === 'NOVELIA_URL_CHANGE' || event.data.type === 'NOVELIA_NAVIGATE')) onUrlChange();
                 });
@@ -2660,10 +2721,10 @@
 
             function onUrlChange() {
                 lastUrl = location.href;
-                if (Utils.route.isCommentNotifyPage()) scheduleSortWithRetries();
+                if (Utils.router.isCommentableDetailPage()) scheduleSortWithRetries();
             }
 
-            const observer = new MutationObserver(() => { if (!isUpdatingDom && Utils.route.isCommentNotifyPage()) scheduleSort(); });
+            const observer = new MutationObserver(() => { if (!isUpdatingDom && Utils.router.isCommentableDetailPage()) scheduleSort(); });
             observer.observe(document.body, { childList: true, subtree: true });
 
             setupSpaUrlObserver();
@@ -2677,10 +2738,10 @@
     Modules.banner_replace = {
         init: function() {
             // block og banner image request to avoid loading the original banner
-            if (Utils && Utils.network && typeof Utils.network.reject === 'function') {
-                Utils.network.reject({ domain: (typeof DOMAINS !== 'undefined' && DOMAINS.CDN) || 'n-cdn.novelia.cc', key: '/banners/', isImage: true });
+            if (Utils && Utils.network && typeof Utils.network.block === 'function') {
+                Utils.network.block({ domain: (typeof NoveliaConfig !== 'undefined' && NoveliaConfig.domains.cdn) || 'n-cdn.novelia.cc', key: '/banners/', isImage: true });
             }
-            if (location.hostname !== DOMAINS.HOST) return;
+            if (location.hostname !== NoveliaConfig.domains.main) return;
 
             const IMG_URL = 'https://n.novelia.cc/files-extra/banner.v1.webp';
             // const IMG_FIT = 'cover';
@@ -2692,15 +2753,15 @@
             const REMOVE_CYCLE_IMG_BTN = true;
             const FADEIN_ANIMATION = true;
 
-            function getBannerUrl() { return Utils.gm.getValue('banner_url', IMG_URL); }
-            // function getObjectFit() { return Utils.gm.getValue('banner_object_fit', IMG_FIT); }
-            function getObjectPosition() { return Utils.gm.getValue('banner_object_position', IMG_POSITION); }
-            function getBannerSize() { return Utils.gm.getValue('banner_size', IMG_SIZE); }
-            function getBannerSizeMobile() { return Utils.gm.getValue('banner_size_mobile', IMG_SIZE_MOBILE); }
-            function getScrolling() { return Utils.gm.getValue('banner_scrolling', IMG_SCROLLING); }
-            function getScrollSpd() { return Number(Utils.gm.getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
-            function getRemoveCycleImgBtn() { return Utils.gm.getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
-            function getFadeInAnimation() { return Utils.gm.getValue('banner_fadein_animation', FADEIN_ANIMATION); }
+            function getBannerUrl() { return GM_getValue('banner_url', IMG_URL); }
+            // function getObjectFit() { return GM_getValue('banner_object_fit', IMG_FIT); }
+            function getObjectPosition() { return GM_getValue('banner_object_position', IMG_POSITION); }
+            function getBannerSize() { return GM_getValue('banner_size', IMG_SIZE); }
+            function getBannerSizeMobile() { return GM_getValue('banner_size_mobile', IMG_SIZE_MOBILE); }
+            function getScrolling() { return GM_getValue('banner_scrolling', IMG_SCROLLING); }
+            function getScrollSpd() { return Number(GM_getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
+            function getRemoveCycleImgBtn() { return GM_getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
+            function getFadeInAnimation() { return GM_getValue('banner_fadein_animation', FADEIN_ANIMATION); }
 
             let offsetY = 0;
             let lastTime = 0;
@@ -2732,7 +2793,7 @@
             }
 
             function replaceBanner() {
-                const cleanPath = Utils.route.getPath().split('?')[0].split('#')[0];
+                const cleanPath = Utils.router.getPath().split('?')[0].split('#')[0];
                 if (cleanPath !== '/') { stopScroll(); return; }
 
                 const bannerImg = document.querySelector('img[src*="/banners/"], img[src*="banner"], div.relative.overflow-hidden > img, div[class*="overflow-hidden"] > img');
@@ -2765,8 +2826,9 @@
 
                 let layer = container.querySelector(':scope > .banner-scroll-layer');
                 if (!layer) {
-                    layer = document.createElement('div');
-                    layer.className = 'banner-scroll-layer';
+                    layer = Object.assign(document.createElement('div'), {
+                        className: 'banner-scroll-layer'
+                    });
                     Object.assign(layer.style, { position: 'absolute', inset: '0', pointerEvents: 'none', willChange: 'background-position' });
                     container.appendChild(layer);
                 }
@@ -2808,7 +2870,7 @@
 
             const observer = new MutationObserver(() => { replaceBanner() });
             observer.observe(document.body, { childList: true, subtree: true });
-            Utils.route.onChange(replaceBanner);
+            Utils.router.onChange(replaceBanner);
         }
     };
 
@@ -2821,7 +2883,7 @@
         _iframeListenerSet: false,
         init: function() {
             if (this._initialized) return;
-            if (location.hostname !== DOMAINS.HOST && location.hostname !== DOMAINS.FORUM) return;
+            if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
             this._initialized = true;
 
             const self = this;
@@ -2836,10 +2898,10 @@
             const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
             async function getIndexedDbCache(cacheKey) {
-                return await Utils.cache.getIDB(cacheKey, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, ttlMs: CACHE_TTL_MS });
+                return await Utils.cache.idb.get(cacheKey, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, ttlMs: CACHE_TTL_MS });
             }
             async function setIndexedDbCache(cacheKey, data) {
-                return await Utils.cache.setIDB(cacheKey, data, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, keyPath: 'key' });
+                return await Utils.cache.idb.set(cacheKey, data, { dbName: DB_NAME, version: DB_VERSION, storeName: STORE_NAME, keyPath: 'key' });
             }
             function injectStyles() {
                 Utils.gm.addStyle(`
@@ -2879,8 +2941,9 @@
                 if (!backdropElement) {
                     backdropElement = document.querySelector('.novelia-inspect-backdrop');
                     if (!backdropElement) {
-                        backdropElement = document.createElement('div');
-                        backdropElement.className = 'novelia-inspect-backdrop';
+                        backdropElement = Object.assign(document.createElement('div'), {
+                            className: 'novelia-inspect-backdrop'
+                        });
                         document.body.appendChild(backdropElement);
                     }
                     backdropElement.addEventListener('click', hidePanel);
@@ -2891,8 +2954,9 @@
                 if (!panelElement) {
                     panelElement = document.querySelector('.novelia-inspect-panel');
                     if (!panelElement) {
-                        panelElement = document.createElement('div');
-                        panelElement.className = 'novelia-inspect-panel';
+                        panelElement = Object.assign(document.createElement('div'), {
+                            className: 'novelia-inspect-panel'
+                        });
                         document.body.appendChild(panelElement);
                     }
                 }
@@ -2933,7 +2997,7 @@
                 if (!href) return null;
                 try {
                     const parsedUrl = new URL(href, location.origin);
-                    if (parsedUrl.hostname !== DOMAINS.HOST && parsedUrl.hostname !== location.hostname) return null;
+                    if (parsedUrl.hostname !== NoveliaConfig.domains.main && parsedUrl.hostname !== location.hostname) return null;
 
                     const novelMatch = parsedUrl.pathname.match(/^\/novel\/([^\/?#]+)\/([^\/?#]+)/i);
                     if (novelMatch) {
@@ -2952,9 +3016,9 @@
 
             function getApiUrl(targetInfo) {
                 if (targetInfo.type === 'novel') {
-                    return `https://${DOMAINS.HOST}/api/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
+                    return `https://${NoveliaConfig.domains.main}/api/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
                 }
-                return `https://${DOMAINS.HOST}/api/wenku/${encodeURIComponent(targetInfo.id)}`;
+                return `https://${NoveliaConfig.domains.main}/api/wenku/${encodeURIComponent(targetInfo.id)}`;
             }
 
             async function requestApi(apiUrl) {
@@ -2979,7 +3043,7 @@
                 return response.json();
             }
             function setupHostFetchListener() {
-                if (location.hostname !== DOMAINS.HOST || window.top !== window.self || self._hostListenerSet) return;
+                if (location.hostname !== NoveliaConfig.domains.main || window.top !== window.self || self._hostListenerSet) return;
                 self._hostListenerSet = true;
 
                 window.addEventListener('message', async (event) => {
@@ -2989,8 +3053,8 @@
                         const path = event.data.path;
                         if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return;
                         hidePanel();
-                        if (Utils.route && typeof Utils.route.push === 'function') {
-                            Utils.route.push(path);
+                        if (Utils.router && typeof Utils.router.push === 'function') {
+                            Utils.router.push(path);
                             window.dispatchEvent(new Event('tm-locationchange'));
                         } else {
                             window.location.assign(location.origin + path);
@@ -3063,10 +3127,10 @@
                 cache.set(targetInfo.cacheKey, data);
                 return data;
             }
-            const escHtml = Utils.str.escapeHtml;
+            const escHtml = Utils.text.escapeHtml;
             function toHostPath(href) {
                 try {
-                    const u = new URL(href, `https://${DOMAINS.HOST}`);
+                    const u = new URL(href, `https://${NoveliaConfig.domains.main}`);
                     return u.pathname + u.search + u.hash;
                 } catch (error) {
                     return null;
@@ -3077,9 +3141,9 @@
                 if (targetInfo && targetInfo.type === 'novel') {
                     if (targetInfo.provider === 'hameln') return `https://syosetu.org/novel/${targetInfo.id}`;
                     if (targetInfo.provider === 'syosetu' || targetInfo.provider === 'ncode') return `https://ncode.syosetu.com/${targetInfo.id}`;
-                    return `https://${DOMAINS.HOST}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
+                    return `https://${NoveliaConfig.domains.main}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}`;
                 } else if (targetInfo && targetInfo.type === 'wenku') {
-                    return `https://${DOMAINS.HOST}/wenku/${encodeURIComponent(targetInfo.id)}`;
+                    return `https://${NoveliaConfig.domains.main}/wenku/${encodeURIComponent(targetInfo.id)}`;
                 }
                 return '#';
             }
@@ -3095,7 +3159,7 @@
                 const titleJp = data.titleJp || '';
                 const displayTitle = titleZh || titleJp || '未知作品';
 
-                const openUrl = originalHref || (targetInfo.type === 'novel' ? `https://${DOMAINS.HOST}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}` : `https://${DOMAINS.HOST}/wenku/${encodeURIComponent(targetInfo.id)}`);
+                const openUrl = originalHref || (targetInfo.type === 'novel' ? `https://${NoveliaConfig.domains.main}/novel/${encodeURIComponent(targetInfo.provider)}/${encodeURIComponent(targetInfo.id)}` : `https://${NoveliaConfig.domains.main}/wenku/${encodeURIComponent(targetInfo.id)}`);
                 const sourceUrl = (data && data.sourceUrl) ? data.sourceUrl : getNovelUrl(targetInfo, data);
 
                 let titleHtml = `<h3 class="n-h n-h3 __h3-dark-1ynum3r-d n-h--prefix-bar" style="margin-bottom: 4px;"><a class="n-a __a-dark-1ynum3r" href="${escHtml(openUrl)}">${escHtml(displayTitle)}</a></h3>`;
@@ -3149,11 +3213,11 @@
                     : '';
                 const buildActionBar = () => {
                     const hostPath = toHostPath(openUrl) || '/';
-                    const hostAbsUrl = `https://${DOMAINS.HOST}${hostPath}`;
+                    const hostAbsUrl = `https://${NoveliaConfig.domains.main}${hostPath}`;
                     return `
                         <div class="novelia-inspect-action-bar">
                             <a href="${escHtml(hostAbsUrl)}" data-novelia-goto-host="${escHtml(hostPath)}" class="novelia-inspect-btn novelia-inspect-open-btn" target="_self">前往</a>
-                            <a href="${escHtml(hostAbsUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.svg.POPOUT}</a>
+                            <a href="${escHtml(hostAbsUrl)}" class="novelia-inspect-btn novelia-inspect-goto-btn" target="_blank" rel="noopener noreferrer">打開 ${Utils.icons.POPOUT}</a>
                         </div>
                     `;
                 };
@@ -3170,8 +3234,8 @@
                 `);
             }
             function isAllowedHostPage() {
-                if (location.hostname !== DOMAINS.HOST) return true;
-                const currentPath = Utils.route.getPath();
+                if (location.hostname !== NoveliaConfig.domains.main) return true;
+                const currentPath = Utils.router.getPath();
                 return currentPath.startsWith('/novel/') || currentPath.startsWith('/wenku/') || currentPath.startsWith('/forum');
             }
             function isTargetContainer(anchorElement) {
@@ -3190,13 +3254,13 @@
                 panel.innerHTML = renderPanelWrapper(`
                     <button type="button" class="novelia-inspect-close-btn" aria-label="Close">&times;</button>
                     <div class="novelia-inspect-mascot-wrapper">
-                        <img src="${Utils.img.getMascotSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <img src="${Utils.assets.mascot.getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
                         <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
                     </div>`);
                 const closeBtnInPanel = panel.querySelector('.novelia-inspect-close-btn');
                 if (closeBtnInPanel) closeBtnInPanel.addEventListener('click', hidePanel);
 
-                Utils.img.getMascotUrl().then(mascotUrl => {
+                Utils.assets.mascot.getUrl().then(mascotUrl => {
                     const mascotImg = panel.querySelector('.novelia-mascot');
                     if (mascotImg) mascotImg.src = mascotUrl;
                 });
@@ -3266,11 +3330,11 @@
                 const panel = getOrCreatePanel();
                 panel.innerHTML = renderPanelWrapper(`
                     <div class="novelia-inspect-mascot-wrapper">
-                        <img src="${Utils.img.getMascotSyncUrl()}" class="novelia-mascot" alt="Loading..." />
+                        <img src="${Utils.assets.mascot.getSyncUrl()}" class="novelia-mascot" alt="Loading..." />
                         <span style="font-size: 14px; opacity: 0.8;">Loading...</span>
                     </div>
                 `);
-                Utils.img.getMascotUrl().then(mascotUrl => {
+                Utils.assets.mascot.getUrl().then(mascotUrl => {
                     const mascotImg = panel.querySelector('.novelia-mascot');
                     if (mascotImg) mascotImg.src = mascotUrl;
                 });
@@ -3327,7 +3391,7 @@
                 document.addEventListener('mousemove', handleMouseMove, true);
                 document.addEventListener('mouseout', handleMouseOut, true);
             }
-            Utils.route.onChange(() => {
+            Utils.router.onChange(() => {
                 hidePanel();
                 if (Utils.dom.isMobile()) {
                     setTimeout(processMobileLinks, 100);
