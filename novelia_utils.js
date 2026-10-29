@@ -1462,7 +1462,7 @@
             };
         };
 
-        return { createToast, createModal };
+        return { createToast, createToastManager: createToast, createModal };
     };
 
     const createSiteUi = ({ domains, router }) => {
@@ -1886,6 +1886,7 @@
     const siteUi = createSiteUi({ domains: cfg.domains, router });
 
     const Utils = Object.freeze({
+        domains: cfg.domains,
         text,
         fireWindowEvent,
         isPlainClick,

@@ -1881,20 +1881,21 @@
     // ==========================================
     Modules.share_compress = {
         init: function() {
-            if (location.hostname !== DOMAINS.HOST) return;
+            const domains = Utils.domains || NoveliaConfig?.domains || { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' };
+            if (location.hostname !== domains.main) return;
 
             class ShareCompressModalManager {
                 constructor() {
                     this.backdropElement = null;
                     this.modalElement = null;
                     this.stylesInjected = false;
-                    this.toast = Utils.ui.createToastManager('novelia-toast');
+                    this.toast = Utils.ui.createToast('novelia-toast');
                     this.URL_PREFIX_MAP = [
-                        ['https://n.novelia.cc/novel/', 'N|'],
-                        ['https://n.novelia.cc/wenku/', 'W|'],
-                        ['https://n.novelia.cc/forum/', 'F|'],
-                        ['https://n.novelia.cc/', 'H|'],
-                        ['https://forum.novelia.cc/', 'f|'],
+                        [`https://${domains.main}/novel/`, 'N|'],
+                        [`https://${domains.main}/wenku/`, 'W|'],
+                        [`https://${domains.main}/forum/`, 'F|'],
+                        [`https://${domains.main}/`, 'H|'],
+                        [`https://${domains.forum}/`, 'f|'],
                         ['https://', 's|'],
                         ['http://', 'h|']
                     ];
