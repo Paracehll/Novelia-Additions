@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.5.3
+// @version      3.6.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1978720/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1979455/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -48,8 +48,8 @@
             config[feature.id] = enabled;
 
             const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
-            Utils.gm.registerMenuCommand(label, () => {
-                Utils.gm.setValue(`feature_${feature.id}`, !enabled);
+            GM_registerMenuCommand(label, () => {
+                GM_setValue(`feature_${feature.id}`, !enabled);
                 location.reload();
             });
         });
@@ -1559,6 +1559,7 @@
                 { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'] },
                 { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'] },
                 { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'] },
+                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'] },
             ];
 
             Utils.gm.addStyle(`
@@ -1742,6 +1743,58 @@
                     toast.show(`📋 已複製小說連結：\n${formattedLink}`);
                 }
             }
+            function getAllPageFormattedLinks() {
+                const links = [];
+                document.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
+                    if (itemElement.closest('.n-drawer')) return;
+                    const anchorElement = itemElement.querySelector("a[href^='/novel/']");
+                    if (!anchorElement) return;
+                    const textSpanElement = itemElement.querySelector(".n-text");
+                    const titleText = textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
+                    const linkHref = anchorElement.getAttribute("href");
+                    if (!titleText || !linkHref) return;
+                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    links.push(formattedLink);
+                });
+
+                document.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
+                    if (anchorElement.closest('.n-drawer')) return;
+                    const textSpanElement = anchorElement.querySelector(".n-text");
+                    if (!textSpanElement) return;
+                    const titleText = textSpanElement.textContent.trim();
+                    const linkHref = anchorElement.getAttribute("href");
+                    if (!titleText || !linkHref) return;
+                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
+                    links.push(formattedLink);
+                });
+
+                return links;
+            }
+            function copyBulkLinks() {
+                const links = getAllPageFormattedLinks();
+                const copyBtns = Array.from(document.querySelectorAll(`.${COPY_BUTTON_CLASS}`));
+
+                if (links.length === 0 && copyBtns.length === 0) {
+                    toast.show("⚠️ 頁面上沒有可複製的小說連結！");
+                    return;
+                }
+                let addedCount = 0;
+                links.forEach((formattedLink) => {
+                    if (!LinkCache.has(formattedLink)) {
+                        LinkCache.items.push(formattedLink);
+                        addedCount++;
+                    }
+                });
+                if (addedCount > 0) {
+                    LinkCache.save();
+                    writeToClipboard(LinkCache.items.join("\n"));
+                    LinkCache.dispatch();
+                } else {
+                    writeToClipboard(LinkCache.items.join("\n"));
+                    toast.show("ℹ️ 頁面上的小說連結已全部在快取清單中！");
+                }
+                copyBtns.forEach((btn) => animateCopySuccess(btn));
+            }
             function shouldDisplayHeaderButtons() {
                 return (
                     !0 === SHOW_HEADER_BTNS ||
@@ -1752,17 +1805,20 @@
             function injectHeaderActionButtons() {
                 if (!shouldDisplayHeaderButtons()) return;
 
+                const currentPath = Utils.router.getPathname();
+                const isFavoritePage = currentPath.startsWith('/favorite');
+
                 const pageType = Utils.router.isNovelPage() ? 'novel'
+                    : isFavoritePage ? 'favorite'
                     : Utils.router.isListPageExceptNovelDetail() ? 'list'
                     : null;
 
-                const currentPath = Utils.router.getPathname();
                 const currentFormattedLink = getCurrentNovelFormattedLink();
 
                 HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
                     const cls = `novelia-share-${key}-btn`;
 
-                    if (!pages.includes(pageType)) {
+                    if (!pages.includes(pageType) && !(pages.includes('list') && pageType === 'favorite')) {
                         document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
                         return;
                     }
