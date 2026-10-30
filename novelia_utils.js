@@ -1635,6 +1635,8 @@
     };
 
     const createSiteUi = ({ domains, router }) => {
+        const isElement = (el) => (typeof Element !== 'undefined' && el instanceof Element) || (el && typeof el === 'object' && el.nodeType === 1);
+
         const isDark = () => {
             if (typeof document === 'undefined') return false;
             const de = document.documentElement, body = document.body;
@@ -1732,7 +1734,7 @@
             let btnElement = null;
             let btnId = '';
 
-            if (buttonOrOptions instanceof Element) {
+            if (isElement(buttonOrOptions)) {
                 btnElement = buttonOrOptions;
                 btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
                 if (btnElement.dataset.position) position = btnElement.dataset.position;
@@ -1844,8 +1846,6 @@
             `, 'novelia-collapser-styles');
 
             const mountedButtons = [];
-
-            const isElement = (el) => (typeof Element !== 'undefined' && el instanceof Element) || (el && typeof el === 'object' && el.nodeType === 1);
 
             const normalizeButton = (btnOrOpts) => {
                 if (!btnOrOpts) return null;
@@ -2009,6 +2009,35 @@
             return collapser;
         };
 
+        const initMainHeaderDiv = (headerEl, position = 'right') => {
+            if (!headerEl) return null;
+            if (position === 'left') {
+                let leftContainer = headerEl.querySelector('.novelia-header-left');
+                if (!leftContainer) {
+                    leftContainer = Object.assign(document.createElement('div'), {
+                        className: 'novelia-header-left flex items-center gap-1 flex-none'
+                    });
+                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
+                    if (rightContainer) headerEl.insertBefore(leftContainer, rightContainer);
+                    else headerEl.prepend(leftContainer);
+                }
+                return leftContainer;
+            }
+            if (position === 'center') {
+                let centerContainer = headerEl.querySelector('.novelia-header-center');
+                if (!centerContainer) {
+                    centerContainer = Object.assign(document.createElement('div'), {
+                        className: 'novelia-header-center flex items-center justify-center gap-1 mx-auto flex-1'
+                    });
+                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
+                    if (rightContainer) headerEl.insertBefore(centerContainer, rightContainer);
+                    else headerEl.appendChild(centerContainer);
+                }
+                return centerContainer;
+            }
+            return headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
+        };
+
         const injectMainHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
             const headerEl = document.querySelector('header');
@@ -2017,7 +2046,7 @@
             let btnElement = null;
             let btnId = '';
 
-            if (buttonOrOptions instanceof Element) {
+            if (isElement(buttonOrOptions)) {
                 btnElement = buttonOrOptions;
                 btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
                 if (btnElement.dataset.position) position = btnElement.dataset.position;
@@ -2044,46 +2073,22 @@
                 if (existing) return existing;
             }
 
-            if (position === 'left') {
-                let leftContainer = headerEl.querySelector('.novelia-header-left');
-                if (!leftContainer) {
-                    leftContainer = document.createElement('div');
-                    leftContainer.className = 'novelia-header-left flex items-center gap-1 flex-none';
-                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
-                    if (rightContainer) headerEl.insertBefore(leftContainer, rightContainer);
-                    else headerEl.prepend(leftContainer);
-                }
-                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, order);
-                if (nextOrderedBtn) leftContainer.insertBefore(btnElement, nextOrderedBtn);
-                else leftContainer.appendChild(btnElement);
+            const targetContainer = initMainHeaderDiv(headerEl, position);
+            if (!targetContainer) return null;
 
-            } else if (position === 'center') {
-                let centerContainer = headerEl.querySelector('.novelia-header-center');
-                if (!centerContainer) {
-                    centerContainer = document.createElement('div');
-                    centerContainer.className = 'novelia-header-center flex items-center justify-center gap-1 mx-auto flex-1';
-                    const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto');
-                    if (rightContainer) headerEl.insertBefore(centerContainer, rightContainer);
-                    else headerEl.appendChild(centerContainer);
-                }
-                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, order);
-                if (nextOrderedBtn) centerContainer.insertBefore(btnElement, nextOrderedBtn);
-                else centerContainer.appendChild(btnElement);
+            const nextOrderedBtn = findNextOrderedHeaderButton(targetContainer, order);
+            const rightAnchorEl = position === 'right' ? getRightAnchorEl(targetContainer) : null;
+
+            if (nextOrderedBtn) {
+                targetContainer.insertBefore(btnElement, nextOrderedBtn);
+            } else if (rightAnchorEl && rightAnchorEl.parentElement === targetContainer) {
+                targetContainer.insertBefore(btnElement, rightAnchorEl);
+            } else if (rightAnchorEl) {
+                rightAnchorEl.before(btnElement);
             } else {
-                const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
-                const nextOrderedBtn = findNextOrderedHeaderButton(rightContainer, order);
-                const rightAnchorEl = getRightAnchorEl(rightContainer);
-
-                if (nextOrderedBtn) {
-                    rightContainer.insertBefore(btnElement, nextOrderedBtn);
-                } else if (rightAnchorEl && rightAnchorEl.parentElement === rightContainer) {
-                    rightContainer.insertBefore(btnElement, rightAnchorEl);
-                } else if (rightAnchorEl) {
-                    rightAnchorEl.before(btnElement);
-                } else {
-                    rightContainer.appendChild(btnElement);
-                }
+                targetContainer.appendChild(btnElement);
             }
+
             return btnElement;
         };
 
