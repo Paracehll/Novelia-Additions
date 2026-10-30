@@ -1814,19 +1814,20 @@
 
         const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            if (id) btn.id = id;
-            btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim();
+            const btn = Object.assign(document.createElement('button'), {
+                type: 'button',
+                id,
+                className: `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim(),
+                title,
+                innerHTML: iconSvg || ''
+            });
             btn.dataset.position = position;
             if (order !== undefined && order !== null) {
                 btn.dataset.order = String(order);
             }
             if (title) {
-                btn.title = title;
                 btn.setAttribute('aria-label', title);
             }
-            btn.innerHTML = iconSvg || '';
             if (typeof onClick === 'function') {
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -1835,6 +1836,191 @@
                 });
             }
             return btn;
+        };
+
+        const createMainHeaderCollapser = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null, buttons = [] } = {}) => {
+            if (typeof document === 'undefined') return null;
+
+            gm.addStyle(`
+                .novelia-header-collapser-panel { position: fixed; z-index: 9999; min-width: 150px; padding: 4px; border-radius: 8px; background-color: var(--color-bg-popover, #ffffff); color: var(--color-text, #333333); border: 1px solid rgba(0, 0, 0, 0.12); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15); display: none; flex-direction: column; gap: 2px; }
+                .dark .novelia-header-collapser-panel, [data-theme="dark"] .novelia-header-collapser-panel, body.dark .novelia-header-collapser-panel { background-color: var(--color-bg-popover, #242428); color: rgba(255, 255, 255, 0.9); border-color: rgba(255, 255, 255, 0.15); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
+                .novelia-header-collapser-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; user-select: none; transition: background-color 0.15s ease, color 0.15s ease; font-size: 13px; }
+                .novelia-header-collapser-item:hover { background-color: rgba(0, 0, 0, 0.06); }
+                .dark .novelia-header-collapser-item:hover, [data-theme="dark"] .novelia-header-collapser-item:hover, body.dark .novelia-header-collapser-item:hover { background-color: rgba(255, 255, 255, 0.1); }
+            `, 'novelia-collapser-styles');
+
+            const mountedButtons = [];
+
+            const isElement = (el) => (typeof Element !== 'undefined' && el instanceof Element) || (el && typeof el === 'object' && el.nodeType === 1);
+
+            const normalizeButton = (btnOrOpts) => {
+                if (!btnOrOpts) return null;
+                if (isElement(btnOrOpts)) {
+                    const iconEl = btnOrOpts.querySelector('i, svg');
+                    const iconSvgStr = iconEl ? iconEl.outerHTML : (btnOrOpts.innerHTML || '');
+                    const titleStr = btnOrOpts.title || btnOrOpts.getAttribute('aria-label') || btnOrOpts.textContent.trim() || '';
+                    const parsedOrder = parseFloat(btnOrOpts.dataset?.order);
+                    return {
+                        id: btnOrOpts.id || '',
+                        title: titleStr,
+                        iconSvg: iconSvgStr,
+                        order: !isNaN(parsedOrder) ? parsedOrder : 0,
+                        onClick: (e) => btnOrOpts.click(),
+                        rawElement: btnOrOpts
+                    };
+                }
+                if (typeof btnOrOpts === 'object') {
+                    return {
+                        id: btnOrOpts.id || '',
+                        title: btnOrOpts.title || '',
+                        iconSvg: btnOrOpts.iconSvg || '',
+                        order: btnOrOpts.order !== undefined && btnOrOpts.order !== null ? Number(btnOrOpts.order) : 0,
+                        onClick: typeof btnOrOpts.onClick === 'function' ? btnOrOpts.onClick : null,
+                        rawElement: null
+                    };
+                }
+                return null;
+            };
+
+            const panel = Object.assign(document.createElement('div'), {
+                className: 'novelia-header-collapser-panel',
+                id: id ? `${id}-panel` : ''
+            });
+            document.body.appendChild(panel);
+
+            const renderPanel = () => {
+                panel.innerHTML = '';
+                const sorted = [...mountedButtons].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                sorted.forEach((item) => {
+                    const row = Object.assign(document.createElement('div'), {
+                        className: 'novelia-header-collapser-item'
+                    });
+                    if (item.id) row.dataset.itemId = item.id;
+
+                    if (item.iconSvg) {
+                        const iconSpan = Object.assign(document.createElement('span'), {
+                            className: 'grid size-5 flex-none place-items-center',
+                            innerHTML: item.iconSvg
+                        });
+                        row.appendChild(iconSpan);
+                    }
+
+                    if (item.title) {
+                        const titleSpan = Object.assign(document.createElement('span'), {
+                            className: 'truncate flex-1',
+                            textContent: item.title
+                        });
+                        row.appendChild(titleSpan);
+                    }
+
+                    row.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        closePanel();
+                        if (typeof item.onClick === 'function') {
+                            item.onClick(e);
+                        } else if (isElement(item.rawElement)) {
+                            item.rawElement.click();
+                        }
+                    });
+                    panel.appendChild(row);
+                });
+            };
+
+            const openPanel = () => {
+                renderPanel();
+                panel.style.display = 'flex';
+                const rect = btn.getBoundingClientRect();
+                const panelWidth = panel.offsetWidth || 150;
+                let left = rect.right - panelWidth;
+                if (left < 10) left = rect.left;
+                const top = rect.bottom + 6;
+                panel.style.top = `${top}px`;
+                panel.style.left = `${Math.max(10, left)}px`;
+            };
+
+            const closePanel = () => {
+                panel.style.display = 'none';
+            };
+
+            const togglePanel = () => {
+                if (panel.style.display === 'flex') {
+                    closePanel();
+                } else {
+                    openPanel();
+                }
+            };
+
+            const btn = createMainHeaderButton({
+                id,
+                className,
+                title,
+                iconSvg,
+                position,
+                order,
+                onClick: (e) => {
+                    if (typeof onClick === 'function') onClick(e);
+                    togglePanel();
+                }
+            });
+
+            if (!btn) {
+                panel.remove();
+                return null;
+            }
+
+            const addButton = (btnOrOpts) => {
+                const normalized = normalizeButton(btnOrOpts);
+                if (normalized) {
+                    mountedButtons.push(normalized);
+                    if (panel.style.display === 'flex') renderPanel();
+                }
+                return collapser;
+            };
+
+            const removeButton = (idOrBtn) => {
+                const targetId = typeof idOrBtn === 'string' ? idOrBtn : (idOrBtn?.id || '');
+                const idx = mountedButtons.findIndex((b) => (targetId && b.id === targetId) || b.rawElement === idOrBtn);
+                if (idx !== -1) {
+                    mountedButtons.splice(idx, 1);
+                    if (panel.style.display === 'flex') renderPanel();
+                }
+                return collapser;
+            };
+
+            const clearButtons = () => {
+                mountedButtons.length = 0;
+                if (panel.style.display === 'flex') renderPanel();
+                return collapser;
+            };
+
+            const handleOutsideClick = (e) => {
+                if (panel.style.display === 'flex' && !btn.contains(e.target) && !panel.contains(e.target)) {
+                    closePanel();
+                }
+            };
+            document.addEventListener('click', handleOutsideClick, true);
+
+            const collapser = Object.assign(btn, {
+                panel,
+                addButton,
+                add: addButton,
+                mount: addButton,
+                removeButton,
+                remove: removeButton,
+                clearButtons,
+                clear: clearButtons,
+                open: openPanel,
+                close: closePanel,
+                toggle: togglePanel,
+                getButtons: () => [...mountedButtons]
+            });
+
+            if (Array.isArray(buttons)) {
+                buttons.forEach((b) => addButton(b));
+            }
+
+            return collapser;
         };
 
         const injectMainHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
@@ -2027,6 +2213,7 @@
             createNaiveButton,
             injectNaiveHeaderButton,
             createMainHeaderButton,
+            createMainHeaderCollapser,
             injectMainHeaderButton,
             getForumDropdown,
             createSidebarPopoutButton,
