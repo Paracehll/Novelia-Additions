@@ -441,6 +441,7 @@
                         title: '手動更新本頁所有留言數',
                         iconSvg: Utils.icons.BULK,
                         position: 'right',
+                        order: 50,
                         onClick: async (e) => {
                             const btnElement = e.currentTarget;
                             if (btnElement.disabled) return;
@@ -552,6 +553,7 @@
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             marginRight: HEADER_BTN_FST_GAP,
                             iconSvg: Utils.icons.DRAWER,
+                            order: 10,
                             onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                         });
                         targetContainer.before(btn);
@@ -575,6 +577,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.POPOUT,
+                            order: 20,
                             onClick: () => {
                                 const targetUrl = location.href;
                                 if (window.parent && window.parent !== window) {
@@ -605,6 +608,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.STAR_OUTLINE,
+                            order: 30,
                             onClick: () => {
                                 if (window.parent !== window) {
                                     window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
@@ -624,6 +628,7 @@
                                 iconSize: 20,
                                 margin: `0px ${HEADER_BTN_INNER_GAP}`,
                                 iconSvg: Utils.icons.STAR_OUTLINE,
+                                order: 30,
                                 onClick: () => {
                                     if (window.parent !== window) {
                                         window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
@@ -653,6 +658,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.RELOAD_CIRCLE,
+                            order: 40,
                             onClick: () => window.location.reload()
                         });
                         refBtn.after(btn);
@@ -1556,10 +1562,10 @@
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             const HEADER_BUTTONS = [
-                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'] },
-                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'] },
-                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'] },
-                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'] },
+                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'], order: 60 },
+                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'], order: 70 },
+                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'],         order: 80 },
+                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'],      order: 90 },
             ];
 
             Utils.gm.addStyle(`
@@ -1819,7 +1825,7 @@
 
                 const currentFormattedLink = getCurrentNovelFormattedLink();
 
-                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
+                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages, order }) => {
                     const cls = `novelia-share-${key}-btn`;
 
                     if (!pages.includes(pageType) && !(pages.includes('list') && pageType === 'favorite')) {
@@ -1841,6 +1847,7 @@
                         title,
                         iconSvg: icon,
                         position: 'left',
+                        order,
                         onClick: () => action()
                     });
                 });

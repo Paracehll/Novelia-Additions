@@ -19,18 +19,6 @@
 
     const DAY = 24 * 60 * 60 * 1000;
 
-    const HEADER_BUTTON_ORDER = [
-        'novelia-host-drawer-btn',
-        'novelia-forum-popout-btn',
-        'novelia-forum-fav-btn',
-        'novelia-forum-reload-btn',
-        'novelia-bulk-update-button',
-        'novelia-share-clear-btn',
-        'novelia-share-view-btn',
-        'novelia-share-copy-btn',
-        'novelia-sync-ls-btn'
-    ];
-
     const defaultConfig = {
         domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
         db: { name: 'novelia_qol_db', version: 1, stores: ['assets_cache', 'capture_cache', 'network_cache'], keyPath: 'key' },
@@ -1678,29 +1666,22 @@
             return (container || document).querySelector('button[aria-label*="主题"], button[title*="主题"], button[aria-label*="主題"], button[title*="主題"], button[aria-label*="theme" i], button[title*="theme" i]');
         };
 
-        const getHeaderButtonId = (el) => {
-            if (!el) return '';
-            if (el.id) return el.id;
-            if (typeof el.className === 'string') {
-                const classes = el.className.split(/\s+/);
-                for (const cls of classes) {
-                    if (cls && HEADER_BUTTON_ORDER.includes(cls)) return cls;
-                }
-                return classes[0] || '';
+        const getElementOrder = (el) => {
+            if (!el) return Infinity;
+            if (el.dataset && el.dataset.order !== undefined) {
+                const parsed = parseFloat(el.dataset.order);
+                if (!isNaN(parsed)) return parsed;
             }
-            return '';
+            return Infinity;
         };
 
-        const findNextOrderedHeaderButton = (container, btnId) => {
-            if (!container || !btnId) return null;
-            const targetIndex = HEADER_BUTTON_ORDER.indexOf(btnId);
-            if (targetIndex === -1) return null;
-
-            const existingButtons = Array.from(container.querySelectorAll('button, a'));
+        const findNextOrderedHeaderButton = (container, targetOrder) => {
+            if (!container || targetOrder === undefined || targetOrder === null) return null;
+            const existingButtons = Array.from(container.querySelectorAll('[data-order]'));
             for (const existingBtn of existingButtons) {
-                const existingId = getHeaderButtonId(existingBtn);
-                const existingIndex = HEADER_BUTTON_ORDER.indexOf(existingId);
-                if (existingIndex > targetIndex) {
+                if (existingBtn.parentElement !== container) continue;
+                const existingOrder = getElementOrder(existingBtn);
+                if (existingOrder > targetOrder) {
                     return existingBtn;
                 }
             }
@@ -1720,13 +1701,16 @@
             return null;
         };
 
-        const createNaiveButton = ({ id = '', className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, position = 'right', onClick = null } = {}) => {
+        const createNaiveButton = ({ id = '', className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, position = 'right', order = 0, onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
             const btn = document.createElement('button');
             if (id) btn.id = id;
             btn.className = `${id} __button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
             btn.type = 'button';
             btn.dataset.position = position;
+            if (order !== undefined && order !== null) {
+                btn.dataset.order = String(order);
+            }
             if (title) {
                 btn.title = title;
                 btn.setAttribute('aria-label', title);
@@ -1740,7 +1724,7 @@
             return btn;
         };
 
-        const injectNaiveHeaderButton = (buttonOrOptions, position = 'right') => {
+        const injectNaiveHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
             if (typeof document === 'undefined') return null;
             const forumHeader = getForumHeader();
             if (!forumHeader) return null;
@@ -1750,11 +1734,19 @@
 
             if (buttonOrOptions instanceof Element) {
                 btnElement = buttonOrOptions;
-                btnId = getHeaderButtonId(btnElement);
+                btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
                 if (btnElement.dataset.position) position = btnElement.dataset.position;
+                if (btnElement.dataset.order !== undefined) {
+                    const parsed = parseFloat(btnElement.dataset.order);
+                    if (!isNaN(parsed)) order = parsed;
+                }
             } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
                 btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
                 if (buttonOrOptions.position) position = buttonOrOptions.position;
+                if (buttonOrOptions.order !== undefined) {
+                    const parsed = parseFloat(buttonOrOptions.order);
+                    if (!isNaN(parsed)) order = parsed;
+                }
                 btnElement = createNaiveButton(buttonOrOptions);
             }
 
@@ -1764,6 +1756,7 @@
                 position = 'right';
             }
             btnElement.dataset.position = position;
+            btnElement.dataset.order = String(order);
 
             if (btnId) {
                 const existing = forumHeader.querySelector(`#${btnId}, .${btnId}`);
@@ -1778,7 +1771,7 @@
                     leftContainer.style.cssText = 'display: flex; align-items: center; gap: 4px;';
                     forumHeader.prepend(leftContainer);
                 }
-                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, order);
                 if (nextOrderedBtn) {
                     leftContainer.insertBefore(btnElement, nextOrderedBtn);
                 } else {
@@ -1794,7 +1787,7 @@
                     if (accountEl) forumHeader.insertBefore(centerContainer, accountEl);
                     else forumHeader.appendChild(centerContainer);
                 }
-                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, order);
                 if (nextOrderedBtn) {
                     centerContainer.insertBefore(btnElement, nextOrderedBtn);
                 } else {
@@ -1802,7 +1795,7 @@
                 }
             } else {
                 const rightAnchorEl = getRightAnchorEl(forumHeader);
-                const nextOrderedBtn = findNextOrderedHeaderButton(forumHeader, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(forumHeader, order);
 
                 if (nextOrderedBtn) {
                     forumHeader.insertBefore(btnElement, nextOrderedBtn);
@@ -1819,13 +1812,16 @@
             return btnElement;
         };
 
-        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', onClick = null } = {}) => {
+        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
             const btn = document.createElement('button');
             btn.type = 'button';
             if (id) btn.id = id;
             btn.className = `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim();
             btn.dataset.position = position;
+            if (order !== undefined && order !== null) {
+                btn.dataset.order = String(order);
+            }
             if (title) {
                 btn.title = title;
                 btn.setAttribute('aria-label', title);
@@ -1841,7 +1837,7 @@
             return btn;
         };
 
-        const injectMainHeaderButton = (buttonOrOptions, position = 'right') => {
+        const injectMainHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
             const headerEl = document.querySelector('header');
             if (!headerEl) return null;
@@ -1851,16 +1847,25 @@
 
             if (buttonOrOptions instanceof Element) {
                 btnElement = buttonOrOptions;
-                btnId = getHeaderButtonId(btnElement);
+                btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
                 if (btnElement.dataset.position) position = btnElement.dataset.position;
+                if (btnElement.dataset.order !== undefined) {
+                    const parsed = parseFloat(btnElement.dataset.order);
+                    if (!isNaN(parsed)) order = parsed;
+                }
             } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
                 btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
                 if (buttonOrOptions.position) position = buttonOrOptions.position;
+                if (buttonOrOptions.order !== undefined) {
+                    const parsed = parseFloat(buttonOrOptions.order);
+                    if (!isNaN(parsed)) order = parsed;
+                }
                 btnElement = createMainHeaderButton(buttonOrOptions);
             }
             if (!btnElement) return null;
             if (position !== 'left' && position !== 'center' && position !== 'right') position = 'right';
             btnElement.dataset.position = position;
+            btnElement.dataset.order = String(order);
 
             if (btnId) {
                 const existing = headerEl.querySelector(`#${btnId}, .${btnId}`);
@@ -1876,7 +1881,7 @@
                     if (rightContainer) headerEl.insertBefore(leftContainer, rightContainer);
                     else headerEl.prepend(leftContainer);
                 }
-                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(leftContainer, order);
                 if (nextOrderedBtn) leftContainer.insertBefore(btnElement, nextOrderedBtn);
                 else leftContainer.appendChild(btnElement);
 
@@ -1889,12 +1894,12 @@
                     if (rightContainer) headerEl.insertBefore(centerContainer, rightContainer);
                     else headerEl.appendChild(centerContainer);
                 }
-                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(centerContainer, order);
                 if (nextOrderedBtn) centerContainer.insertBefore(btnElement, nextOrderedBtn);
                 else centerContainer.appendChild(btnElement);
             } else {
                 const rightContainer = headerEl.querySelector('.ml-auto.flex, .ml-auto') || headerEl;
-                const nextOrderedBtn = findNextOrderedHeaderButton(rightContainer, btnId);
+                const nextOrderedBtn = findNextOrderedHeaderButton(rightContainer, order);
                 const rightAnchorEl = getRightAnchorEl(rightContainer);
 
                 if (nextOrderedBtn) {
@@ -2020,6 +2025,7 @@
             getForumHeader,
             getThemeButton,
             createNaiveButton,
+            injectNaiveHeaderButton,
             createMainHeaderButton,
             injectMainHeaderButton,
             getForumDropdown,
