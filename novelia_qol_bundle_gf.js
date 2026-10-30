@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.7.1
+// @version      3.7.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -441,6 +441,7 @@
                         title: '手動更新本頁所有留言數',
                         iconSvg: Utils.icons.BULK,
                         position: 'right',
+                        order: 50,
                         onClick: async (e) => {
                             const btnElement = e.currentTarget;
                             if (btnElement.disabled) return;
@@ -552,6 +553,7 @@
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             marginRight: HEADER_BTN_FST_GAP,
                             iconSvg: Utils.icons.DRAWER,
+                            order: 10,
                             onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                         });
                         targetContainer.before(btn);
@@ -575,6 +577,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.POPOUT,
+                            order: 20,
                             onClick: () => {
                                 const targetUrl = location.href;
                                 if (window.parent && window.parent !== window) {
@@ -605,6 +608,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.STAR_OUTLINE,
+                            order: 30,
                             onClick: () => {
                                 if (window.parent !== window) {
                                     window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
@@ -624,6 +628,7 @@
                                 iconSize: 20,
                                 margin: `0px ${HEADER_BTN_INNER_GAP}`,
                                 iconSvg: Utils.icons.STAR_OUTLINE,
+                                order: 30,
                                 onClick: () => {
                                     if (window.parent !== window) {
                                         window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
@@ -653,6 +658,7 @@
                             iconSize: 20,
                             margin: `0px ${HEADER_BTN_INNER_GAP}`,
                             iconSvg: Utils.icons.RELOAD_CIRCLE,
+                            order: 40,
                             onClick: () => window.location.reload()
                         });
                         refBtn.after(btn);
@@ -1556,10 +1562,10 @@
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             const HEADER_BUTTONS = [
-                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'] },
-                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'] },
-                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'] },
-                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'] },
+                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'], order: 60 },                
+                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'], order: 70 },
+                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'],         order: 80 },
+                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'],      order: 90 },
             ];
 
             Utils.gm.addStyle(`
@@ -1819,7 +1825,7 @@
 
                 const currentFormattedLink = getCurrentNovelFormattedLink();
 
-                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages }) => {
+                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages, order }) => {
                     const cls = `novelia-share-${key}-btn`;
 
                     if (!pages.includes(pageType) && !(pages.includes('list') && pageType === 'favorite')) {
@@ -1841,6 +1847,7 @@
                         title,
                         iconSvg: icon,
                         position: 'left',
+                        order,
                         onClick: () => action()
                     });
                 });
@@ -2481,7 +2488,6 @@
             const IMG_SCROLLING = true;
             const IMG_SCROLL_SPD = 20;
             const REMOVE_CYCLE_IMG_BTN = true;
-            const FADEIN_ANIMATION = true;
 
             function getBannerUrl() { return GM_getValue('banner_url', IMG_URL); }
             // function getObjectFit() { return GM_getValue('banner_object_fit', IMG_FIT); }
@@ -2491,7 +2497,6 @@
             function getScrolling() { return GM_getValue('banner_scrolling', IMG_SCROLLING); }
             function getScrollSpd() { return Number(GM_getValue('banner_scroll_spd', IMG_SCROLL_SPD)) || 0; }
             function getRemoveCycleImgBtn() { return GM_getValue('banner_remove_cycle_btn', REMOVE_CYCLE_IMG_BTN); }
-            function getFadeInAnimation() { return GM_getValue('banner_fadein_animation', FADEIN_ANIMATION); }
 
             let offsetY = 0;
             let lastTime = 0;
@@ -2559,25 +2564,13 @@
                 const bannerUrl = getBannerUrl();
                 if (layer.dataset.bannerSrc !== bannerUrl) {
                     layer.dataset.bannerSrc = bannerUrl;
-                    const fadeIn = getFadeInAnimation();
-
-                    if (fadeIn) Object.assign(layer.style, { transition: 'none', opacity: '0' });
-                    else Object.assign(layer.style, { transition: '', opacity: '1' });
-
                     const isStale = () => !layer.isConnected || layer.dataset.bannerSrc !== bannerUrl;
-                    const reveal = () => {
-                        if (isStale() || !fadeIn) return;
-                        void layer.offsetWidth;
-                        Object.assign(layer.style, { transition: 'opacity 0.1s ease', opacity: '1' });
-                    };
                     Utils.imageCache.getUrl(bannerUrl, {
                         cacheKey: IMG_CACHE_KEY,
                         ttlMs: Utils.imageCache.DEFAULT_TTL
                     }).then((src) => {
                         if (isStale()) return;
                         layer.style.backgroundImage = `url("${src}")`;
-                        const preload = new Image();
-                        Object.assign(preload, { onload: reveal, onerror: reveal, src });
                     });
                 }
                 const computedBackgroundSize = (targetSize === 'cover' || targetSize === 'contain' || targetSize.includes(' ')) ? targetSize : `${targetSize} auto`;
