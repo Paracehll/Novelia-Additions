@@ -1815,19 +1815,13 @@
         const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null } = {}) => {
             if (typeof document === 'undefined') return null;
             const btn = Object.assign(document.createElement('button'), {
-                type: 'button',
-                id,
+                type: 'button', id, title,
                 className: `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim(),
-                title,
                 innerHTML: iconSvg || ''
             });
             btn.dataset.position = position;
-            if (order !== undefined && order !== null) {
-                btn.dataset.order = String(order);
-            }
-            if (title) {
-                btn.setAttribute('aria-label', title);
-            }
+            if (order !== undefined && order !== null) btn.dataset.order = String(order);
+            if (title) btn.setAttribute('aria-label', title);
             if (typeof onClick === 'function') {
                 btn.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -1952,12 +1946,7 @@
             };
 
             const btn = createMainHeaderButton({
-                id,
-                className,
-                title,
-                iconSvg,
-                position,
-                order,
+                id, className, title, iconSvg, position, order,
                 onClick: (e) => {
                     if (typeof onClick === 'function') onClick(e);
                     togglePanel();
@@ -2002,8 +1991,7 @@
             document.addEventListener('click', handleOutsideClick, true);
 
             const collapser = Object.assign(btn, {
-                panel,
-                addButton,
+                panel, addButton,
                 add: addButton,
                 mount: addButton,
                 removeButton,
@@ -2016,9 +2004,7 @@
                 getButtons: () => [...mountedButtons]
             });
 
-            if (Array.isArray(buttons)) {
-                buttons.forEach((b) => addButton(b));
-            }
+            if (Array.isArray(buttons)) buttons.forEach((b) => addButton(b));
 
             return collapser;
         };
