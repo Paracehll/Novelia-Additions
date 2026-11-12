@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.8.1
+// @version      3.8.2
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -105,7 +105,6 @@
             const COMMENT_ICON = '💬';
             const BADGE_ALIGN_ITEMS = 'auto';
             const INCREMENT_COLOR = '#63e2b7';
-            const UPDATE_BUTTON_LABEL = '批次更新';
             const COUNT_REPLIES = true;
             const CACHE_REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -113,6 +112,8 @@
                 .novelia-comment-badge, .novelia-h1-comment-badge { opacity: 0.85; white-space: nowrap; }
                 .novelia-comment-badge { font-size: 12px; flex: 0 0 auto; margin-right: 8px; }
                 .novelia-h1-comment-badge { font-size: 14px; margin-left: 8px; }
+                .novelia-comment-badge:has(+ .text-ink) { display: inline-block; }
+                .novelia-comment-badge + .text-ink { display: inline; }
             `);
 
             const CommentService = {
@@ -230,6 +231,12 @@
             };
             const taskLimiter = Utils.createLimiter(CONCURRENCY_LIMIT);
 
+            const findBadge = (w) =>
+                w.querySelector(':scope > .novelia-comment-badge')
+                || (w.nextElementSibling && w.nextElementSibling.querySelector(':scope > .novelia-comment-badge'))
+                || (w.nextElementSibling && w.nextElementSibling.matches('.novelia-comment-badge') ? w.nextElementSibling : null)
+                || (w.previousElementSibling && w.previousElementSibling.matches('.novelia-comment-badge') ? w.previousElementSibling : null);
+            
             const CommentUI = {
                 parseNovelPath(anchorElement) {
                     try {
@@ -250,15 +257,20 @@
                 },
                 renderBadge(targetElement, { count, diff, text, isError = false, force = false } = {}) {
                     const wrapperElement = this.ensureWrapper(targetElement);
-                    let badgeElement = wrapperElement.querySelector(':scope > .novelia-comment-badge');
+                    let badgeElement = findBadge(wrapperElement);
 
                     if (badgeElement && badgeElement.dataset.noveliaLocked === '1' && !force) return;
                     if (!badgeElement) {
                         badgeElement = document.createElement('span');
                         badgeElement.className = 'novelia-comment-badge';
-                        const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
-                        if (shareButton) shareButton.after(badgeElement);
-                        else wrapperElement.prepend(badgeElement);
+                        const zhTitle = wrapperElement.nextElementSibling;
+                        if (zhTitle && zhTitle.matches('span.text-ink')) {
+                            zhTitle.prepend(badgeElement);
+                        } else {
+                            const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
+                            if (shareButton) shareButton.after(badgeElement);
+                            else wrapperElement.prepend(badgeElement);
+                        }
                     }
 
                     if (text !== undefined) {
@@ -1619,7 +1631,6 @@
                         wrapper = Object.assign(document.createElement('span'), {
                             className: `${LIST_WRAPPER_CLASS} novelia-comment-wrapper`
                         });
-                        wrapper.style.gap = '6px';
                         anchorElement.replaceWith(wrapper);
                         wrapper.appendChild(copyBtn);
                         wrapper.appendChild(anchorElement);
