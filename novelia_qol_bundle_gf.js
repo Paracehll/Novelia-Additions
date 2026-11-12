@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.7.2
+// @version      3.7.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -780,7 +780,9 @@
                     html.novelia-forum-active header, html.novelia-forum-active .n-layout-header, html.novelia-forum-active nav.n-layout-header, html.novelia-forum-active .web-kit-header { display: none !important; }
                     html.novelia-forum-active .n-layout-sider, html.novelia-forum-active .n-layout-sidebar, html.novelia-forum-active aside.n-layout-sider, html.novelia-forum-active aside.web-kit-sidebar, html.novelia-forum-active .sidebar-shell { display: flex !important; height: 100vh !important; top: 0 !important; }
                     html.novelia-forum-active, html.novelia-forum-active body, html.novelia-forum-active #app, html.novelia-forum-active .web-kit-layout, html.novelia-forum-active .n-layout-scroll-container, html.novelia-forum-active .n-layout { height: 100vh !important; overflow: hidden !important; }
-                    html.novelia-forum-active main, html.novelia-forum-active .n-layout-content, html.novelia-forum-active .n-layout-content .n-layout-scroll-container, html.novelia-forum-active .n-layout-content .layout-content, html.novelia-forum-active .web-kit-main { max-width: 100% !important; width: 100% !important; height: 100% !important; padding: 0 !important; margin: 0 !important; top: 0 !important; display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
+                    html.novelia-forum-active .web-kit-layout > div > main, html.novelia-forum-active .n-layout-content, html.novelia-forum-active .n-layout-content .n-layout-scroll-container, html.novelia-forum-active .n-layout-content .layout-content, html.novelia-forum-active .web-kit-main { max-width: 100% !important; width: 100% !important; height: 100% !important; padding: 0 !important; margin: 0 !important; top: 0 !important; display: flex !important; flex-direction: column !important; flex: 1 1 auto !important; }
+                    html.novelia-forum-active .web-kit-layout > div:has(> main) { height: 100vh !important; overflow: hidden !important; }
+                    html.novelia-forum-active .novelia-forum-hide, .novelia-forum-hide { display: none !important; }
                     .novelia-forum-hide { display: none !important; }
                     #novelia-forum-inline-container { width: 100% !important; height: 100% !important; min-height: 100% !important; max-width: 100% !important; display: flex !important; flex-direction: column !important; margin: 0 !important; padding: 0 !important; box-sizing: border-box !important; overflow: hidden !important; position: relative !important; flex: 1 1 auto !important; }
                     #novelia-forum-inline-container iframe { width: 100% !important; height: 100% !important; min-height: 100% !important; border: none !important; display: block !important; opacity: 0; transition: opacity 0.3s ease-in-out; }
@@ -887,7 +889,10 @@
             window.addEventListener('message', function(e) {
                 if (!e.data) return;
                 if (e.data.type === 'NOVELIA_TOGGLE_HOST_SIDEBAR') {
-                    const drawerBtn = document.querySelector('button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], header button, .n-layout-header button, nav.n-layout-header button, .n-layout-sider-toggle-button, .sidebar-collapse');
+                    const drawerBtn = document.querySelector(
+                        'button.layout-toggle, button[aria-label*="导航菜单"], button[aria-label*="導航菜單"], ' +
+                        'header button:not([aria-haspopup]), .n-layout-sider-toggle-button, .sidebar-collapse'
+                    );
                     if (drawerBtn) drawerBtn.click();
                 }
                 if (e.data.type === 'NOVELIA_POPOUT_FORUM') {
@@ -1062,7 +1067,8 @@
                 }
 
                 let wrapper = document.getElementById('novelia-forum-inline-container');
-                const scrollContainer = document.querySelector('main') ||
+                const scrollContainer = document.querySelector('.web-kit-layout > div > main') ||
+                                        document.querySelector('main:not([data-slot])') ||
                                         document.querySelector('.n-layout-scroll-container') ||
                                         document.querySelector('.n-layout-content') ||
                                         document.querySelector('.layout-content');
