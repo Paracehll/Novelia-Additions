@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.8.0
+// @version      3.8.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -1485,6 +1485,9 @@
                 .novelia-toast.show { top: 30px; opacity: 1; }
                 .${LIST_WRAPPER_CLASS} { display: inline-flex; align-items: center; width: auto; flex-flow: row; margin-bottom: 2px; }
                 .novelia-grid-wrapper { display: inline-flex; align-items: flex-start; width: 100%; }
+                .novelia-wenku-card { position: relative; }
+                .novelia-wenku-pad { padding: 8px 0 !important; }
+                .novelia-wenku-title > .${COPY_BUTTON_CLASS} { float: left; margin: 1px 4px 0 0; width: 28px; padding: 0; line-height: 1.2; }
             `);
 
             const toast = Utils.ui.createToast('novelia-toast');
@@ -1584,6 +1587,19 @@
                 return textSpanElement ? textSpanElement.textContent.trim() : anchorElement.textContent.trim();
             }
 
+            const WENKU_ANCHOR_SELECTOR = "a[href^='/wenku/']";
+
+            function getWenkuTitle(anchorElement) {
+                const el = anchorElement.querySelector('.text-ink, .n-text');
+                const node = (el || anchorElement).cloneNode(true);
+                node.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((b) => b.remove());
+                return node.textContent.trim();
+            }
+            function collectWenkuAnchors(parentElement) {
+                const list = Array.from(parentElement.querySelectorAll(WENKU_ANCHOR_SELECTOR));
+                if (parentElement.matches && parentElement.matches(WENKU_ANCHOR_SELECTOR)) list.unshift(parentElement);
+                return list.filter((a) => !a.closest('.n-drawer') && a.querySelector('img, .n-text, .text-ink'));
+            }
             function injectLinkButtonsToItems(parentElement) {
                 if (!Utils.router.isListPageExceptNovelDetail()) return;
                 parentElement.querySelectorAll(LIST_ITEM_SELECTOR).forEach((itemElement) => {
@@ -1612,31 +1628,22 @@
                     }
                 });
 
-                parentElement.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
-                    if (anchorElement.closest('.n-drawer') || anchorElement.querySelector(`.${COPY_BUTTON_CLASS}`)) return;
-                    const textSpanElement = anchorElement.querySelector(".n-text");
-                    if (!textSpanElement) return;
-                    const titleText = textSpanElement.textContent.trim();
-                    const linkHref = anchorElement.getAttribute("href");
+                collectWenkuAnchors(parentElement).forEach((anchorElement) => {
+                    const titleEl = anchorElement.querySelector('.text-ink, .n-text');
+                    if (!titleEl || titleEl.querySelector(`:scope > .${COPY_BUTTON_CLASS}`)) return;
+
+                    const titleText = getWenkuTitle(anchorElement);
+                    const linkHref = anchorElement.getAttribute('href');
                     if (!titleText || !linkHref) return;
 
                     const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
                     if (LinkCache.has(formattedLink)) return;
 
-                    const parentPaddingDiv = textSpanElement.parentElement && textSpanElement.parentElement.style.padding ? textSpanElement.parentElement : textSpanElement.closest('div[style*="padding:"]');
-                    if (parentPaddingDiv) {
-                        parentPaddingDiv.dataset.noveliaOrigPadding = parentPaddingDiv.style.padding;
-                        parentPaddingDiv.style.padding = "8px 0px 8px 0px";
-                    }
-
-                    const copyBtn = createCopyButton(formattedLink);
-
-                    const gridWrapperDiv = Object.assign(document.createElement('div'), {
-                        className: 'novelia-grid-wrapper'
-                    });
-                    textSpanElement.replaceWith(gridWrapperDiv);
-                    gridWrapperDiv.appendChild(copyBtn);
-                    gridWrapperDiv.appendChild(textSpanElement);
+                    titleEl.classList.add('novelia-wenku-title');
+                    titleEl.prepend(createCopyButton(formattedLink));
+                    
+                    const pad = titleEl.closest('.p-2');
+                    if (pad) pad.classList.add('novelia-wenku-pad');
                 });
             }
             function getCurrentNovelFormattedLink() {
@@ -1676,15 +1683,11 @@
                     links.push(formattedLink);
                 });
 
-                document.querySelectorAll(".n-grid a[href*='/wenku/']").forEach((anchorElement) => {
-                    if (anchorElement.closest('.n-drawer')) return;
-                    const textSpanElement = anchorElement.querySelector(".n-text");
-                    if (!textSpanElement) return;
-                    const titleText = textSpanElement.textContent.trim();
-                    const linkHref = anchorElement.getAttribute("href");
+                collectWenkuAnchors(document).forEach((anchorElement) => {
+                    const titleText = getWenkuTitle(anchorElement);
+                    const linkHref = anchorElement.getAttribute('href');
                     if (!titleText || !linkHref) return;
-                    const formattedLink = `[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`;
-                    links.push(formattedLink);
+                    links.push(`[${titleText}](https://${NoveliaConfig.domains.main}${linkHref})`);
                 });
 
                 return links;
@@ -1790,23 +1793,11 @@
                     else wrapper.remove();
                 });
 
-                document.querySelectorAll('.novelia-grid-wrapper').forEach((wrapper) => {
-                    const originalText = wrapper.querySelector(".n-text");
-                    if (originalText) {
-                        const parentPaddingDiv = originalText.parentElement && originalText.parentElement.dataset.noveliaOrigPadding !== undefined ? originalText.parentElement : originalText.closest('div[data-novelia-orig-padding]');
-                        if (parentPaddingDiv) {
-                            parentPaddingDiv.style.padding = parentPaddingDiv.dataset.noveliaOrigPadding;
-                            delete parentPaddingDiv.dataset.noveliaOrigPadding;
-                        }
-                        wrapper.replaceWith(originalText);
-                    } else wrapper.remove();
-                });
-
                 document.querySelectorAll(`.${COPY_BUTTON_CLASS}`).forEach((button) => button.remove());
 
-                if (!skipHeaders) {
-                    document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
-                }
+                if (!skipHeaders) document.querySelectorAll(`.${HEADER_BUTTON_CLASS}`).forEach((button) => button.remove());
+                document.querySelectorAll('.novelia-wenku-title').forEach((el) => el.classList.remove('novelia-wenku-title'));
+                document.querySelectorAll('.novelia-wenku-pad').forEach((el) => el.classList.remove('novelia-wenku-pad'));
             }
             function performFullScan() {
                 if (Utils.router.isNovelPage()) {
