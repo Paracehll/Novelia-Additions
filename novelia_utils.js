@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.3.0
+// @version      2.4.0
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -22,7 +22,7 @@
     const defaultConfig = {
         domains: { main: 'n.novelia.cc', forum: 'forum.novelia.cc', cdn: 'n-cdn.novelia.cc' },
         db: { name: 'novelia_qol_db', version: 1, stores: ['assets_cache', 'capture_cache', 'network_cache'], keyPath: 'key' },
-        keys: { forumSubmenuExpanded: 'novelia_forum_submenu_expanded', mascotBlob: 'mascot_image_blob' },
+        keys: { forumSubmenuExpanded: 'novelia_forum_submenu_expanded', mascotBlob: 'mascot_image_blob', headerBtnLayout: 'novelia_header_btn_layout' },
         assets: { mascotPath: '/assets/mascot-DSVGgW05.webp' },
         events: { locationChange: 'tm-locationchange' },
         ttl: { default: DAY, image: 7 * DAY },
@@ -1079,6 +1079,7 @@
     const POPOUT_PATH = 'M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z';
 
     const icons = {
+        SETTINGS: mdIcon(20, 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z'),
         REFRESH: icon14('<polyline points="23 4 23 10 18 10"></polyline><polyline points="1 20 1 14 6 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>'),
         BULK: icon14('<rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>'),
         CLEAR: icon14('<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>'),
@@ -1634,7 +1635,7 @@
         return { createToast, createModal };
     };
 
-    const createSiteUi = ({ domains, router }) => {
+    const createSiteUi = ({ domains, router, createModal, store, layoutKey }) => {
         const isElement = (el) => (typeof Element !== 'undefined' && el instanceof Element) || (el && typeof el === 'object' && el.nodeType === 1);
 
         const isDark = () => {
@@ -1661,6 +1662,57 @@
 
         const theme = { isDark };
 
+        const POS_LIST = ['left', 'center', 'right'];
+        const POS_LABEL = { left: '左', center: '中', right: '右' };
+        const ORDER_MIN = 1, ORDER_MAX = 998;
+        const SETTINGS_BTN_ID = 'novelia-btn-settings';
+
+        const registry = new Map();   // id -> { id, title, iconSvg, def: { pos, order } }
+        let layoutCache = null;
+
+        const isValidOrder = (n) => Number.isInteger(n) && n >= ORDER_MIN && n <= ORDER_MAX;
+        const isValidPos = (p) => POS_LIST.includes(p);
+
+        const readLayout = () => {
+            if (layoutCache) return layoutCache;
+            const raw = store.get(layoutKey, {});
+            return (layoutCache = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {});
+        };
+        const writeLayout = (next) => { layoutCache = next; return store.set(layoutKey, next); };
+
+        // use custom order first, fallback param order
+        const resolveLayout = (id, def) => {
+            const c = readLayout()[id];
+            return {
+                pos: isValidPos(c?.pos) ? c.pos : def.pos,
+                order: isValidOrder(c?.order) ? c.order : def.order,
+                visible: c?.hidden !== true
+            };
+        };
+
+        const getCurrentHeader = () => (
+            typeof location !== 'undefined' && location.hostname === domains.main
+                ? document.querySelector('header')
+                : getForumHeader()
+        );
+
+        const relayoutHeaderButtons = (headerEl) => {
+            if (!headerEl) return;
+            const btns = Array.from(headerEl.querySelectorAll('[data-novelia-btn]'));
+            btns.forEach((el) => {
+                if (el.dataset.canOrder !== '1') return;
+                const reg = registry.get(el.dataset.noveliaBtn);
+                if (!reg) return;
+                const l = resolveLayout(reg.id, reg.def);
+                el.dataset.position = l.pos;
+                el.dataset.order = String(l.order);
+                if (l.visible) delete el.dataset.hidden; else el.dataset.hidden = '1';
+            });
+            btns.sort((a, b) => Number(a.dataset.order) - Number(b.dataset.order)); // stable:同 order 保持 DOM 順序
+            btns.forEach((el) => el.remove());
+            btns.forEach((el) => injectHeaderButton(headerEl, el, el.dataset.position, Number(el.dataset.order)));
+        };
+
         const BUTTON_PRESETS = {
             naive: { className: '__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type' },
             main: { className: '' }
@@ -1668,14 +1720,14 @@
 
         const ensureButtonStyles = () => {
             gm.addStyle(`
-                .novelia-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+                .novelia-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+                .novelia-btn__badge { position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: #63e2b7; color: #0b2a21; font-size: 10px; font-weight: 600; line-height: 14px; text-align: center; pointer-events: none; font-family: system-ui, -apple-system, sans-serif; }
                 .novelia-btn__icon { display: inline-flex; font-size: var(--novelia-btn-icon-size, 20px); line-height: 1; }
                 .novelia-btn__icon > svg { width: 1em; height: 1em; }
-
-                .novelia-btn.novelia-btn--naive { margin: 0 4px; padding-top: 6px; background: transparent !important; border: none !important; color: inherit !important; }
-
+                .novelia-btn.novelia-btn--naive { height: 2rem !important; min-height: 0 !important; min-width: 2rem; margin: 0 4px; padding: 0 .375rem !important; line-height: 1; background: transparent !important; border: none !important; color: inherit !important; }
                 .novelia-btn.novelia-btn--main { width: 2rem; height: 2rem; padding: .375rem; border: none; border-radius: .25rem; background: transparent; color: inherit; }
                 .novelia-btn.novelia-btn--main:hover { background-color: var(--color-hover, rgba(128,128,128,.18)); color: var(--color-ink, inherit); }
+                .novelia-btn[data-hidden="1"] { display: none !important; }
             `, 'novelia-utils-button-styles');
         };
 
@@ -1688,14 +1740,25 @@
 
         const createButton = ({
             preset, id = '', className = '', title = '', 
-            iconSvg = '', iconSize = 20, 
-            margin = null, marginRight = null, position = 'right', order = 0, 
+            iconSvg = '', iconSize = 20,
+            margin = null, marginRight = null, 
+            position = 'right', order = 0, can_order = false, 
             onClick = null
         } = {}) => {
             if (typeof document === 'undefined') return null;
             ensureButtonStyles();
 
             const p = resolvePreset(preset);
+            const orderable = !!can_order && !!id;
+            if (can_order && !id) console.warn('[Utils.createButton] can_order 需要 id,已忽略');
+
+            let layout = { pos: position, order, visible: true };
+            if (orderable) {
+                const def = { pos: position, order };
+                registry.set(id, { id, title, iconSvg, def });
+                layout = resolveLayout(id, def);
+            }
+
             const btn = document.createElement('button');
             btn.type = 'button';
             if (id) btn.id = id;
@@ -1704,13 +1767,12 @@
 
             btn.dataset.noveliaBtn = id || className.trim().split(/\s+/)[0] || '';
             btn.dataset.preset = p;
-            btn.dataset.position = position;
-            if (order !== undefined && order !== null) btn.dataset.order = String(order);
+            btn.dataset.canOrder = orderable ? '1' : '0';
+            btn.dataset.position = layout.pos;
+            btn.dataset.order = String(layout.order);
+            if (!layout.visible) btn.dataset.hidden = '1';
 
-            if (title) {
-                btn.title = title;
-                btn.setAttribute('aria-label', title);
-            }
+            if (title) { btn.title = title; btn.setAttribute('aria-label', title); }
             if (margin) btn.style.margin = margin;
             if (marginRight) btn.style.marginRight = marginRight;
 
@@ -1721,35 +1783,266 @@
             return btn;
         };
 
-        const mountHeaderButton = (headerEl, input, { position = 'right', order = 0, preset, create = createButton } = {}) => {
+        const setButtonBadge = (btn, value, { max = 99, showZero = false } = {}) => {
+            if (!isElement(btn)) return null;
+            const badge = btn.querySelector(':scope > .novelia-btn__badge');
+            const n = Number(value);
+            const isNum = value !== '' && value !== null && value !== undefined && Number.isFinite(n);
+            const empty = value === null || value === undefined || value === '' || (isNum && n <= 0 && !showZero);
+
+            if (empty) {
+                if (badge) badge.remove();
+                return null;
+            }
+            const label = isNum ? (n > max ? `${max}+` : String(n)) : String(value);
+            const el = badge || Object.assign(document.createElement('span'), { className: 'novelia-btn__badge' });
+            if (el.textContent !== label) el.textContent = label;
+            if (!badge) btn.appendChild(el);
+            return el;
+        };
+
+        const HEADER_READY_TIMEOUT = 3000;
+        const HEADER_POLL_MS = 150;
+        const headerSeenAt = new WeakMap();   // headerEl -> 第一次被檢查的時間
+        const pendingMounts = new WeakMap();  // headerEl -> { queue: Map(key -> {input, opts}), timer }
+
+        const findRightContainer = (headerEl) => headerEl.querySelector('.ml-auto.flex, .ml-auto');
+
+        const isHeaderReady = (headerEl) => {
+            if (!headerEl) return false;
+            const right = findRightContainer(headerEl);
+            if (right && right.querySelector('button, a, input')) return true;
+            if (!headerSeenAt.has(headerEl)) headerSeenAt.set(headerEl, Date.now());
+            return Date.now() - headerSeenAt.get(headerEl) >= HEADER_READY_TIMEOUT;
+        };
+
+        const getInputKey = (input) => (isElement(input)
+            ? getButtonKey(input)
+            : (input.id || (input.className || '').trim().split(/\s+/)[0] || ''));
+
+        const deferMount = (headerEl, input, opts) => {
+            let state = pendingMounts.get(headerEl);
+            if (!state) pendingMounts.set(headerEl, (state = { queue: new Map(), timer: null }));
+            state.queue.set(getInputKey(input) || Symbol('btn'), { input, opts });
+            if (state.timer) return;
+            state.timer = setInterval(() => {
+                if (!headerEl.isConnected) {            // header 被換掉就放棄
+                    clearInterval(state.timer);
+                    pendingMounts.delete(headerEl);
+                    return;
+                }
+                if (!isHeaderReady(headerEl)) return;
+                clearInterval(state.timer);
+                pendingMounts.delete(headerEl);
+                state.queue.forEach(({ input: i, opts: o }) => mountHeaderButton(headerEl, i, o));
+            }, HEADER_POLL_MS);
+        };
+
+        const mountHeaderButton = (headerEl, input, opts = {}) => {
+            const { position = 'right', order = 0, preset, create = createButton } = opts;
             if (!headerEl || !input) return null;
 
+            const key = getInputKey(input);
+            if (key) {
+                const existing = headerEl.querySelector(`[data-novelia-btn="${CSS.escape(key)}"], #${CSS.escape(key)}`);
+                if (existing && existing !== input) return existing;
+            }
+            if (!isHeaderReady(headerEl)) {   // 原 header 尚未載入完成:先排隊
+                deferMount(headerEl, input, opts);
+                return null;
+            }
             const el = isElement(input) ? input
                 : (typeof input === 'object' ? create({ preset, position, order, ...input }) : null);
             if (!el) return null;
 
-            const pos = el.dataset.position || position;
-            const parsedOrder = parseFloat(el.dataset.order);
-            const ord = isNaN(parsedOrder) ? order : parsedOrder;
-            el.dataset.position = ['left', 'center', 'right'].includes(pos) ? pos : 'right';
+            const pos = isValidPos(el.dataset.position) ? el.dataset.position : position;
+            const parsed = parseFloat(el.dataset.order);
+            const ord = isNaN(parsed) ? order : parsed;
+            el.dataset.position = pos;
             el.dataset.order = String(ord);
+            return injectHeaderButton(headerEl, el, pos, ord);
+        };
 
-            const key = getButtonKey(el);
-            if (key) {
-                const existing = headerEl.querySelector(`[data-novelia-btn="${key}"], #${CSS.escape(key)}`);
-                if (existing && existing !== el) return existing;
-            }
-            return injectHeaderButton(headerEl, el, el.dataset.position, ord);
+        let settingsModal = null;
+
+        const buildSettingsModal = () => {
+            gm.addStyle(`
+                .novelia-bs-preview { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+                .novelia-bs-zone { border: 1px dashed rgba(128,128,128,.5); border-radius: 6px; padding: 6px; min-height: 56px; }
+                .novelia-bs-zone-label { font-size: 11px; opacity: .6; margin-bottom: 4px; }
+                .novelia-bs-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+                .novelia-bs-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 4px; background: rgba(128,128,128,.15); font-size: 11px; }
+                .novelia-bs-chip svg { width: 16px; height: 16px; }
+                .novelia-bs-chip.is-fixed { opacity: .5; }
+                .novelia-bs-row { display: grid; grid-template-columns: 20px 24px 1fr 72px 64px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(128,128,128,.2); }
+                .novelia-bs-row svg { width: 20px; height: 20px; }
+                .novelia-bs-order, .novelia-bs-pos { padding: 4px 6px; border: 1px solid rgba(128,128,128,.4); border-radius: 4px; background: transparent; color: inherit; font: inherit; }
+                .novelia-bs-pos option { background: #fff; color: #222; }
+                .novelia-bs-row.is-invalid .novelia-bs-order { border-color: #e5484d; }
+                .novelia-bs-vis { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: #63e2b7; }
+                .novelia-bs-err { grid-column: 3 / -1; color: #e5484d; font-size: 11px; display: none; }                
+                .novelia-bs-row.is-invalid .novelia-bs-err { display: block; }
+                .novelia-bs-row.is-off .novelia-bs-name, .novelia-bs-row.is-off > span:nth-child(2) { opacity: .45; }
+                .novelia-bs-empty { opacity: .6; padding: 12px 0; text-align: center; }
+                .novelia-bs-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+                .novelia-bs-actions button { padding: 6px 14px; border-radius: 4px; border: 1px solid rgba(128,128,128,.4); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+                .novelia-bs-actions button.is-primary { background: #63e2b7; border-color: #63e2b7; color: #0b2a21; }
+                .novelia-bs-actions button:disabled { opacity: .45; cursor: not-allowed; }
+            `, 'novelia-utils-btn-settings-styles');
+
+            const modal = createModal({ id: 'novelia-btn-settings-modal', title: '標題列按鈕設定' });
+            const state = { draft: {} };
+            const $ = (sel) => modal.container.querySelector(sel);
+
+            const parseOrder = (v) => {
+                if (v === '' || v === null || v === undefined) return null;
+                const n = Number(v);
+                return isValidOrder(n) ? n : null;
+            };
+
+            const initDraft = (useDefault) => {
+                state.draft = {};
+                registry.forEach(({ id, def }) => {
+                    const r = useDefault ? { ...def, visible: true } : resolveLayout(id, def);
+                    state.draft[id] = { order: String(r.order), pos: r.pos, visible: r.visible };
+                });
+            };
+
+            const validate = () => {
+                const errors = {}, seen = new Map();
+                for (const [id, d] of Object.entries(state.draft)) {
+                    const n = parseOrder(d.order);
+                    if (n === null) { errors[id] = `請輸入 ${ORDER_MIN}~${ORDER_MAX} 的整數`; continue; }
+                    if (!d.visible) continue;
+                    if (seen.has(n)) { errors[id] = errors[seen.get(n)] = '順序不可重複'; }
+                    else seen.set(n, id);
+                }
+                return errors;
+            };
+
+            const renderPreview = () => {
+                const entries = [];
+                getCurrentHeader()?.querySelectorAll('[data-novelia-btn]').forEach((el) => {
+                    if (el.dataset.canOrder === '1') return;
+                    entries.push({
+                        pos: el.dataset.position, order: Number(el.dataset.order), fixed: true,
+                        title: el.title || '', icon: el.querySelector('.novelia-btn__icon')?.innerHTML || ''
+                    });
+                });
+                registry.forEach(({ id, title, iconSvg, def }) => {
+                    const d = state.draft[id];
+                    if (!d.visible) return;
+                    entries.push({
+                        pos: isValidPos(d.pos) ? d.pos : def.pos,
+                        order: parseOrder(d.order) ?? def.order,
+                        title, icon: iconSvg, fixed: false
+                    });
+                });
+                $('.novelia-bs-preview').innerHTML = POS_LIST.map((pos) => {
+                    const chips = entries.filter((e) => e.pos === pos)
+                        .sort((a, b) => a.order - b.order)
+                        .map((e) => `<span class="novelia-bs-chip${e.fixed ? ' is-fixed' : ''}" title="${text.escapeHtml(e.title)}">${e.icon}<i>${e.order}</i></span>`)
+                        .join('');
+                    return `<div class="novelia-bs-zone"><div class="novelia-bs-zone-label">${POS_LABEL[pos]}</div><div class="novelia-bs-chips">${chips}</div></div>`;
+                }).join('');
+            };
+
+            const refresh = () => {
+                const errors = validate();
+                modal.container.querySelectorAll('.novelia-bs-row').forEach((row) => {
+                    const msg = errors[row.dataset.id];
+                    row.classList.toggle('is-invalid', !!msg);
+                    row.querySelector('.novelia-bs-err').textContent = msg || '';
+                    row.classList.toggle('is-off', !state.draft[row.dataset.id].visible);
+                });
+                const saveBtn = $('[data-act="save"]');
+                if (saveBtn) saveBtn.disabled = Object.keys(errors).length > 0;
+                renderPreview();
+            };
+
+            const render = () => {
+                const rows = Array.from(registry.values()).map(({ id, title, iconSvg }) => {
+                    const d = state.draft[id];
+                    return `<div class="novelia-bs-row${d.visible ? '' : ' is-off'}" data-id="${text.escapeHtml(id)}">
+                        <input class="novelia-bs-vis" type="checkbox" title="顯示" ${d.visible ? 'checked' : ''}>
+                        <span>${iconSvg}</span>
+                        <span class="novelia-bs-name">${text.escapeHtml(title || id)}</span>
+                        <input class="novelia-bs-order" type="number" min="${ORDER_MIN}" max="${ORDER_MAX}" step="1" value="${text.escapeHtml(d.order)}">
+                        <select class="novelia-bs-pos">${POS_LIST.map((p) => `<option value="${p}"${p === d.pos ? ' selected' : ''}>${POS_LABEL[p]}</option>`).join('')}</select>
+                        <div class="novelia-bs-err"></div>
+                    </div>`;
+                }).join('');
+                modal.container.innerHTML = `
+                    <div class="novelia-bs-preview"></div>
+                    ${rows || '<div class="novelia-bs-empty">目前沒有可排序的按鈕</div>'}
+                    <div class="novelia-bs-actions">
+                        <button type="button" data-act="reset">重設為預設</button>
+                        <button type="button" data-act="save" class="is-primary">儲存</button>
+                    </div>`;
+                refresh();
+            };
+
+            modal.container.addEventListener('input', (e) => {
+                const row = e.target.closest('.novelia-bs-row');
+                const d = row && state.draft[row.dataset.id];
+                if (!d) return;
+                if (e.target.classList.contains('novelia-bs-order')) d.order = e.target.value;
+                if (e.target.classList.contains('novelia-bs-pos')) d.pos = e.target.value;
+                if (e.target.classList.contains('novelia-bs-vis')) d.visible = e.target.checked;
+                refresh();
+            });
+
+            modal.container.addEventListener('click', (e) => {
+                const act = e.target.closest('[data-act]')?.dataset.act;
+                if (act === 'reset') { initDraft(true); render(); }
+                if (act === 'save') {
+                    if (Object.keys(validate()).length) return;
+                    const next = { ...readLayout() };
+                    registry.forEach(({ id, def }) => {
+                        const d = state.draft[id];
+                        const entry = {};
+                        const n = parseOrder(d.order);
+                        if (n !== def.order) entry.order = n;
+                        if (d.pos !== def.pos) entry.pos = d.pos;
+                        if (!d.visible) entry.hidden = true;
+                        if (Object.keys(entry).length) next[id] = entry; else delete next[id];
+                    });
+                    writeLayout(next);
+                    relayoutHeaderButtons(getCurrentHeader());
+                    modal.close();
+                }
+            });
+
+            return { modal, open() { initDraft(false); render(); modal.show(); } };
+        };
+
+        const openButtonSettings = () => {
+            if (!settingsModal) settingsModal = buildSettingsModal();
+            settingsModal?.open();
+        };
+
+        const ensureSettingsButton = (headerEl, preset) => {
+            if (!headerEl || headerEl.querySelector(`[data-novelia-btn="${SETTINGS_BTN_ID}"]`)) return;
+            mountHeaderButton(headerEl, {
+                id: SETTINGS_BTN_ID, title: '標題列按鈕設定', iconSvg: icons.SETTINGS,
+                position: 'right', order: 999, can_order: false, onClick: openButtonSettings
+            }, { preset });
         };
 
         const injectForumHeaderButton = (input, position = 'right', order = 0) => {
             if (typeof document === 'undefined') return null;
-            return mountHeaderButton(getForumHeader(), input, { position, order, preset: 'naive' });
+            const header = getForumHeader();
+            if (!header) return null;
+            ensureSettingsButton(header, 'naive');
+            return mountHeaderButton(header, input, { position, order, preset: 'naive' });
         };
 
         const injectMainHeaderButton = (input, position = 'right', order = 0) => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
-            return mountHeaderButton(document.querySelector('header'), input, { position, order, preset: 'main' });
+            const header = document.querySelector('header');
+            if (!header) return null;
+            ensureSettingsButton(header, 'main');
+            return mountHeaderButton(header, input, { position, order, preset: 'main' });
         };
 
         const getForumHeader = () => (typeof document !== 'undefined' ? document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav') : null);
@@ -2018,9 +2311,10 @@
 
         const injectMainHeaderCollapser = (input, position = 'right', order = 0) => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
-            return mountHeaderButton(document.querySelector('header'), input, {
-                position, order, preset: 'main', create: createMainHeaderCollapser
-            });
+            const header = document.querySelector('header');
+            if (!header) return null;
+            ensureSettingsButton(header, 'main');
+            return mountHeaderButton(header, input, { position, order, preset: 'main', create: createMainHeaderCollapser });
         };
 
         const getForumDropdown = (subItems, onItemClick = null) => {
@@ -2129,18 +2423,30 @@
         };
 
         return {
-            theme, getForumHeader, getThemeButton,
+            theme,
+            getForumHeader,
+            getThemeButton,
+            // button
             createButton,
+            setButtonBadge,
             injectForumHeaderButton,
             injectMainHeaderButton,
             createMainHeaderCollapser,
             injectMainHeaderCollapser,
+            // settings / layout
+            ensureSettingsButton,
+            openButtonSettings,
+            relayoutHeaderButtons,
+            // header container
             initHeaderDiv,
             initForumHeaderDiv: initHeaderDiv,
             initMainHeaderDiv: initHeaderDiv,
             injectHeaderButton,
-            getForumDropdown, createSidebarPopoutButton,
-            createSidebarGroupHeader, createSidebarSubmenuItem
+            // sidebar / dropdown
+            getForumDropdown,
+            createSidebarPopoutButton,
+            createSidebarGroupHeader,
+            createSidebarSubmenuItem
         };
     };
 
@@ -2187,7 +2493,7 @@
     const sidebarState = createSidebarState({ sidebar, store: localStore, key: cfg.keys.forumSubmenuExpanded });
     const comments = createComments({ icons });
     const genericUi = createGenericUi(gm);
-    const siteUi = createSiteUi({ domains: cfg.domains, router });
+    const siteUi = createSiteUi({ domains: cfg.domains, router, createModal: genericUi.createModal, store: localStore, layoutKey: cfg.keys.headerBtnLayout });
 
     const Utils = Object.freeze({
         text,
