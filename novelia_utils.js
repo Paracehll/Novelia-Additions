@@ -1661,6 +1661,97 @@
 
         const theme = { isDark };
 
+        const BUTTON_PRESETS = {
+            naive: { className: '__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type' },
+            main: { className: '' }
+        };
+
+        const ensureButtonStyles = () => {
+            gm.addStyle(`
+                .novelia-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+                .novelia-btn__icon { display: inline-flex; font-size: var(--novelia-btn-icon-size, 20px); line-height: 1; }
+                .novelia-btn__icon > svg { width: 1em; height: 1em; }
+
+                .novelia-btn.novelia-btn--naive { margin: 0 4px; padding-top: 6px; background: transparent !important; border: none !important; color: inherit !important; }
+
+                .novelia-btn.novelia-btn--main { width: 2rem; height: 2rem; padding: .375rem; border: none; border-radius: .25rem; background: transparent; color: inherit; }
+                .novelia-btn.novelia-btn--main:hover { background-color: var(--color-hover, rgba(128,128,128,.18)); color: var(--color-ink, inherit); }
+            `, 'novelia-utils-button-styles');
+        };
+
+        const resolvePreset = (preset) => {
+            if (preset && BUTTON_PRESETS[preset]) return preset;
+            return (typeof location !== 'undefined' && location.hostname === domains.main) ? 'main' : 'naive';
+        };
+
+        const getButtonKey = (el) => el?.dataset?.noveliaBtn || el?.id || '';
+
+        const createButton = ({
+            preset, id = '', className = '', title = '', 
+            iconSvg = '', iconSize = 20, 
+            margin = null, marginRight = null, position = 'right', order = 0, 
+            onClick = null
+        } = {}) => {
+            if (typeof document === 'undefined') return null;
+            ensureButtonStyles();
+
+            const p = resolvePreset(preset);
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            if (id) btn.id = id;
+            btn.className = ['novelia-btn', `novelia-btn--${p}`, BUTTON_PRESETS[p].className, id, className]
+                .filter(Boolean).join(' ');
+
+            btn.dataset.noveliaBtn = id || className.trim().split(/\s+/)[0] || '';
+            btn.dataset.preset = p;
+            btn.dataset.position = position;
+            if (order !== undefined && order !== null) btn.dataset.order = String(order);
+
+            if (title) {
+                btn.title = title;
+                btn.setAttribute('aria-label', title);
+            }
+            if (margin) btn.style.margin = margin;
+            if (marginRight) btn.style.marginRight = marginRight;
+
+            btn.innerHTML = `<span class="novelia-btn__icon" style="--novelia-btn-icon-size:${iconSize}px">${iconSvg || ''}</span>`;
+            if (typeof onClick === 'function') {
+                btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(e); });
+            }
+            return btn;
+        };
+
+        const mountHeaderButton = (headerEl, input, { position = 'right', order = 0, preset, create = createButton } = {}) => {
+            if (!headerEl || !input) return null;
+
+            const el = isElement(input) ? input
+                : (typeof input === 'object' ? create({ preset, position, order, ...input }) : null);
+            if (!el) return null;
+
+            const pos = el.dataset.position || position;
+            const parsedOrder = parseFloat(el.dataset.order);
+            const ord = isNaN(parsedOrder) ? order : parsedOrder;
+            el.dataset.position = ['left', 'center', 'right'].includes(pos) ? pos : 'right';
+            el.dataset.order = String(ord);
+
+            const key = getButtonKey(el);
+            if (key) {
+                const existing = headerEl.querySelector(`[data-novelia-btn="${key}"], #${CSS.escape(key)}`);
+                if (existing && existing !== el) return existing;
+            }
+            return injectHeaderButton(headerEl, el, el.dataset.position, ord);
+        };
+
+        const injectForumHeaderButton = (input, position = 'right', order = 0) => {
+            if (typeof document === 'undefined') return null;
+            return mountHeaderButton(getForumHeader(), input, { position, order, preset: 'naive' });
+        };
+
+        const injectMainHeaderButton = (input, position = 'right', order = 0) => {
+            if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
+            return mountHeaderButton(document.querySelector('header'), input, { position, order, preset: 'main' });
+        };
+
         const getForumHeader = () => (typeof document !== 'undefined' ? document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav') : null);
 
         const getThemeButton = (container = null) => {
@@ -1701,29 +1792,6 @@
                 return accountEl.closest('.relative, div') || accountEl;
             }
             return null;
-        };
-
-        const createNaiveButton = ({ id = '', className = '', title = '', iconSvg = '', iconSize = 20, margin = '0px 4px', marginRight = null, position = 'right', order = 0, onClick = null } = {}) => {
-            if (typeof document === 'undefined') return null;
-            const btn = document.createElement('button');
-            if (id) btn.id = id;
-            btn.className = `${id} __button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type ${className}`.trim();
-            btn.type = 'button';
-            btn.dataset.position = position;
-            if (order !== undefined && order !== null) {
-                btn.dataset.order = String(order);
-            }
-            if (title) {
-                btn.title = title;
-                btn.setAttribute('aria-label', title);
-            }
-            btn.style.cssText = `margin: ${margin}; flex-shrink: 0; background: transparent; border: none; cursor: pointer; color: inherit; display: inline-flex; align-items: center; justify-content: center; padding-top: 6px;`;
-            if (marginRight) btn.style.marginRight = marginRight;
-            btn.innerHTML = `<span class="n-button__content"><i role="img" class="n-icon __icon-dark-131ezvy-d" style="font-size: ${iconSize}px; display: inline-flex;">${iconSvg}</i></span>`;
-            if (typeof onClick === 'function') {
-                btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(e); });
-            }
-            return btn;
         };
 
         const initHeaderDiv = (headerEl, position = 'right') => {
@@ -1777,62 +1845,12 @@
             return btnElement;
         };
 
-        const injectNaiveHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
-            if (typeof document === 'undefined') return null;
-            const forumHeader = getForumHeader();
-            if (!forumHeader) return null;
+        const createMainHeaderCollapser = ({ 
+            id = '', className = '', title = '', 
+            iconSvg = '', iconSize = 20, position = 'right', order = 0, 
+            onClick = null, buttons = [] } = {}
+        ) => {
 
-            let btnElement = null, btnId = '';
-            if (isElement(buttonOrOptions)) {
-                btnElement = buttonOrOptions;
-                btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
-                if (btnElement.dataset.position) position = btnElement.dataset.position;
-                if (btnElement.dataset.order !== undefined) {
-                    const parsed = parseFloat(btnElement.dataset.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-            } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
-                btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
-                if (buttonOrOptions.position) position = buttonOrOptions.position;
-                if (buttonOrOptions.order !== undefined) {
-                    const parsed = parseFloat(buttonOrOptions.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-                btnElement = createNaiveButton(buttonOrOptions);
-            }
-            if (!btnElement) return null;
-            btnElement.dataset.position = position;
-            btnElement.dataset.order = String(order);
-
-            if (btnId) {
-                const existing = forumHeader.querySelector(`#${btnId}, .${btnId}`);
-                if (existing) return existing;
-            }
-
-            return injectHeaderButton(forumHeader, btnElement, position, order);
-        };
-
-        const createMainHeaderButton = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null } = {}) => {
-            if (typeof document === 'undefined') return null;
-            const btn = Object.assign(document.createElement('button'), {
-                type: 'button', id, title,
-                className: `${id} grid size-8 flex-none place-items-center rounded p-1.5 hover:bg-hover hover:text-ink transition-colors ${className}`.trim(),
-                innerHTML: iconSvg || ''
-            });
-            btn.dataset.position = position;
-            if (order !== undefined && order !== null) btn.dataset.order = String(order);
-            if (title) btn.setAttribute('aria-label', title);
-            if (typeof onClick === 'function') {
-                btn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onClick(e);
-                });
-            }
-            return btn;
-        };
-
-        const createMainHeaderCollapser = ({ id = '', className = '', title = '', iconSvg = '', position = 'right', order = 0, onClick = null, buttons = [] } = {}) => {
             if (typeof document === 'undefined') return null;
 
             gm.addStyle(`
@@ -1934,8 +1952,8 @@
                 else { openPanel(); }
             };
 
-            const btn = createMainHeaderButton({
-                id, className, title, iconSvg, position, order,
+            const btn = createButton({
+                preset: 'main', id, className, title, iconSvg, iconSize, position, order,
                 onClick: (e) => {
                     if (typeof onClick === 'function') onClick(e);
                     togglePanel();
@@ -1998,74 +2016,11 @@
             return collapser;
         };
 
-        const injectMainHeaderButton = (buttonOrOptions, position = 'right', order = 0) => {
+        const injectMainHeaderCollapser = (input, position = 'right', order = 0) => {
             if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
-            const headerEl = document.querySelector('header');
-            if (!headerEl) return null;
-
-            let btnElement = null, btnId = '';
-            if (isElement(buttonOrOptions)) {
-                btnElement = buttonOrOptions;
-                btnId = btnElement.id || (typeof btnElement.className === 'string' ? btnElement.className.split(/\s+/)[0] : '');
-                if (btnElement.dataset.position) position = btnElement.dataset.position;
-                if (btnElement.dataset.order !== undefined) {
-                    const parsed = parseFloat(btnElement.dataset.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-            } else if (typeof buttonOrOptions === 'object' && buttonOrOptions !== null) {
-                btnId = buttonOrOptions.id || (buttonOrOptions.className ? buttonOrOptions.className.split(/\s+/)[0] : '');
-                if (buttonOrOptions.position) position = buttonOrOptions.position;
-                if (buttonOrOptions.order !== undefined) {
-                    const parsed = parseFloat(buttonOrOptions.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-                btnElement = createMainHeaderButton(buttonOrOptions);
-            }
-            if (!btnElement) return null;
-            btnElement.dataset.position = position;
-            btnElement.dataset.order = String(order);
-
-            if (btnId) {
-                const existing = headerEl.querySelector(`#${btnId}, .${btnId}`);
-                if (existing) return existing;
-            }
-
-            return injectHeaderButton(headerEl, btnElement, position, order);
-        };
-
-        const injectMainHeaderCollapser = (collapserOrOptions, position = 'right', order = 0) => {
-            if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
-            const headerEl = document.querySelector('header');
-            if (!headerEl) return null;
-
-            let collapserEl = null, collapserId = '';
-            if (isElement(collapserOrOptions)) {
-                collapserEl = collapserOrOptions;
-                collapserId = collapserEl.id || (typeof collapserEl.className === 'string' ? collapserEl.className.split(/\s+/)[0] : '');
-                if (collapserEl.dataset.position) position = collapserEl.dataset.position;
-                if (collapserEl.dataset.order !== undefined) {
-                    const parsed = parseFloat(collapserEl.dataset.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-            } else if (typeof collapserOrOptions === 'object' && collapserOrOptions !== null) {
-                collapserId = collapserOrOptions.id || (collapserOrOptions.className ? collapserOrOptions.className.split(/\s+/)[0] : '');
-                if (collapserOrOptions.position) position = collapserOrOptions.position;
-                if (collapserOrOptions.order !== undefined) {
-                    const parsed = parseFloat(collapserOrOptions.order);
-                    if (!isNaN(parsed)) order = parsed;
-                }
-                collapserEl = createMainHeaderCollapser(collapserOrOptions);
-            }
-            if (!collapserEl) return null;
-            collapserEl.dataset.position = position;
-            collapserEl.dataset.order = String(order);
-
-            if (collapserId) {
-                const existing = headerEl.querySelector(`#${collapserId}, .${collapserId}`);
-                if (existing) return existing;
-            }
-
-            return injectHeaderButton(headerEl, collapserEl, position, order);
+            return mountHeaderButton(document.querySelector('header'), input, {
+                position, order, preset: 'main', create: createMainHeaderCollapser
+            });
         };
 
         const getForumDropdown = (subItems, onItemClick = null) => {
@@ -2174,23 +2129,18 @@
         };
 
         return {
-            theme,
-            getForumHeader,
-            getThemeButton,
-            createNaiveButton,
-            injectNaiveHeaderButton,
-            createMainHeaderButton,
+            theme, getForumHeader, getThemeButton,
+            createButton,
+            injectForumHeaderButton,
+            injectMainHeaderButton,
             createMainHeaderCollapser,
+            injectMainHeaderCollapser,
             initHeaderDiv,
             initForumHeaderDiv: initHeaderDiv,
             initMainHeaderDiv: initHeaderDiv,
             injectHeaderButton,
-            injectMainHeaderButton,
-            injectMainHeaderCollapser,
-            getForumDropdown,
-            createSidebarPopoutButton,
-            createSidebarGroupHeader,
-            createSidebarSubmenuItem
+            getForumDropdown, createSidebarPopoutButton,
+            createSidebarGroupHeader, createSidebarSubmenuItem
         };
     };
 

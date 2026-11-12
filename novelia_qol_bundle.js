@@ -516,6 +516,9 @@
         init: function() {
             const IS_HOST = (location.hostname === NoveliaConfig.domains.main);
             const IS_IFRAME_CONTEXT = (location.hostname === NoveliaConfig.domains.forum);
+
+            const createHeaderBtn = (opts) => Utils.ui.site.createButton({ preset: 'naive', ...opts });
+
             // =========================================================
             // IFRAME CLIENT CONTEXT (forum.novelia.cc)
             // =========================================================
@@ -546,7 +549,7 @@
                         const targetContainer = forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild;
                         if (!targetContainer) return null;
 
-                        btn = Utils.ui.site.createNaiveButton({
+                        btn = createHeaderBtn({
                             className: 'novelia-host-drawer-btn',
                             title: '切換側邊欄',
                             iconSize: 24,
@@ -571,7 +574,7 @@
                     const refBtn = drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-popout-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
+                        btn = createHeaderBtn({
                             className: 'novelia-forum-popout-btn',
                             title: '前往論壇 (取代當前頁面)',
                             iconSize: 20,
@@ -601,42 +604,31 @@
                     }
                     const refBtn = popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-fav-btn');
-                    if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
-                            className: 'novelia-forum-fav-btn',
-                            title: '我的收藏',
-                            iconSize: 20,
-                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.icons.STAR_OUTLINE,
-                            order: 30,
-                            onClick: () => {
-                                if (window.parent !== window) {
-                                    window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
-                                } else {
-                                    window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
-                                }
+
+                    const createFavoriteButton = createHeaderBtn({
+                        className: 'novelia-forum-fav-btn',
+                        title: '我的收藏',
+                        iconSize: 20,
+                        margin: `0px ${HEADER_BTN_INNER_GAP}`,
+                        iconSvg: Utils.icons.STAR_OUTLINE,
+                        order: 30,
+                        onClick: () => {
+                            if (window.parent !== window) {
+                                window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
+                            } else {
+                                window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
                             }
-                        });
+                        }
+                    });
+
+                    if (!btn && refBtn) {
+                        btn = createFavoriteButton();
                         refBtn.after(btn);
                     } else if (!btn) {
                         const themeBtn = Utils.ui.site.getThemeButton(forumHeader);
                         const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild);
                         if (targetContainer) {
-                            btn = Utils.ui.site.createNaiveButton({
-                                className: 'novelia-forum-fav-btn',
-                                title: '我的收藏',
-                                iconSize: 20,
-                                margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                                iconSvg: Utils.icons.STAR_OUTLINE,
-                                order: 30,
-                                onClick: () => {
-                                    if (window.parent !== window) {
-                                        window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
-                                    } else {
-                                        window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
-                                    }
-                                }
-                            });
+                            btn = createFavoriteButton();
                             if (themeBtn) themeBtn.before(btn);
                             else targetContainer.before(btn);
                         }
@@ -652,7 +644,7 @@
                     const refBtn = favBtn || forumHeader.querySelector('.novelia-forum-fav-btn') || popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
                     let btn = forumHeader.querySelector('.novelia-forum-reload-btn');
                     if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
+                        btn = createHeaderBtn({
                             className: 'novelia-forum-reload-btn',
                             title: '重新載入',
                             iconSize: 20,
