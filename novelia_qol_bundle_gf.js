@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.7.3
+// @version      3.8.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1979994/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1994951/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -442,6 +442,7 @@
                         iconSvg: Utils.icons.BULK,
                         position: 'right',
                         order: 50,
+                        can_order: true,
                         onClick: async (e) => {
                             const btnElement = e.currentTarget;
                             if (btnElement.disabled) return;
@@ -535,157 +536,51 @@
                         .novelia-host-drawer-btn { display: inline-flex !important; }
                     `, 'novelia-iframe-hide-sidebar-style');
                 }
-                function injectDrawerButton(forumHeader) {
-                    if (!forumHeader) return null;
-                    const existing = forumHeader.querySelectorAll('.novelia-host-drawer-btn');
-                    if (existing.length > 1) {
-                        for (let i = 1; i < existing.length; i++) existing[i].remove();
-                    }
-                    let btn = forumHeader.querySelector('.novelia-host-drawer-btn');
-                    if (!btn) {
-                        const targetContainer = forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild;
-                        if (!targetContainer) return null;
-
-                        btn = Utils.ui.site.createNaiveButton({
-                            className: 'novelia-host-drawer-btn',
-                            title: '切換側邊欄',
-                            iconSize: 24,
-                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            marginRight: HEADER_BTN_FST_GAP,
-                            iconSvg: Utils.icons.DRAWER,
-                            order: 10,
-                            onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
-                        });
-                        targetContainer.before(btn);
-                    } else {
-                        btn.style.marginRight = HEADER_BTN_FST_GAP;
-                    }
-                    return btn;
-                }
-                function injectPopoutButton(forumHeader, drawerBtn = null) {
-                    if (!forumHeader) return null;
-                    const existing = forumHeader.querySelectorAll('.novelia-forum-popout-btn');
-                    if (existing.length > 1) {
-                        for (let i = 1; i < existing.length; i++) existing[i].remove();
-                    }
-                    const refBtn = drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
-                    let btn = forumHeader.querySelector('.novelia-forum-popout-btn');
-                    if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
-                            className: 'novelia-forum-popout-btn',
-                            title: '前往論壇 (取代當前頁面)',
-                            iconSize: 20,
-                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.icons.POPOUT,
-                            order: 20,
-                            onClick: () => {
-                                const targetUrl = location.href;
-                                if (window.parent && window.parent !== window) {
-                                    window.parent.postMessage({ type: 'NOVELIA_POPOUT_FORUM', url: targetUrl }, '*');
-                                } else {
-                                    window.location.href = targetUrl;
-                                }
-                            }
-                        });
-                        refBtn.after(btn);
-                    }
-                    if (btn) btn.style.display = Utils.dom.isMobile() ? 'inline-flex' : 'none';
-
-                    return btn;
-                }
-                function injectFavoriteButton(forumHeader, drawerBtn = null, popoutBtn = null) {
-                    if (!forumHeader) return null;
-                    const existing = forumHeader.querySelectorAll('.novelia-forum-fav-btn');
-                    if (existing.length > 1) {
-                        for (let i = 1; i < existing.length; i++) existing[i].remove();
-                    }
-                    const refBtn = popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
-                    let btn = forumHeader.querySelector('.novelia-forum-fav-btn');
-                    if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
-                            className: 'novelia-forum-fav-btn',
-                            title: '我的收藏',
-                            iconSize: 20,
-                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.icons.STAR_OUTLINE,
-                            order: 30,
-                            onClick: () => {
-                                if (window.parent !== window) {
-                                    window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
-                                } else {
-                                    window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
-                                }
-                            }
-                        });
-                        refBtn.after(btn);
-                    } else if (!btn) {
-                        const themeBtn = Utils.ui.site.getThemeButton(forumHeader);
-                        const targetContainer = themeBtn ? themeBtn.parentElement : (forumHeader.querySelector('.layout-toggle, button[aria-label*="sidebar"], button[aria-label*="侧边栏"], button[aria-label*="側邊欄"], button[aria-label*="导航菜单"], button[aria-label*="導航菜單"]') || forumHeader.querySelector('button:not([class*="novelia-"])') || forumHeader.firstElementChild);
-                        if (targetContainer) {
-                            btn = Utils.ui.site.createNaiveButton({
-                                className: 'novelia-forum-fav-btn',
-                                title: '我的收藏',
-                                iconSize: 20,
-                                margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                                iconSvg: Utils.icons.STAR_OUTLINE,
-                                order: 30,
-                                onClick: () => {
-                                    if (window.parent !== window) {
-                                        window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path: '/favorite/web' }, '*');
-                                    } else {
-                                        window.location.href = `https://${NoveliaConfig.domains.main}/favorite/web`;
-                                    }
-                                }
-                            });
-                            if (themeBtn) themeBtn.before(btn);
-                            else targetContainer.before(btn);
-                        }
-                    }
-                    return btn;
-                }
-                function injectReloadButton(forumHeader, drawerBtn = null, popoutBtn = null, favBtn = null) {
-                    if (!forumHeader) return null;
-                    const existing = forumHeader.querySelectorAll('.novelia-forum-reload-btn');
-                    if (existing.length > 1) {
-                        for (let i = 1; i < existing.length; i++) existing[i].remove();
-                    }
-                    const refBtn = favBtn || forumHeader.querySelector('.novelia-forum-fav-btn') || popoutBtn || forumHeader.querySelector('.novelia-forum-popout-btn') || drawerBtn || forumHeader.querySelector('.novelia-host-drawer-btn');
-                    let btn = forumHeader.querySelector('.novelia-forum-reload-btn');
-                    if (!btn && refBtn) {
-                        btn = Utils.ui.site.createNaiveButton({
-                            className: 'novelia-forum-reload-btn',
-                            title: '重新載入',
-                            iconSize: 20,
-                            margin: `0px ${HEADER_BTN_INNER_GAP}`,
-                            iconSvg: Utils.icons.RELOAD_CIRCLE,
-                            order: 40,
-                            onClick: () => window.location.reload()
-                        });
-                        refBtn.after(btn);
-                    }
-                    if (btn) btn.style.display = Utils.dom.isMobile() ? 'inline-flex' : 'none';
-
-                    return btn;
-                }
                 function injectMobileHeaderButtons() {
-                    const forumHeader = Utils.ui.site.getForumHeader();
-                    if (!forumHeader) return;
+                    const site = Utils.ui.site;
+                    if (!site.getForumHeader()) return;
+                    const gap = `0px ${HEADER_BTN_INNER_GAP}`;
+                    const toHost = (path) => () => {
+                        if (window.parent !== window) window.parent.postMessage({ type: 'NOVELIA_NAVIGATE_HOST', path }, '*');
+                        else window.location.href = `https://${NoveliaConfig.domains.main}${path}`;
+                    };
 
-                    ['.novelia-host-drawer-btn', '.novelia-forum-popout-btn', '.novelia-forum-fav-btn', '.novelia-forum-reload-btn'].forEach(selector => {
-                        const btns = forumHeader.querySelectorAll(selector);
-                        if (btns.length > 1) {
-                            for (let i = 1; i < btns.length; i++) btns[i].remove();
+                    // 固定:sidebar 按鈕 order=0, can_order=false
+                    site.injectForumHeaderButton({
+                        id: 'novelia-host-drawer-btn', title: '切換側邊欄',
+                        iconSvg: Utils.icons.DRAWER, iconSize: 24,
+                        margin: gap, marginRight: HEADER_BTN_FST_GAP,
+                        position: 'left', order: 0, can_order: false,
+                        onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
+                    });
+
+                    // 可自訂順序:預設 order 為 default
+                    const popout = site.injectForumHeaderButton({
+                        id: 'novelia-forum-popout-btn', title: '前往論壇 (取代當前頁面)',
+                        iconSvg: Utils.icons.POPOUT, margin: gap,
+                        position: 'left', order: 20, can_order: true,
+                        onClick: () => {
+                            const url = location.href;
+                            if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'NOVELIA_POPOUT_FORUM', url }, '*');
+                            else window.location.href = url;
                         }
                     });
-                    const drawerBtn = injectDrawerButton(forumHeader);
-                    const popoutBtn = injectPopoutButton(forumHeader, drawerBtn);
-                    const favBtn = injectFavoriteButton(forumHeader, drawerBtn, popoutBtn);
-                    const reloadBtn = injectReloadButton(forumHeader, drawerBtn, popoutBtn, favBtn);
-                    
-                    function placeAfter(ref, node) { if (ref && node && ref.nextElementSibling !== node) ref.after(node) }
-                    placeAfter(drawerBtn, popoutBtn);
-                    placeAfter(popoutBtn || drawerBtn, favBtn);
-                    placeAfter(favBtn || popoutBtn || drawerBtn, reloadBtn);
+                    site.injectForumHeaderButton({
+                        id: 'novelia-forum-fav-btn', title: '我的收藏',
+                        iconSvg: Utils.icons.STAR_OUTLINE, margin: gap,
+                        position: 'left', order: 30, can_order: true,
+                        onClick: toHost('/favorite/web')
+                    });
+                    const reload = site.injectForumHeaderButton({
+                        id: 'novelia-forum-reload-btn', title: '重新載入',
+                        iconSvg: Utils.icons.RELOAD_CIRCLE, margin: gap,
+                        position: 'left', order: 40, can_order: true,
+                        onClick: () => window.location.reload()
+                    });
+
+                    // 彈出 / 重新載入維持「僅手機顯示」
+                    const show = Utils.dom.isMobile() ? 'inline-flex' : 'none';
+                    [popout, reload].forEach((b) => { if (b) b.style.display = show; });
                 }
                 let isNavigatingFromHost = false;
 
@@ -1564,14 +1459,21 @@
             const CACHE_CHANGE_EVENT_NAME = "novelia-cache-change",
                 COPY_BUTTON_CLASS = "novelia-copy-btn",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
-                LIST_ITEM_SELECTOR = 'div.n-flex[role="none"]',
+                LIST_ITEM_SELECTOR = 'li.n-list-item, div.n-flex[role="none"]',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             const HEADER_BUTTONS = [
-                { key: 'clear', title: '清除快取',  icon: Utils.icons.CLEAR,    action: clearLinkCache,         pages: ['novel', 'list'], order: 60 },                
-                { key: 'view',  title: '查看快取',  icon: Utils.icons.VIEW,     action: viewLinkCache,          pages: ['novel', 'list'], order: 70 },
-                { key: 'copy',  title: '複製連結',  icon: Utils.icons.COPY,     action: copyCurrentNovelLink,   pages: ['novel'],         order: 80 },
-                { key: 'bulk',  title: '批量複製',  icon: Utils.icons.COPY,     action: copyBulkLinks,          pages: ['favorite'],      order: 90 },
+                { key: 'clear', title: '清除快取', icon: Utils.icons.CLEAR, action: clearLinkCache, pages: ['novel', 'list'], order: 60, can_order: true,
+                visible: () => LinkCache.items.length > 0 },
+
+                { key: 'view',  title: '查看快取', icon: Utils.icons.VIEW,  action: viewLinkCache,  pages: ['novel', 'list'], order: 70, can_order: true,
+                visible: () => LinkCache.items.length > 0 },
+
+                { key: 'copy',  title: '複製連結', icon: Utils.icons.COPY,  action: copyCurrentNovelLink, pages: ['novel'], order: 80, can_order: true,
+                visible: ({ currentFormattedLink, currentPath }) =>
+                    !((currentFormattedLink && LinkCache.has(currentFormattedLink)) || (currentPath && LinkCache.hasPath(currentPath))) },
+
+                { key: 'bulk',  title: '批量複製', icon: Utils.icons.COPY,  action: copyBulkLinks, pages: ['favorite'], order: 90, can_order: true, },
             ];
 
             Utils.gm.addStyle(`
@@ -1696,11 +1598,12 @@
                     if (LinkCache.has(formattedLink)) return;
 
                     const copyBtn = createCopyButton(formattedLink);
-                    let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}`);
+                    let wrapper = anchorElement.closest(`.${LIST_WRAPPER_CLASS}, .novelia-comment-wrapper`);
                     if (!wrapper) {
-                        wrapper = Object.assign(document.createElement('div'), {
-                            className: LIST_WRAPPER_CLASS
+                        wrapper = Object.assign(document.createElement('span'), {
+                            className: `${LIST_WRAPPER_CLASS} novelia-comment-wrapper`
                         });
+                        wrapper.style.gap = '6px';
                         anchorElement.replaceWith(wrapper);
                         wrapper.appendChild(copyBtn);
                         wrapper.appendChild(anchorElement);
@@ -1831,7 +1734,7 @@
 
                 const currentFormattedLink = getCurrentNovelFormattedLink();
 
-                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages, order }) => {
+                HEADER_BUTTONS.forEach(({ key, title, icon, action, pages, order, visible, can_order }) => {
                     const cls = `novelia-share-${key}-btn`;
 
                     if (!pages.includes(pageType) && !(pages.includes('list') && pageType === 'favorite')) {
@@ -1839,23 +1742,21 @@
                         return;
                     }
 
-                    if (key === 'copy') {
-                        const isCached = (currentFormattedLink && LinkCache.has(currentFormattedLink)) || (currentPath && LinkCache.hasPath(currentPath));
-                        if (isCached) {
-                            document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
-                            return;
-                        }
+                    if (visible && !visible({ currentFormattedLink, currentPath })) {
+                        document.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
+                        return;
                     }
 
-                    Utils.ui.site.injectMainHeaderButton({
+                    const btnEl = Utils.ui.site.injectMainHeaderButton({
                         id: cls,
                         className: `${HEADER_BUTTON_CLASS} ${cls}`,
                         title,
                         iconSvg: icon,
                         position: 'left',
-                        order,
+                        order, can_order,
                         onClick: () => action()
                     });
+                    if (key === 'view') Utils.ui.site.setButtonBadge(btnEl, LinkCache.items.length);
                 });
             }
             function checkKeyboardShortcut(event, shortcutConfig) {
@@ -1879,8 +1780,13 @@
 
             function removeStaleButtons(skipHeaders = false) {
                 document.querySelectorAll(`.${LIST_WRAPPER_CLASS}`).forEach((wrapper) => {
-                    const anchor = wrapper.querySelector('a');
-                    if (anchor) wrapper.replaceWith(anchor);
+                    wrapper.querySelectorAll(`:scope > .${COPY_BUTTON_CLASS}`).forEach((b) => b.remove());
+                    if (wrapper.classList.contains('novelia-comment-wrapper')) {
+                        wrapper.classList.remove(LIST_WRAPPER_CLASS);   // 留給 comment_count 管理
+                        return;
+                    }
+                    const keep = Array.from(wrapper.childNodes);
+                    if (keep.length) wrapper.replaceWith(...keep);
                     else wrapper.remove();
                 });
 
