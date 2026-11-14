@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia Utils
 // @namespace    novelia-utils
-// @version      2.4.0
+// @version      2.5.0
 // @description  Novelia 工具函式庫 (NoveliaConfig & Utils)
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -663,15 +663,6 @@
                 const res = await idb.getWithExpiry(k, opts);
                 if (!res.expired && res.record) return unwrap(res.record);
             }
-            return null;
-        };
-
-        const getRightAnchorEl = (container) => {
-            if (!container) return null;
-            const favEl = container.querySelector('a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"]');
-            if (favEl) return favEl.closest('.flex.flex-none, div') || favEl;
-            const accountEl = container.querySelector('.account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]');
-            if (accountEl) return accountEl.closest('.relative, div') || accountEl;
             return null;
         };
 
@@ -1635,7 +1626,7 @@
         return { createToast, createModal };
     };
 
-    const createSiteUi = ({ domains, router, createModal, store, layoutKey }) => {
+    const createSiteUi = ({ domains, router, createModal, store, layoutKey, nodeWatcher }) => {
         const isElement = (el) => (typeof Element !== 'undefined' && el instanceof Element) || (el && typeof el === 'object' && el.nodeType === 1);
 
         const isDark = () => {
@@ -1711,6 +1702,13 @@
             btns.sort((a, b) => Number(a.dataset.order) - Number(b.dataset.order)); // stable:同 order 保持 DOM 順序
             btns.forEach((el) => el.remove());
             btns.forEach((el) => injectHeaderButton(headerEl, el, el.dataset.position, Number(el.dataset.order)));
+
+            headerEl.querySelectorAll('[data-novelia-btn][data-position="right"]').forEach((el) => {
+                const anchor = getRightAnchorEl(el.parentElement);
+                if (anchor && anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+                    el.parentElement.insertBefore(el, anchor);
+                }
+            });
         };
 
         const BUTTON_PRESETS = {
@@ -2076,15 +2074,12 @@
 
         const getRightAnchorEl = (container) => {
             if (!container) return null;
-            const favEl = container.querySelector('a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"]');
-            if (favEl) {
-                return favEl.closest('.flex.flex-none, div') || favEl;
-            }
-            const accountEl = container.querySelector('.account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]');
-            if (accountEl) {
-                return accountEl.closest('.relative, div') || accountEl;
-            }
-            return null;
+            const sel = 'a[href*="/favorite"], button[aria-label*="收藏"], a[aria-label*="收藏"], [aria-label*="我的收藏"], .account-trigger, [class*="account-trigger"], button[aria-label*="账号"], button[aria-label*="帳號"], button[aria-label*="account" i]';
+            const el = Array.from(container.querySelectorAll(sel)).find((n) => !n.closest('[data-novelia-btn]'));
+            if (!el) return null;
+            let node = el;
+            while (node.parentElement && node.parentElement !== container) node = node.parentElement;
+            return node.parentElement === container ? node : null;
         };
 
         const initHeaderDiv = (headerEl, position = 'right') => {
@@ -2125,13 +2120,14 @@
 
             const nextOrderedBtn = findNextOrderedHeaderButton(targetContainer, order);
             const rightAnchorEl = position === 'right' ? getRightAnchorEl(targetContainer) : null;
+            const anchorInContainer = rightAnchorEl
+                ? (rightAnchorEl.parentElement === targetContainer ? rightAnchorEl : rightAnchorEl.closest('.ml-auto > *'))
+                : null;
 
             if (nextOrderedBtn) {
                 targetContainer.insertBefore(btnElement, nextOrderedBtn);
-            } else if (rightAnchorEl && rightAnchorEl.parentElement === targetContainer) {
-                targetContainer.insertBefore(btnElement, rightAnchorEl);
-            } else if (rightAnchorEl) {
-                rightAnchorEl.before(btnElement);
+            } else if (anchorInContainer && anchorInContainer.parentElement === targetContainer) {
+                targetContainer.insertBefore(btnElement, anchorInContainer);
             } else {
                 targetContainer.appendChild(btnElement);
             }
@@ -2317,6 +2313,88 @@
             return mountHeaderButton(header, input, { position, order, preset: 'main', create: createMainHeaderCollapser });
         };
 
+        const HIJACK_STYLE_ID = 'novelia-utils-hijack-style';
+        const hijacks = new Set();
+        let hijackWatcherOn = false;
+        let hijackTimer = null;
+
+        const syncHijack = (h) => {
+            const header = document.querySelector('header');
+            if (!header) return;
+
+            const orig = Array.from(header.querySelectorAll(h.selector))
+                .find((el) => !el.closest('[data-novelia-btn]')) || null;
+            const mine = header.querySelector(`[data-novelia-btn="${CSS.escape(h.id)}"]`);
+            h.orig = orig;
+
+            if (!orig) { if (mine) mine.remove(); return; }
+            if (h.hide) orig.dataset.noveliaHijacked = '1';
+            if (mine) return;
+
+            const svg = orig.querySelector('svg');
+            injectMainHeaderButton({
+                id: h.id,
+                title: h.title ?? (orig.getAttribute('aria-label') || orig.title || ''),
+                iconSvg: h.iconSvg ?? (svg ? svg.outerHTML : ''),
+                iconSize: h.iconSize,
+                position: h.position,
+                order: h.order,
+                can_order: h.can_order,
+                onClick: (e) => (typeof h.onClick === 'function' ? h.onClick(e, h.orig) : h.orig?.click())
+            });
+        };
+
+        const scheduleHijackSync = () => {
+            clearTimeout(hijackTimer);
+            hijackTimer = setTimeout(() => hijacks.forEach(syncHijack), 100);
+        };
+
+        const ensureHijackWatcher = () => {
+            if (hijackWatcherOn || typeof document === 'undefined' || !document.body) return;
+            hijackWatcherOn = true;
+            new MutationObserver(scheduleHijackSync).observe(document.body, { childList: true, subtree: true });
+            window.addEventListener('resize', scheduleHijackSync);
+            router.onChange(scheduleHijackSync);
+        };
+
+        const hijackMainHeaderButton = (opts = {}) => {
+            if (typeof location === 'undefined' || location.hostname !== domains.main) return null;
+            if (!opts.id || !opts.selector) {
+                console.warn('[Utils.hijackMainHeaderButton] id 與 selector 為必填');
+                return null;
+            }
+            const h = { hide: true, position: 'right', order: 900, can_order: true, ...opts, orig: null };
+            hijacks.add(h);
+            gm.addStyle('[data-novelia-hijacked="1"] { display: none !important; }', HIJACK_STYLE_ID);
+
+            // 原按鈕只要被插入 / 被 Vue 重繪出來,立刻標記隱藏,不等 debounce
+            let unwatch = null;
+            if (h.hide) {
+                const mark = (el) => {
+                    if (el.closest('[data-novelia-btn]')) return;
+                    if (el.closest('header')) { el.dataset.noveliaHijacked = '1'; return; }
+                    // 插入前的 hook 階段還不在 header 內,等插入完成再確認
+                    queueMicrotask(() => {
+                        if (el.isConnected && el.closest('header')) el.dataset.noveliaHijacked = '1';
+                    });
+                };
+                unwatch = nodeWatcher.add({ selector: h.selector, onMatch: mark });
+            }
+
+            ensureHijackWatcher();
+            syncHijack(h);
+
+            return {
+                sync: () => syncHijack(h),
+                destroy() {
+                    hijacks.delete(h);
+                    unwatch?.();
+                    document.querySelector(`[data-novelia-btn="${CSS.escape(h.id)}"]`)?.remove();
+                    if (h.orig) delete h.orig.dataset.noveliaHijacked;
+                }
+            };
+        };
+
         const getForumDropdown = (subItems, onItemClick = null) => {
             if (typeof document === 'undefined') return null;
             let popover = document.getElementById('novelia-forum-popover');
@@ -2433,6 +2511,7 @@
             injectMainHeaderButton,
             createMainHeaderCollapser,
             injectMainHeaderCollapser,
+            hijackMainHeaderButton,
             // settings / layout
             ensureSettingsButton,
             openButtonSettings,
@@ -2493,7 +2572,8 @@
     const sidebarState = createSidebarState({ sidebar, store: localStore, key: cfg.keys.forumSubmenuExpanded });
     const comments = createComments({ icons });
     const genericUi = createGenericUi(gm);
-    const siteUi = createSiteUi({ domains: cfg.domains, router, createModal: genericUi.createModal, store: localStore, layoutKey: cfg.keys.headerBtnLayout });
+    const siteUi = createSiteUi({ domains: cfg.domains, router, createModal: genericUi.createModal, store: localStore, layoutKey: cfg.keys.headerBtnLayout, nodeWatcher });
+    siteUi.hijackMainHeaderButton({ id: 'novelia-fav-btn', selector: 'a[href^="/favorite"][aria-label*="收藏"]', order: 900, can_order: true });
 
     const Utils = Object.freeze({
         text,
