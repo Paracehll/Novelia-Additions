@@ -1715,7 +1715,17 @@
             naive: { className: '__button-dark-131ezvy-ehllmd n-button n-button--default-type n-button--large-type' },
             main: { className: '' }
         };
-
+        const DEVICE_ATTR = 'data-novelia-device';
+        let deviceWatcherOn = false;
+        const syncDeviceAttr = () => {
+            document.documentElement.setAttribute(DEVICE_ATTR, dom.isMobile() ? 'mobile' : 'desktop');
+        };
+        const ensureDeviceWatcher = () => {
+            if (deviceWatcherOn || typeof document === 'undefined') return;
+            deviceWatcherOn = true;
+            syncDeviceAttr();
+            window.addEventListener('resize', syncDeviceAttr);
+        };
         const ensureButtonStyles = () => {
             gm.addStyle(`
                 .novelia-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
@@ -1726,7 +1736,10 @@
                 .novelia-btn.novelia-btn--main { width: 2rem; height: 2rem; padding: .375rem; border: none; border-radius: .25rem; background: transparent; color: inherit; }
                 .novelia-btn.novelia-btn--main:hover { background-color: var(--color-hover, rgba(128,128,128,.18)); color: var(--color-ink, inherit); }
                 .novelia-btn[data-hidden="1"] { display: none !important; }
+                html[data-novelia-device="desktop"] .novelia-btn[data-device="-1"] { display: none !important; }
+                html[data-novelia-device="mobile"] .novelia-btn[data-device="1"] { display: none !important; }
             `, 'novelia-utils-button-styles');
+            ensureDeviceWatcher();
         };
 
         const resolvePreset = (preset) => {
@@ -1741,6 +1754,7 @@
             iconSvg = '', iconSize = 20,
             margin = null, marginRight = null, 
             position = 'right', order = 0, can_order = false, 
+            device = 0, // 0: all, 1: desktop only, -1: mobile only
             onClick = null
         } = {}) => {
             if (typeof document === 'undefined') return null;
@@ -1768,6 +1782,7 @@
             btn.dataset.canOrder = orderable ? '1' : '0';
             btn.dataset.position = layout.pos;
             btn.dataset.order = String(layout.order);
+            btn.dataset.device = String(device === -1 || device === 1 ? device : 0);   // 0: all, 1: desktop only, -1: mobile only
             if (!layout.visible) btn.dataset.hidden = '1';
 
             if (title) { btn.title = title; btn.setAttribute('aria-label', title); }
@@ -2043,7 +2058,14 @@
             return mountHeaderButton(header, input, { position, order, preset: 'main' });
         };
 
-        const getForumHeader = () => (typeof document !== 'undefined' ? document.querySelector('header, .forum-header, nav[aria-label="站点导航"], nav[aria-label="站點導航"], nav') : null);
+        const getForumHeader = () => {
+            if (typeof document === 'undefined') return null;
+            return document.querySelector('header.sticky')
+                || document.querySelector('header:not(article header):not(section header):not(aside header)')
+                || document.querySelector('.forum-header')
+                || document.querySelector('nav[aria-label="站点导航"]:not(aside *), nav[aria-label="站點導航"]:not(aside *)')
+                || document.querySelector('nav:not(aside *)');
+        };
 
         const getThemeButton = (container = null) => {
             if (typeof document === 'undefined') return null;
@@ -2242,7 +2264,7 @@
             };
 
             const btn = createButton({
-                preset: 'main', id, className, title, iconSvg, iconSize, position, order,
+                preset: 'main', id, className, title, iconSvg, iconSize, position, order, device,
                 onClick: (e) => {
                     if (typeof onClick === 'function') onClick(e);
                     togglePanel();
