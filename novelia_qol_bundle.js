@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.8.2
+// @version      3.8.3
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -50,7 +50,7 @@
             const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
             GM_registerMenuCommand(label, () => {
                 GM_setValue(`feature_${feature.id}`, !enabled);
-                location.reload();
+                // location.reload();
             });
         });
     }
@@ -263,9 +263,10 @@
                     if (!badgeElement) {
                         badgeElement = document.createElement('span');
                         badgeElement.className = 'novelia-comment-badge';
-                        const zhTitle = wrapperElement.nextElementSibling;
-                        if (zhTitle && zhTitle.matches('span.text-ink')) {
-                            zhTitle.prepend(badgeElement);
+                        const next = wrapperElement.nextElementSibling;
+                        const zhTitle = next && next.tagName === 'SPAN' && !next.matches('.text-muted, .novelia-comment-badge') ? next : null;
+                        if (zhTitle) {
+                            zhTitle.prepend(badgeElement);          // 中文標題內最前面,同一行
                         } else {
                             const shareButton = wrapperElement.querySelector(':scope > .novelia-copy-btn');
                             if (shareButton) shareButton.after(badgeElement);
@@ -1471,7 +1472,7 @@
             const CACHE_CHANGE_EVENT_NAME = "novelia-cache-change",
                 COPY_BUTTON_CLASS = "novelia-copy-btn",
                 HEADER_BUTTON_CLASS = "novelia-header-btn",
-                LIST_ITEM_SELECTOR = 'li.n-list-item, div.n-flex[role="none"]',
+                LIST_ITEM_SELECTOR = 'li.n-list-item, div.n-flex[role="none"], div.relative.min-w-0.py-3',
                 LIST_WRAPPER_CLASS = "novelia-share-wrapper";
 
             const HEADER_BUTTONS = [
