@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.8.3
+// @version      3.9.0
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -558,18 +558,15 @@
                         else window.location.href = `https://${NoveliaConfig.domains.main}${path}`;
                     };
 
-                    // 固定:sidebar 按鈕 order=0, can_order=false
                     site.injectForumHeaderButton({
-                        id: 'novelia-host-drawer-btn', title: '切換側邊欄',
+                        id: 'novelia-host-drawer-btn', title: '切換側邊欄(行動)',
                         iconSvg: Utils.icons.DRAWER, iconSize: 24,
                         margin: gap, marginRight: HEADER_BTN_FST_GAP,
-                        position: 'left', order: 0, can_order: false,
+                        position: 'left', order: 0, can_order: false, device: -1,
                         onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                     });
-
-                    // 可自訂順序:預設 order 為 default
-                    const popout = site.injectForumHeaderButton({
-                        id: 'novelia-forum-popout-btn', title: '前往論壇 (取代當前頁面)',
+                    site.injectForumHeaderButton({
+                        id: 'novelia-forum-popout-btn', title: '前往論壇',
                         iconSvg: Utils.icons.POPOUT, margin: gap,
                         position: 'left', order: 20, can_order: true,
                         onClick: () => {
@@ -579,21 +576,17 @@
                         }
                     });
                     site.injectForumHeaderButton({
-                        id: 'novelia-forum-fav-btn', title: '我的收藏',
+                        id: 'novelia-forum-fav-btn', title: '我的收藏(行動)',
                         iconSvg: Utils.icons.STAR_OUTLINE, margin: gap,
-                        position: 'left', order: 30, can_order: true,
+                        position: 'left', order: 30, can_order: true, device: -1,
                         onClick: toHost('/favorite/web')
                     });
-                    const reload = site.injectForumHeaderButton({
+                    site.injectForumHeaderButton({
                         id: 'novelia-forum-reload-btn', title: '重新載入',
                         iconSvg: Utils.icons.RELOAD_CIRCLE, margin: gap,
                         position: 'left', order: 40, can_order: true,
                         onClick: () => window.location.reload()
                     });
-
-                    // 彈出 / 重新載入維持「僅手機顯示」
-                    const show = Utils.dom.isMobile() ? 'inline-flex' : 'none';
-                    [popout, reload].forEach((b) => { if (b) b.style.display = show; });
                 }
                 let isNavigatingFromHost = false;
 
@@ -1462,7 +1455,9 @@
     // ==========================================
     Modules.share_btn = {
         init: function() {
-            if (location.hostname !== NoveliaConfig.domains.main) return;
+            const IS_MAIN = location.hostname === NoveliaConfig.domains.main;
+            const IS_FORUM = location.hostname === NoveliaConfig.domains.forum;
+            if (!IS_MAIN && !IS_FORUM) return;
 
             const CLEAR_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "q" };
             const VIEW_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "v" };
@@ -1504,6 +1499,54 @@
             `);
 
             const toast = Utils.ui.createToast('novelia-toast');
+
+            if (IS_FORUM) {
+                const POST_BTN_ID = 'novelia-forum-post-copy-btn';
+                const isPostPage = () => /^\/p\/[^\/?#]+\/?$/i.test(Utils.router.getPathname());
+
+                function getPostLink() {
+                    const h1 = document.querySelector('main article h1') || document.querySelector('article h1');
+                    const title = h1 ? h1.textContent.trim() : '';
+                    if (!title) return null;
+                    const authorEl = (h1.nextElementSibling && h1.nextElementSibling.querySelector('span.font-bold'))
+                        || (h1.parentElement && h1.parentElement.querySelector('span.font-bold'));
+                    const author = authorEl ? authorEl.textContent.trim() : '';
+                    const url = location.origin + location.pathname;
+                    return `[${title}](${url})` + (author ? `　by ${author}` : '');
+                }
+
+                function copyPostLink() {
+                    const text = getPostLink();
+                    if (!text) { toast.show('⚠️ 未能找到帖子標題！'); return; }
+                    Utils.gm.setClipboard(text).then((ok) => {
+                        toast.show(ok ? `📋 已複製帖子連結：\n${text}` : '❌ 複製失敗');
+                    });
+                }
+
+                function syncPostButton() {
+                    const existing = document.querySelector(`[data-novelia-btn="${POST_BTN_ID}"]`);
+                    if (!isPostPage()) { if (existing) existing.remove(); return; }
+                    if (existing || !Utils.ui.site.getForumHeader()) return;
+                    Utils.ui.site.injectForumHeaderButton({
+                        id: POST_BTN_ID,
+                        title: '複製帖子連結',
+                        iconSvg: Utils.icons.COPY,
+                        iconSize: 18,
+                        position: 'left',
+                        order: 50,
+                        can_order: true,
+                        onClick: copyPostLink
+                    });
+                }
+
+                let postTimer = null;
+                const schedulePostSync = () => { clearTimeout(postTimer); postTimer = setTimeout(syncPostButton, 100); };
+
+                syncPostButton();
+                new MutationObserver(schedulePostSync).observe(document.body, { childList: true, subtree: true });
+                Utils.router.onChange(() => setTimeout(schedulePostSync, 200));
+                return;
+            }
 
             const CACHE_KEY = "novelia_share_link_cache";
 
