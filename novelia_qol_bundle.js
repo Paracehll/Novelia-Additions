@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.9.0
+// @version      3.10.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
@@ -17,6 +17,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
 // @run-at       document-idle
 // ==/UserScript==
@@ -29,8 +30,9 @@
         { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
         { id: 'forum_shistory', name: '論壇搜尋歷史', default: true },
 
-        { id: 'comment_collapse', name: '摺疊評論區回覆', default: true },
-        { id: 'comment_notify', name: '評論區更新排序', default: true },     
+        // { id: 'comment_collapse', name: '摺疊評論區回覆', default: true },
+        // { id: 'comment_notify', name: '評論區更新排序', default: true },     
+        { id: 'comment_enhanced', name: '評論區增強', default: true },
 
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
@@ -41,17 +43,28 @@
 
 
     const config = {};
+    const menuIds = {};
+
+    function registerFeatureMenu(feature) {
+        const enabled = config[feature.id];
+        const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
+
+        if (menuIds[feature.id] !== undefined && typeof GM_unregisterMenuCommand === 'function') {
+            GM_unregisterMenuCommand(menuIds[feature.id]);
+        }
+
+        menuIds[feature.id] = GM_registerMenuCommand(label, () => {
+            config[feature.id] = !config[feature.id];
+            GM_setValue(`feature_${feature.id}`, config[feature.id]);
+            registerFeatureMenu(feature);   // 用新狀態重新註冊，刷新 label
+            // location.reload();
+        }, { autoClose: false });           // 點擊後不關閉選單，可連續切換
+    }
 
     function initMenu() {
         FEATURES.forEach(feature => {
-            const enabled = GM_getValue(`feature_${feature.id}`, feature.default);
-            config[feature.id] = enabled;
-
-            const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
-            GM_registerMenuCommand(label, () => {
-                GM_setValue(`feature_${feature.id}`, !enabled);
-                // location.reload();
-            });
+            config[feature.id] = GM_getValue(`feature_${feature.id}`, feature.default);
+            registerFeatureMenu(feature);
         });
     }
 
@@ -1964,10 +1977,16 @@
     // ==========================================
     // 6. 摺疊評論區回覆 (Modules.comment_collapse)
     // ==========================================
-    Modules.comment_collapse = {
+    Modules.comment_enhanced = {
         init: function() {
             if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
 
+            try { this.initCollapse(); } catch (error) { console.error('[Novelia QOL] 評論區增強 (摺疊) 初始化失敗:', error); }
+            try { this.initNotify(); } catch (error) { console.error('[Novelia QOL] 評論區增強 (排序) 初始化失敗:', error); }
+        },
+
+        // ---- 摺疊評論區回覆 ----
+        initCollapse: function() {
             Utils.gm.addStyle(`
                 .novelia-collapse-btn-wrapper { margin-top: 8px; display: flex; align-items: center; }
                 .novelia-collapse-btn { background: transparent; border: none; cursor: pointer; padding: 0 6px 0 0; font-size: 12px; display: flex; align-items: center; color: var(--n-text-color); opacity: 0.8; transition: opacity 0.2s, background-color 0.2s; border-radius: 2px; }
@@ -2284,16 +2303,10 @@
 
             if (location.hostname.includes(NoveliaConfig.domains.forum)) ForumCommentCollapse.init();
             else NovelCommentCollapse.init();
-        }
-    };
+        },
 
-    // ==========================================
-    // 7. 評論區更新排序 (Modules.comment_notify)
-    // ==========================================
-    Modules.comment_notify = {
-        init: function() {
-            if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
-
+    // ---- 評論區更新排序 ----
+    initNotify: function() {
             let isUpdatingDom = false;
             let lastUrl = location.href;
 

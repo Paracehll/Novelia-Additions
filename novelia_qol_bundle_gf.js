@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         Novelia 體驗優化 綑綁包
 // @namespace    novelia-qol-bundle
-// @version      3.8.3
+// @version      3.10.1
 // @description  整合"輕小說機翻站"多種優化功能，可自訂模塊載入
 // @updateURL    https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
 // @downloadURL  https://raw.githubusercontent.com/Paracehll/Novelia-Additions/refs/heads/master/novelia_qol_bundle.js
-// @require      https://update.greasyfork.org/scripts/601266/1997153/Novelia%20Utils.js
+// @require      https://update.greasyfork.org/scripts/601266/1999177/Novelia%20Utils.js
 // @match        *://n.novelia.cc/*
 // @match        *://forum.novelia.cc/*
 // @match        *://syosetu.org/*
@@ -17,6 +17,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_unregisterMenuCommand
 // @grant        GM_xmlhttpRequest
 // @run-at       document-idle
 // ==/UserScript==
@@ -29,8 +30,9 @@
         { id: 'forum_iframe', name: '內嵌論壇視窗', default: true },
         { id: 'forum_shistory', name: '論壇搜尋歷史', default: true },
 
-        { id: 'comment_collapse', name: '摺疊評論區回覆', default: true },
-        { id: 'comment_notify', name: '評論區更新排序', default: true },     
+        // { id: 'comment_collapse', name: '摺疊評論區回覆', default: true },
+        // { id: 'comment_notify', name: '評論區更新排序', default: true },     
+        { id: 'comment_enhanced', name: '評論區增強', default: true },
 
         { id: 'share_btn', name: '小說分享按鈕', default: true },
         { id: 'source_link', name: '源站跳轉按鈕', default: true },
@@ -41,17 +43,28 @@
 
 
     const config = {};
+    const menuIds = {};
+
+    function registerFeatureMenu(feature) {
+        const enabled = config[feature.id];
+        const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
+
+        if (menuIds[feature.id] !== undefined && typeof GM_unregisterMenuCommand === 'function') {
+            GM_unregisterMenuCommand(menuIds[feature.id]);
+        }
+
+        menuIds[feature.id] = GM_registerMenuCommand(label, () => {
+            config[feature.id] = !config[feature.id];
+            GM_setValue(`feature_${feature.id}`, config[feature.id]);
+            registerFeatureMenu(feature);   // 用新狀態重新註冊，刷新 label
+            // location.reload();
+        }, { autoClose: false });           // 點擊後不關閉選單，可連續切換
+    }
 
     function initMenu() {
         FEATURES.forEach(feature => {
-            const enabled = GM_getValue(`feature_${feature.id}`, feature.default);
-            config[feature.id] = enabled;
-
-            const label = `${enabled ? '✅' : '❌'} ${feature.name}`;
-            GM_registerMenuCommand(label, () => {
-                GM_setValue(`feature_${feature.id}`, !enabled);
-                // location.reload();
-            });
+            config[feature.id] = GM_getValue(`feature_${feature.id}`, feature.default);
+            registerFeatureMenu(feature);
         });
     }
 
@@ -558,18 +571,15 @@
                         else window.location.href = `https://${NoveliaConfig.domains.main}${path}`;
                     };
 
-                    // 固定:sidebar 按鈕 order=0, can_order=false
                     site.injectForumHeaderButton({
-                        id: 'novelia-host-drawer-btn', title: '切換側邊欄',
+                        id: 'novelia-host-drawer-btn', title: '切換側邊欄(行動)',
                         iconSvg: Utils.icons.DRAWER, iconSize: 24,
                         margin: gap, marginRight: HEADER_BTN_FST_GAP,
-                        position: 'left', order: 0, can_order: false,
+                        position: 'left', order: 0, can_order: false, device: -1,
                         onClick: () => window.parent.postMessage({ type: 'NOVELIA_TOGGLE_HOST_SIDEBAR' }, '*')
                     });
-
-                    // 可自訂順序:預設 order 為 default
-                    const popout = site.injectForumHeaderButton({
-                        id: 'novelia-forum-popout-btn', title: '前往論壇 (取代當前頁面)',
+                    site.injectForumHeaderButton({
+                        id: 'novelia-forum-popout-btn', title: '前往論壇',
                         iconSvg: Utils.icons.POPOUT, margin: gap,
                         position: 'left', order: 20, can_order: true,
                         onClick: () => {
@@ -579,21 +589,17 @@
                         }
                     });
                     site.injectForumHeaderButton({
-                        id: 'novelia-forum-fav-btn', title: '我的收藏',
+                        id: 'novelia-forum-fav-btn', title: '我的收藏(行動)',
                         iconSvg: Utils.icons.STAR_OUTLINE, margin: gap,
-                        position: 'left', order: 30, can_order: true,
+                        position: 'left', order: 30, can_order: true, device: -1,
                         onClick: toHost('/favorite/web')
                     });
-                    const reload = site.injectForumHeaderButton({
+                    site.injectForumHeaderButton({
                         id: 'novelia-forum-reload-btn', title: '重新載入',
                         iconSvg: Utils.icons.RELOAD_CIRCLE, margin: gap,
                         position: 'left', order: 40, can_order: true,
                         onClick: () => window.location.reload()
                     });
-
-                    // 彈出 / 重新載入維持「僅手機顯示」
-                    const show = Utils.dom.isMobile() ? 'inline-flex' : 'none';
-                    [popout, reload].forEach((b) => { if (b) b.style.display = show; });
                 }
                 let isNavigatingFromHost = false;
 
@@ -1462,7 +1468,9 @@
     // ==========================================
     Modules.share_btn = {
         init: function() {
-            if (location.hostname !== NoveliaConfig.domains.main) return;
+            const IS_MAIN = location.hostname === NoveliaConfig.domains.main;
+            const IS_FORUM = location.hostname === NoveliaConfig.domains.forum;
+            if (!IS_MAIN && !IS_FORUM) return;
 
             const CLEAR_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "q" };
             const VIEW_CACHE_KEY = { ctrl: true, alt: false, shift: false, key: "v" };
@@ -1504,6 +1512,54 @@
             `);
 
             const toast = Utils.ui.createToast('novelia-toast');
+
+            if (IS_FORUM) {
+                const POST_BTN_ID = 'novelia-forum-post-copy-btn';
+                const isPostPage = () => /^\/p\/[^\/?#]+\/?$/i.test(Utils.router.getPathname());
+
+                function getPostLink() {
+                    const h1 = document.querySelector('main article h1') || document.querySelector('article h1');
+                    const title = h1 ? h1.textContent.trim() : '';
+                    if (!title) return null;
+                    const authorEl = (h1.nextElementSibling && h1.nextElementSibling.querySelector('span.font-bold'))
+                        || (h1.parentElement && h1.parentElement.querySelector('span.font-bold'));
+                    const author = authorEl ? authorEl.textContent.trim() : '';
+                    const url = location.origin + location.pathname;
+                    return `[${title}](${url})` + (author ? `　by ${author}` : '');
+                }
+
+                function copyPostLink() {
+                    const text = getPostLink();
+                    if (!text) { toast.show('⚠️ 未能找到帖子標題！'); return; }
+                    Utils.gm.setClipboard(text).then((ok) => {
+                        toast.show(ok ? `📋 已複製帖子連結：\n${text}` : '❌ 複製失敗');
+                    });
+                }
+
+                function syncPostButton() {
+                    const existing = document.querySelector(`[data-novelia-btn="${POST_BTN_ID}"]`);
+                    if (!isPostPage()) { if (existing) existing.remove(); return; }
+                    if (existing || !Utils.ui.site.getForumHeader()) return;
+                    Utils.ui.site.injectForumHeaderButton({
+                        id: POST_BTN_ID,
+                        title: '複製帖子連結',
+                        iconSvg: Utils.icons.COPY,
+                        iconSize: 18,
+                        position: 'left',
+                        order: 50,
+                        can_order: true,
+                        onClick: copyPostLink
+                    });
+                }
+
+                let postTimer = null;
+                const schedulePostSync = () => { clearTimeout(postTimer); postTimer = setTimeout(syncPostButton, 100); };
+
+                syncPostButton();
+                new MutationObserver(schedulePostSync).observe(document.body, { childList: true, subtree: true });
+                Utils.router.onChange(() => setTimeout(schedulePostSync, 200));
+                return;
+            }
 
             const CACHE_KEY = "novelia_share_link_cache";
 
@@ -1921,10 +1977,16 @@
     // ==========================================
     // 6. 摺疊評論區回覆 (Modules.comment_collapse)
     // ==========================================
-    Modules.comment_collapse = {
+    Modules.comment_enhanced = {
         init: function() {
             if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
 
+            try { this.initCollapse(); } catch (error) { console.error('[Novelia QOL] 評論區增強 (摺疊) 初始化失敗:', error); }
+            try { this.initNotify(); } catch (error) { console.error('[Novelia QOL] 評論區增強 (排序) 初始化失敗:', error); }
+        },
+
+        // ---- 摺疊評論區回覆 ----
+        initCollapse: function() {
             Utils.gm.addStyle(`
                 .novelia-collapse-btn-wrapper { margin-top: 8px; display: flex; align-items: center; }
                 .novelia-collapse-btn { background: transparent; border: none; cursor: pointer; padding: 0 6px 0 0; font-size: 12px; display: flex; align-items: center; color: var(--n-text-color); opacity: 0.8; transition: opacity 0.2s, background-color 0.2s; border-radius: 2px; }
@@ -2241,16 +2303,10 @@
 
             if (location.hostname.includes(NoveliaConfig.domains.forum)) ForumCommentCollapse.init();
             else NovelCommentCollapse.init();
-        }
-    };
+        },
 
-    // ==========================================
-    // 7. 評論區更新排序 (Modules.comment_notify)
-    // ==========================================
-    Modules.comment_notify = {
-        init: function() {
-            if (location.hostname !== NoveliaConfig.domains.main && location.hostname !== NoveliaConfig.domains.forum) return;
-
+    // ---- 評論區更新排序 ----
+    initNotify: function() {
             let isUpdatingDom = false;
             let lastUrl = location.href;
 
